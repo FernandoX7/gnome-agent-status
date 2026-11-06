@@ -1,0 +1,15 @@
+# gnome-agent-status configuration
+# Default location: ~/.config/gnome-agent-status/config.toml
+
+separator = " | "
+timeout_seconds = 30
+
+[[agents]]
+name = "Claude"
+type = "claude"
+path = "~/.claude"
+
+[[agents]]
+name = "AGY"
+type = "agy"
+path = "~/.gemini"

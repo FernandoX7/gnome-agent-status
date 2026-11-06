@@ -1,0 +1,23 @@
+.agent-status-box {
+    spacing: 6px;
+    padding: 0 4px;
+}
+
+.agent-status-panel-label {
+    font-weight: 600;
+    font-size: 0.95em;
+}
+
+.agent-status-item-header {
+    font-weight: 600;
+}
+
+.agent-status-item-detail {
+    font-size: 0.88em;
+    opacity: 0.8;
+}
+
+.agent-status-meta-item {
+    font-size: 0.85em;
+    opacity: 0.65;
+}
