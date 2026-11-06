@@ -1,3 +1,6 @@
+use chrono::{DateTime, Local, TimeZone, Utc};
+
+use crate::reset;
 use crate::runner::{AgentStatusResult, StatusReport};
 
 const MAX_MESSAGE_CHARS: usize = 80;
@@ -17,12 +20,30 @@ struct RowData {
 }
 
 /// Formats a status report as aligned plain-text lines, one line per agent.
+/// Reset times show in ISO 8601 in the local time zone.
 pub fn format_text(report: &StatusReport, color: bool) -> String {
+    format_text_in(report, color, Utc::now(), &Local)
+}
+
+/// Formats a status report with reset times in the time zone `tz`.
+fn format_text_in<T: TimeZone>(
+    report: &StatusReport,
+    color: bool,
+    now: DateTime<Utc>,
+    tz: &T,
+) -> String
+where
+    T::Offset: std::fmt::Display,
+{
     if report.agents.is_empty() {
         return "No agents configured".to_string();
     }
 
-    let rows: Vec<RowData> = report.agents.iter().map(build_row).collect();
+    let rows: Vec<RowData> = report
+        .agents
+        .iter()
+        .map(|agent| build_row(agent, now, tz))
+        .collect();
 
     let name_width = rows
         .iter()
@@ -46,7 +67,10 @@ pub fn format_text(report: &StatusReport, color: bool) -> String {
         .join("\n")
 }
 
-fn build_row(agent: &AgentStatusResult) -> RowData {
+fn build_row<T: TimeZone>(agent: &AgentStatusResult, now: DateTime<Utc>, tz: &T) -> RowData
+where
+    T::Offset: std::fmt::Display,
+{
     let name = collapse_line(&agent.name);
     let pct = match agent.used_percent {
         Some(value) => format!("{value}%"),
@@ -56,6 +80,7 @@ fn build_row(agent: &AgentStatusResult) -> RowData {
         .reset_info
         .as_deref()
         .map(collapse_line)
+        .map(|r| reset::to_iso(&r, now, tz).unwrap_or(r))
         .unwrap_or_default();
 
     let raw_message = agent
@@ -157,6 +182,14 @@ fn truncate_chars(input: &str, max_chars: usize) -> String {
 mod tests {
     use super::*;
     use crate::parser::strip_ansi;
+    use chrono::FixedOffset;
+
+    /// Formats in a fixed zone (UTC-8), so that the result does not change with the machine zone.
+    fn format_text(report: &StatusReport, color: bool) -> String {
+        let now = Utc.with_ymd_and_hms(2026, 11, 6, 16, 0, 0).unwrap();
+        let pst = FixedOffset::west_opt(8 * 3600).unwrap();
+        format_text_in(report, color, now, &pst)
+    }
 
     fn sample_agent(
         name: &str,
@@ -204,7 +237,7 @@ mod tests {
                 "Claude Work",
                 "ok",
                 Some(100),
-                Some("resets Nov 10, 7am"),
+                Some("resets Nov 10, 7am (America/Los_Angeles)"),
                 None,
                 None,
             ),
@@ -223,12 +256,12 @@ mod tests {
         assert_eq!(lines.len(), 3);
         assert_eq!(
             lines[0],
-            "AGY            5%  2026-11-07T15:56:12Z  Warning: token expires soon"
+            "AGY            5%  2026-11-07T07:56:12-08:00  Warning: token expires soon"
         );
-        assert_eq!(lines[1], "Claude Work  100%  resets Nov 10, 7am");
+        assert_eq!(lines[1], "Claude Work  100%  2026-11-10T07:00:00-08:00");
         assert_eq!(
             lines[2],
-            "Claude         --                        Command timed out after 30s"
+            "Claude         --                             Command timed out after 30s"
         );
 
         let msg_col_0 = lines[0].find("Warning:").expect("warning column");
@@ -277,7 +310,7 @@ mod tests {
         assert_eq!(lines.len(), 2);
         assert!(lines[0].contains("resets Nov 10 7am UTC"));
         assert!(lines[0].contains("Line one Line two Line three"));
-        assert!(lines[1].contains("2026-11-07 15:56:12Z"));
+        assert!(lines[1].contains("2026-11-07T07:56:12-08:00"));
         assert!(lines[1].contains("Warning line 1 Warning line 2"));
     }
 

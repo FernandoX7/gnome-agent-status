@@ -1,5 +1,6 @@
 mod config;
 mod parser;
+mod reset;
 mod runner;
 mod text;
 
