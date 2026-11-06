@@ -84,3 +84,7 @@ To check a remote host over SSH, run `watch` in an interactive SSH session:
 ```bash
 ssh -t host 'watch -n 120 ~/.local/bin/gnome-agent-status --text'
 ```
+
+## License
+
+This project uses the Apache License 2.0. Refer to the [LICENSE](LICENSE) file.

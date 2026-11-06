@@ -3,6 +3,8 @@ name = "gnome-agent-status"
 version = "0.1.0"
 edition = "2021"
 description = "Parallel CLI agent usage collector (agy & claude) for GNOME Shell top bar"
+license = "Apache-2.0"
+repository = "https://github.com/ToxicBakery/gnome-agent-status"
 
 [dependencies]
 anyhow = "1.0"
