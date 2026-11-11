@@ -1,0 +1,112 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  guardrails-and-js:
+    name: Guardrails & JS Tests
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install GLib schema tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libglib2.0-bin
+
+      - name: Run static guardrails
+        run: ./scripts/check-guardrails.sh
+
+      - name: Run pure-JS unit tests
+        shell: bash
+        run: |
+          shopt -s nullglob
+          test_files=(tests/*.test.mjs)
+          if (( ${#test_files[@]} > 0 )); then
+            node --test "${test_files[@]}"
+          else
+            echo "No tests/*.test.mjs files present; skipping."
+          fi
+
+  rust-suite:
+    name: Rust Clippy & Test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache Cargo registry and target
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run cargo clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Run cargo test
+        run: cargo test --locked
+
+  security-audit:
+    name: Cargo Security Audit
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+
+      - name: Audit Cargo.lock for advisories
+        run: cargo audit
+
+  package-extension:
+    name: Package EGO Extension Bundle
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install schema and archive tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libglib2.0-bin zip unzip
+
+      - name: Build and verify EGO extension zip
+        run: ./scripts/pack-extension.sh --out-dir target/extension-dist
+
+      - name: Upload extension bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-status-shell-extension
+          path: target/extension-dist/agent-status@gnome-agent-status.shell-extension.zip
+          if-no-files-found: error
