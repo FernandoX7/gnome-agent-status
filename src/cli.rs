@@ -6,7 +6,7 @@ use crate::providers::{claude, CollectOptions, FetchContext, ProviderRegistry};
 use crate::text;
 use anyhow::{anyhow, bail, Context, Result};
 use chrono::{DateTime, Utc};
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -62,7 +62,7 @@ pub enum Commands {
         #[arg(long)]
         force: bool,
 
-        /// Restrict live refresh to a single canonical provider ID (`claude`, `codex`, `grok`, `agy`, `cursor`, `copilot`, `gemini`).
+        /// Restrict live refresh to a single canonical provider ID (`claude`, `codex`, `grok`, `cursor`, `agy`, `openrouter`, `copilot`, `gemini`, `windsurf`, `deepseek`).
         #[arg(long)]
         provider: Option<String>,
     },
@@ -87,13 +87,30 @@ pub enum Commands {
         #[command(subcommand)]
         target: IngestHookCommand,
     },
+
+    /// Run zero-secret diagnostics on config, cache permissions, GNOME extension schema, and provider discovery.
+    Doctor {
+        /// Print structured diagnostic JSON instead of human-readable text.
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Generate shell completion script (`bash`, `zsh`, `fish`, `elvish`, `powershell`) to `stdout`.
+    Completions {
+        /// Target shell (`bash`, `zsh`, `fish`, `elvish`, `powershell`).
+        #[arg(value_enum)]
+        shell: clap_complete::Shell,
+    },
+
+    /// Render ROFF manual page (`gnome-agent-status(1)`) to `stdout`.
+    Manpage,
 }
 
 #[derive(Debug, Clone, Subcommand)]
 pub enum AccountCommand {
     /// Pin `<account_id>` (or `"default"`) as active for `<provider_id>`, run optional `switch_command`, and print updated `StatusReport` v2 JSON.
     Select {
-        /// Canonical provider ID (`claude`, `codex`, `grok`, `agy`, `cursor`, `copilot`, `gemini`).
+        /// Canonical provider ID (`claude`, `codex`, `grok`, `cursor`, `agy`, `openrouter`, `copilot`, `gemini`, `windsurf`, `deepseek`).
         provider_id: String,
 
         /// Account ID (`<provider>:<slug>`, `<slug>`, or `"default"`).
@@ -119,7 +136,7 @@ pub enum ConfigCommand {
 
     /// Create or update a `[[providers.<provider>.accounts]]` entry in `config.toml`.
     UpsertAccount {
-        /// Canonical provider ID (`claude`, `codex`, `grok`, `agy`, `cursor`, `copilot`, `gemini`).
+        /// Canonical provider ID (`claude`, `codex`, `grok`, `cursor`, `agy`, `openrouter`, `copilot`, `gemini`, `windsurf`, `deepseek`).
         #[arg(long)]
         provider: String,
 
@@ -150,7 +167,7 @@ pub enum ConfigCommand {
 
     /// Remove a manual account entry from `config.toml`.
     RemoveAccount {
-        /// Canonical provider ID (`claude`, `codex`, `grok`, `agy`, `cursor`, `copilot`, `gemini`).
+        /// Canonical provider ID (`claude`, `codex`, `grok`, `cursor`, `agy`, `openrouter`, `copilot`, `gemini`, `windsurf`, `deepseek`).
         #[arg(long)]
         provider: String,
 
@@ -361,6 +378,45 @@ pub fn execute_cli(cli: &Cli, runtime: &CliRuntime<'_>) -> Result<Option<String>
             } else {
                 Ok(None)
             }
+        }
+
+        Some(Commands::Doctor { json }) => {
+            let report = crate::doctor::run_doctor(cli.config.as_deref(), runtime);
+            if *json {
+                Ok(Some(crate::doctor::format_doctor_json(&report, true)?))
+            } else {
+                Ok(Some(crate::doctor::format_doctor_text(&report)))
+            }
+        }
+
+        Some(Commands::Completions { shell }) => {
+            let mut cmd = Cli::command();
+            let mut buf = Vec::new();
+            clap_complete::generate(*shell, &mut cmd, "gnome-agent-status", &mut buf);
+            let rendered = String::from_utf8(buf)
+                .context("Generated shell completion script was not valid UTF-8")?;
+            Ok(Some(
+                rendered
+                    .strip_suffix('\n')
+                    .unwrap_or(&rendered)
+                    .to_string(),
+            ))
+        }
+
+        Some(Commands::Manpage) => {
+            let cmd = Cli::command();
+            let man = clap_mangen::Man::new(cmd);
+            let mut buf = Vec::new();
+            man.render(&mut buf)
+                .context("Failed to render ROFF manual page")?;
+            let rendered =
+                String::from_utf8(buf).context("Rendered ROFF manual page was not valid UTF-8")?;
+            Ok(Some(
+                rendered
+                    .strip_suffix('\n')
+                    .unwrap_or(&rendered)
+                    .to_string(),
+            ))
         }
 
         Some(Commands::Collect { force, provider }) => run_collect(
@@ -605,5 +661,85 @@ mod tests {
             }
             other => panic!("unexpected command: {other:?}"),
         }
+    }
+
+    #[test]
+    fn test_doctor_completions_and_manpage_subcommands() {
+        use crate::http::{EndpointOverrides, HttpClient};
+        use std::collections::BTreeMap;
+
+        let tmp = std::env::temp_dir().join(format!(
+            "gas-cli-doc-test-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        let runtime = CliRuntime {
+            cache_store: CacheStore::new(tmp.join("cache")),
+            fetch_ctx_override: Some(FetchContext {
+                http: HttpClient::new(Duration::from_secs(1)),
+                timeout: Duration::from_secs(1),
+                now: Utc::now(),
+                home_dir: Some(tmp.join("home")),
+                xdg_config_dir: Some(tmp.join("home/.config")),
+                proc_root: tmp.join("proc"),
+                endpoints: EndpointOverrides::default(),
+                env_overrides: Some(BTreeMap::new()),
+            }),
+            now: Utc::now(),
+            stdin_data: None,
+        };
+
+        // 1. `doctor` text & `doctor --json`
+        let doc_text_cli = Cli::try_parse_from(["gnome-agent-status", "doctor"]).unwrap();
+        let doc_text = execute_cli(&doc_text_cli, &runtime)
+            .unwrap()
+            .expect("doctor text output");
+        assert!(doc_text.contains("gnome-agent-status"));
+        assert!(doc_text.contains("Providers (zero-secret summary):"));
+        assert!(doc_text.contains("openrouter"));
+        assert!(doc_text.contains("windsurf"));
+        assert!(doc_text.contains("deepseek"));
+
+        let doc_json_cli = Cli::try_parse_from(["gnome-agent-status", "doctor", "--json"]).unwrap();
+        let doc_json_raw = execute_cli(&doc_json_cli, &runtime)
+            .unwrap()
+            .expect("doctor json output");
+        let parsed: serde_json::Value = serde_json::from_str(&doc_json_raw).unwrap();
+        assert_eq!(parsed["binary"]["name"], "gnome-agent-status");
+        assert_eq!(parsed["providers"].as_array().unwrap().len(), 10);
+
+        // 2. `completions bash`, `completions zsh`, `completions fish`
+        for (shell_name, marker) in [
+            ("bash", "complete -F _gnome"),
+            ("zsh", "#compdef gnome-agent-status"),
+            ("fish", "complete -c gnome-agent-status"),
+        ] {
+            let comp_cli =
+                Cli::try_parse_from(["gnome-agent-status", "completions", shell_name]).unwrap();
+            let comp_out = execute_cli(&comp_cli, &runtime)
+                .unwrap()
+                .expect("completions output");
+            assert!(
+                comp_out.contains(marker),
+                "{shell_name} completions missing marker '{marker}'"
+            );
+            assert!(comp_out.contains("doctor"));
+            assert!(comp_out.contains("manpage"));
+        }
+
+        // 3. `manpage` ROFF generation
+        let man_cli = Cli::try_parse_from(["gnome-agent-status", "manpage"]).unwrap();
+        let man_out = execute_cli(&man_cli, &runtime)
+            .unwrap()
+            .expect("manpage output");
+        assert!(man_out.contains(".TH gnome-agent-status 1"));
+        assert!(man_out.contains("SUBCOMMANDS"));
+        assert!(man_out.contains("doctor"));
+        assert!(man_out.contains("completions"));
+        assert!(man_out.contains("manpage"));
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

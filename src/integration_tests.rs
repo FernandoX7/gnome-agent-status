@@ -47,8 +47,11 @@ struct MockApiServer {
     grok_hits: Arc<AtomicUsize>,
     agy_hits: Arc<AtomicUsize>,
     cursor_hits: Arc<AtomicUsize>,
+    openrouter_hits: Arc<AtomicUsize>,
     copilot_hits: Arc<AtomicUsize>,
     gemini_hits: Arc<AtomicUsize>,
+    windsurf_hits: Arc<AtomicUsize>,
+    deepseek_hits: Arc<AtomicUsize>,
     rate_limit_claude: Arc<AtomicBool>,
     copilot_unsubscribed: Arc<AtomicBool>,
     handle: Option<thread::JoinHandle<()>>,
@@ -69,8 +72,11 @@ impl MockApiServer {
         let grok_hits = Arc::new(AtomicUsize::new(0));
         let agy_hits = Arc::new(AtomicUsize::new(0));
         let cursor_hits = Arc::new(AtomicUsize::new(0));
+        let openrouter_hits = Arc::new(AtomicUsize::new(0));
         let copilot_hits = Arc::new(AtomicUsize::new(0));
         let gemini_hits = Arc::new(AtomicUsize::new(0));
+        let windsurf_hits = Arc::new(AtomicUsize::new(0));
+        let deepseek_hits = Arc::new(AtomicUsize::new(0));
         let rate_limit_claude = Arc::new(AtomicBool::new(false));
         let copilot_unsubscribed = Arc::new(AtomicBool::new(false));
 
@@ -80,8 +86,11 @@ impl MockApiServer {
         let g_hits = Arc::clone(&grok_hits);
         let a_hits = Arc::clone(&agy_hits);
         let u_hits = Arc::clone(&cursor_hits);
+        let or_hits = Arc::clone(&openrouter_hits);
         let p_hits = Arc::clone(&copilot_hits);
         let m_hits = Arc::clone(&gemini_hits);
+        let ws_hits = Arc::clone(&windsurf_hits);
+        let ds_hits = Arc::clone(&deepseek_hits);
         let rl_claude = Arc::clone(&rate_limit_claude);
         let cp_unsub = Arc::clone(&copilot_unsubscribed);
 
@@ -99,8 +108,11 @@ impl MockApiServer {
                                 grok: &g_hits,
                                 agy: &a_hits,
                                 cursor: &u_hits,
+                                openrouter: &or_hits,
                                 copilot: &p_hits,
                                 gemini: &m_hits,
+                                windsurf: &ws_hits,
+                                deepseek: &ds_hits,
                                 rate_limit_claude: &rl_claude,
                                 copilot_unsubscribed: &cp_unsub,
                             },
@@ -122,8 +134,11 @@ impl MockApiServer {
             grok_hits,
             agy_hits,
             cursor_hits,
+            openrouter_hits,
             copilot_hits,
             gemini_hits,
+            windsurf_hits,
+            deepseek_hits,
             rate_limit_claude,
             copilot_unsubscribed,
             handle: Some(handle),
@@ -137,8 +152,11 @@ struct MockHitCounters<'a> {
     grok: &'a AtomicUsize,
     agy: &'a AtomicUsize,
     cursor: &'a AtomicUsize,
+    openrouter: &'a AtomicUsize,
     copilot: &'a AtomicUsize,
     gemini: &'a AtomicUsize,
+    windsurf: &'a AtomicUsize,
+    deepseek: &'a AtomicUsize,
     rate_limit_claude: &'a AtomicBool,
     copilot_unsubscribed: &'a AtomicBool,
 }
@@ -279,32 +297,57 @@ fn handle_mock_http(mut stream: TcpStream, counters: &MockHitCounters<'_>) {
             .to_string(),
         )
     } else if path.contains("GetUserStatus") {
-        counters.agy.fetch_add(1, Ordering::SeqCst);
         let csrf = get_hdr("x-codeium-csrf-token").unwrap_or_default();
-        if csrf != "csrf-e2e-token" {
-            (
-                "HTTP/1.1 403 Forbidden",
-                "",
-                r#"{"error":"invalid csrf"}"#.to_string(),
-            )
-        } else {
+        if csrf == "csrf-windsurf-e2e" {
+            counters.windsurf.fetch_add(1, Ordering::SeqCst);
             (
                 "HTTP/1.1 200 OK",
                 "",
                 r#"{
                     "userStatus": {
-                        "email": "agy@google.dev",
-                        "planStatus": {"planInfo": {"planName": "Google AI Ultra"}},
-                        "cascadeModelConfigData": {
-                            "clientModelConfigs": [
-                                {"label": "Gemini 3.1 Pro", "quotaInfo": {"remainingFraction": 0.84, "resetTime": "2026-11-12T15:56:12Z"}},
-                                {"label": "Claude Sonnet 4.6", "quotaInfo": {"remainingFraction": 0.75, "resetTime": "2026-11-14T12:00:00Z"}}
-                            ]
+                        "email": "ws@windsurf.dev",
+                        "planStatus": {
+                            "planStart": "2026-11-01T00:00:00Z",
+                            "planEnd": "2026-12-01T00:00:00Z",
+                            "availablePromptCredits": 350,
+                            "availableFlowCredits": 1200,
+                            "planInfo": {
+                                "planName": "Windsurf Pro",
+                                "monthlyPromptCredits": 500,
+                                "monthlyFlowCredits": 1500
+                            }
                         }
                     }
                 }"#
                 .to_string(),
             )
+        } else {
+            counters.agy.fetch_add(1, Ordering::SeqCst);
+            if csrf != "csrf-e2e-token" {
+                (
+                    "HTTP/1.1 403 Forbidden",
+                    "",
+                    r#"{"error":"invalid csrf"}"#.to_string(),
+                )
+            } else {
+                (
+                    "HTTP/1.1 200 OK",
+                    "",
+                    r#"{
+                        "userStatus": {
+                            "email": "agy@google.dev",
+                            "planStatus": {"planInfo": {"planName": "Google AI Ultra"}},
+                            "cascadeModelConfigData": {
+                                "clientModelConfigs": [
+                                    {"label": "Gemini 3.1 Pro", "quotaInfo": {"remainingFraction": 0.84, "resetTime": "2026-11-12T15:56:12Z"}},
+                                    {"label": "Claude Sonnet 4.6", "quotaInfo": {"remainingFraction": 0.75, "resetTime": "2026-11-14T12:00:00Z"}}
+                                ]
+                            }
+                        }
+                    }"#
+                    .to_string(),
+                )
+            }
         }
     } else if path.contains("GetCurrentPeriodUsage") {
         counters.cursor.fetch_add(1, Ordering::SeqCst);
@@ -395,6 +438,62 @@ fn handle_mock_http(mut stream: TcpStream, counters: &MockHitCounters<'_>) {
                     "buckets": [
                         {"modelId": "gemini-2.5-pro", "tokenType": "REQUESTS", "remainingFraction": 0.78, "resetTime": "2026-11-11T08:00:00Z"},
                         {"modelId": "gemini-2.5-flash", "tokenType": "REQUESTS", "remainingFraction": 0.91, "resetTime": "2026-11-11T08:00:00Z"}
+                    ]
+                }"#
+                .to_string(),
+            )
+        }
+    } else if path.starts_with("/api/v1/key") {
+        counters.openrouter.fetch_add(1, Ordering::SeqCst);
+        let auth_ok = get_hdr("authorization").is_some_and(|a| a.starts_with("Bearer sk-or-v1-"));
+        if !auth_ok {
+            (
+                "HTTP/1.1 401 Unauthorized",
+                "",
+                r#"{"error":{"message":"No auth credentials found","code":401}}"#.to_string(),
+            )
+        } else {
+            (
+                "HTTP/1.1 200 OK",
+                "",
+                r#"{
+                    "data": {
+                        "label": "or-team-prod",
+                        "usage": 27.5,
+                        "usage_daily": 4.2,
+                        "usage_weekly": 27.5,
+                        "usage_monthly": 82.0,
+                        "limit": 100.0,
+                        "limit_remaining": 72.5,
+                        "limit_reset": "weekly",
+                        "is_free_tier": false
+                    }
+                }"#
+                .to_string(),
+            )
+        }
+    } else if path.starts_with("/user/balance") {
+        counters.deepseek.fetch_add(1, Ordering::SeqCst);
+        let auth_ok = get_hdr("authorization").is_some_and(|a| a.starts_with("Bearer sk-"));
+        if !auth_ok {
+            (
+                "HTTP/1.1 401 Unauthorized",
+                "",
+                r#"{"error":"Authentication Fails"}"#.to_string(),
+            )
+        } else {
+            (
+                "HTTP/1.1 200 OK",
+                "",
+                r#"{
+                    "is_available": true,
+                    "balance_infos": [
+                        {
+                            "currency": "USD",
+                            "total_balance": "18.40",
+                            "granted_balance": "2.00",
+                            "topped_up_balance": "16.40"
+                        }
                     ]
                 }"#
                 .to_string(),
@@ -1336,6 +1435,332 @@ fn test_copilot_gh_404_noise_free_omission_and_gemini_passive_expiry_e2e() {
         valid_creds,
         "oauth_creds.json must remain strictly read-only"
     );
+
+    let _ = fs::remove_dir_all(&sandbox);
+}
+
+#[test]
+fn test_all_10_providers_priority_sparkline_waybar_tmux_and_doctor_e2e() {
+    let sandbox = unique_sandbox("all10");
+    let server = MockApiServer::start();
+    let mock_port: u16 = server
+        .base_url
+        .rsplit_once(':')
+        .unwrap()
+        .1
+        .parse()
+        .unwrap();
+
+    let (home, xdg_cfg, proc_root, _mock_agy_bin) = setup_mock_home_and_proc(&sandbox, mock_port);
+
+    // Add Windsurf `/proc/5353` alongside Antigravity `/proc/4242` (sharing mock_port via distinct socket inode 88888)
+    // to prove side-by-side Antigravity + Windsurf `/proc` disambiguation!
+    let ws_pid_dir = proc_root.join("5353");
+    let ws_fd_dir = ws_pid_dir.join("fd");
+    fs::create_dir_all(&ws_fd_dir).unwrap();
+    fs::write(
+        ws_pid_dir.join("cmdline"),
+        b"/usr/share/windsurf/resources/app/extensions/windsurf/bin/language_server_linux_x64\x00--csrf_token\x00csrf-windsurf-e2e\x00--app_data_dir\x00/home/dev/.codeium/windsurf\x00",
+    )
+    .unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink("socket:[88888]", ws_fd_dir.join("6")).unwrap();
+    let combined_tcp = format!(
+        "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n\
+         0: 0100007F:{mock_port:04X} 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 77777 1 0000000000000000 100 0 0 10 0\n\
+         1: 0100007F:{mock_port:04X} 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 88888 1 0000000000000000 100 0 0 10 0\n"
+    );
+    fs::write(proc_root.join("net/tcp"), combined_tcp).unwrap();
+
+    // Add Windsurf read-only SQLite `state.vscdb` so Windsurf auto-discovers cleanly on all platforms
+    let ws_vscdb_dir = xdg_cfg.join("Windsurf/User/globalStorage");
+    fs::create_dir_all(&ws_vscdb_dir).unwrap();
+    let ws_db_path = ws_vscdb_dir.join("state.vscdb");
+    {
+        let conn = rusqlite::Connection::open(&ws_db_path).unwrap();
+        conn.execute("CREATE TABLE ItemTable (key TEXT PRIMARY KEY, value BLOB)", [])
+            .unwrap();
+        conn.execute(
+            "INSERT INTO ItemTable (key, value) VALUES (?1, ?2)",
+            rusqlite::params![
+                "windsurfAuthStatus",
+                r#"{"apiKey":"sk-ws-01-e2esecret998877665544332211","email":"ws@windsurf.dev","planName":"Windsurf Pro"}"#
+            ],
+        )
+        .unwrap();
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&ws_db_path, fs::Permissions::from_mode(0o600)).unwrap();
+    }
+
+    // Add OpenRouter (`~/.config/openrouter/api_key`) and DeepSeek (`$DEEPSEEK_API_KEY` env)
+    let or_dir = xdg_cfg.join("openrouter");
+    fs::create_dir_all(&or_dir).unwrap();
+    let or_key_path = or_dir.join("api_key");
+    fs::write(&or_key_path, "sk-or-v1-e2esecret000000112233445566778899aabbcc\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&or_key_path, fs::Permissions::from_mode(0o600)).unwrap();
+    }
+
+    // Add Cursor `cursor-token.json` via config
+    let config_path = xdg_cfg.join("gnome-agent-status/config.toml");
+    let init_cli = Cli::parse_from([
+        "gnome-agent-status",
+        "--config",
+        config_path.to_str().unwrap(),
+        "--init-config",
+    ]);
+    execute_cli(&init_cli, &CliRuntime::default()).unwrap();
+
+    let upsert_cursor = Cli::parse_from([
+        "gnome-agent-status",
+        "--config",
+        config_path.to_str().unwrap(),
+        "config",
+        "upsert-account",
+        "--provider",
+        "cursor",
+        "--id",
+        "main",
+        "--label",
+        "Cursor Ultra",
+        "--path",
+        home.join("cursor-token.json").to_str().unwrap(),
+    ]);
+    execute_cli(&upsert_cursor, &CliRuntime::default()).unwrap();
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        for p in [
+            home.join(".claude/.credentials.json"),
+            home.join(".claude-work/.credentials.json"),
+            home.join(".codex/auth.json"),
+            home.join(".grok/auth.json"),
+            home.join(".grok-swap/auth.json"),
+            home.join("cursor-token.json"),
+            xdg_cfg.join("github-copilot/hosts.json"),
+            xdg_cfg.join("gh/hosts.yml"),
+            home.join(".gemini/oauth_creds.json"),
+        ] {
+            if p.exists() {
+                fs::set_permissions(&p, fs::Permissions::from_mode(0o600)).unwrap();
+            }
+        }
+    }
+
+    let mut env_map = std::collections::BTreeMap::new();
+    env_map.insert(
+        "DEEPSEEK_API_KEY".to_string(),
+        "sk-e2edeepseeksecret112233445566778899".to_string(),
+    );
+
+    let cache_store = CacheStore::new(sandbox.join("cache"));
+    let t0 = Utc.with_ymd_and_hms(2026, 11, 10, 18, 0, 0).unwrap();
+
+    let make_ctx = |now| FetchContext {
+        http: HttpClient::new(Duration::from_secs(5)),
+        timeout: Duration::from_secs(5),
+        now,
+        home_dir: Some(home.clone()),
+        xdg_config_dir: Some(xdg_cfg.clone()),
+        proc_root: proc_root.clone(),
+        endpoints: EndpointOverrides {
+            claude_usage_url: Some(format!("{}/api/oauth/usage", server.base_url)),
+            codex_wham_url: Some(format!("{}/backend-api/wham/usage", server.base_url)),
+            grok_billing_url: Some(format!("{}/v1/billing?format=credits", server.base_url)),
+            agy_rpc_url: None,
+            cursor_usage_url: Some(format!(
+                "{}/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+                server.base_url
+            )),
+            openrouter_key_url: Some(format!("{}/api/v1/key", server.base_url)),
+            openrouter_credits_url: Some(format!("{}/api/v1/credits", server.base_url)),
+            copilot_user_url: Some(format!("{}/copilot_internal/user", server.base_url)),
+            gemini_quota_url: Some(format!("{}/v1internal:retrieveUserQuota", server.base_url)),
+            gemini_load_url: Some(format!("{}/v1internal:loadCodeAssist", server.base_url)),
+            windsurf_rpc_url: None,
+            deepseek_balance_url: Some(format!("{}/user/balance", server.base_url)),
+        },
+        env_overrides: Some(env_map.clone()),
+    };
+
+    // 1. Collect all 10 providers at `t0`
+    let collect_cli = Cli::parse_from([
+        "gnome-agent-status",
+        "--config",
+        config_path.to_str().unwrap(),
+        "collect",
+        "--pretty",
+    ]);
+    let out_t0 = execute_cli(
+        &collect_cli,
+        &CliRuntime {
+            cache_store: cache_store.clone(),
+            fetch_ctx_override: Some(make_ctx(t0)),
+            now: t0,
+            stdin_data: None,
+        },
+    )
+    .unwrap()
+    .unwrap();
+    let rep_t0: StatusReport = serde_json::from_str(&out_t0).unwrap();
+
+    let ids: Vec<&str> = rep_t0.providers.iter().map(|p| p.id.as_str()).collect();
+    assert_eq!(
+        ids,
+        vec![
+            "claude",
+            "codex",
+            "grok",
+            "cursor",
+            "agy",
+            "openrouter",
+            "copilot",
+            "gemini",
+            "windsurf",
+            "deepseek"
+        ]
+    );
+
+    assert_eq!(server.openrouter_hits.load(Ordering::SeqCst), 1);
+    assert_eq!(server.windsurf_hits.load(Ordering::SeqCst), 1);
+    assert_eq!(server.deepseek_hits.load(Ordering::SeqCst), 1);
+
+    // 2. Collect `--force` 1 hour later (`t0 + 3600s`) and verify 2-point quantized sparkline on `cached`
+    let t1 = t0 + chrono::Duration::seconds(3600);
+    let force_cli = Cli::parse_from([
+        "gnome-agent-status",
+        "--config",
+        config_path.to_str().unwrap(),
+        "collect",
+        "--force",
+    ]);
+    execute_cli(
+        &force_cli,
+        &CliRuntime {
+            cache_store: cache_store.clone(),
+            fetch_ctx_override: Some(make_ctx(t1)),
+            now: t1,
+            stdin_data: None,
+        },
+    )
+    .unwrap();
+
+    let cached_cli = Cli::parse_from([
+        "gnome-agent-status",
+        "--config",
+        config_path.to_str().unwrap(),
+        "cached",
+    ]);
+    let cached_out = execute_cli(
+        &cached_cli,
+        &CliRuntime {
+            cache_store: cache_store.clone(),
+            fetch_ctx_override: None,
+            now: t1,
+            stdin_data: None,
+        },
+    )
+    .unwrap()
+    .unwrap();
+    let rep_cached: StatusReport = serde_json::from_str(&cached_out).unwrap();
+    for prov in &rep_cached.providers {
+        let active = prov.accounts.iter().find(|a| a.is_active).unwrap();
+        assert_eq!(
+            active.sparkline.len(),
+            2,
+            "expected 2 hourly sparkline samples on provider {}",
+            prov.id
+        );
+    }
+
+    // 3. Verify `--waybar` and `--tmux` render all 10 short codes cleanly
+    let wb_cli = Cli::parse_from([
+        "gnome-agent-status",
+        "--config",
+        config_path.to_str().unwrap(),
+        "cached",
+        "--waybar",
+    ]);
+    let wb_out = execute_cli(
+        &wb_cli,
+        &CliRuntime {
+            cache_store: cache_store.clone(),
+            fetch_ctx_override: None,
+            now: t1,
+            stdin_data: None,
+        },
+    )
+    .unwrap()
+    .unwrap();
+    let tmux_cli = Cli::parse_from([
+        "gnome-agent-status",
+        "--config",
+        config_path.to_str().unwrap(),
+        "cached",
+        "--tmux",
+    ]);
+    let tmux_out = execute_cli(
+        &tmux_cli,
+        &CliRuntime {
+            cache_store: cache_store.clone(),
+            fetch_ctx_override: None,
+            now: t1,
+            stdin_data: None,
+        },
+    )
+    .unwrap()
+    .unwrap();
+    for code in ["CC ", "CX ", "GK ", "CU ", "AG ", "OR ", "CP ", "GM ", "WS ", "DS "] {
+        assert!(wb_out.contains(code), "waybar output missing {code}: {wb_out}");
+        assert!(tmux_out.contains(code), "tmux output missing {code}: {tmux_out}");
+    }
+
+    // 4. Verify `doctor --json` reports `healthy == true` and leaks ZERO secrets or emails
+    let doc_cli = Cli::parse_from([
+        "gnome-agent-status",
+        "--config",
+        config_path.to_str().unwrap(),
+        "doctor",
+        "--json",
+    ]);
+    let doc_json = execute_cli(
+        &doc_cli,
+        &CliRuntime {
+            cache_store: cache_store.clone(),
+            fetch_ctx_override: Some(make_ctx(t1)),
+            now: t1,
+            stdin_data: None,
+        },
+    )
+    .unwrap()
+    .unwrap();
+    let doc_val: serde_json::Value = serde_json::from_str(&doc_json).unwrap();
+    assert_eq!(doc_val["healthy"], true, "doctor --json was not healthy: {doc_json}");
+    assert_eq!(doc_val["providers"].as_array().unwrap().len(), 10);
+
+    let state_disk = fs::read_to_string(cache_store.state_path()).unwrap();
+    let coll_disk = fs::read_to_string(cache_store.collector_cache_path()).unwrap();
+    for secret in [
+        "sk-or-v1-e2esecret",
+        "sk-e2edeepseeksecret",
+        "sk-ws-01-e2esecret",
+        "csrf-windsurf-e2e",
+        "csrf-e2e-token",
+        "mock-oat01-tok",
+    ] {
+        assert!(!state_disk.contains(secret), "state.json leaked {secret}");
+        assert!(!coll_disk.contains(secret), "collector-cache.json leaked {secret}");
+        assert!(!doc_json.contains(secret), "doctor --json leaked {secret}");
+    }
+    for email in ["codex@team.dev", "agy@google.dev", "ws@windsurf.dev", "grok@x.dev"] {
+        assert!(!doc_json.contains(email), "doctor --json leaked email {email}");
+    }
 
     let _ = fs::remove_dir_all(&sandbox);
 }

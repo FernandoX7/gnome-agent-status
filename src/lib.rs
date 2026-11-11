@@ -1,6 +1,7 @@
 pub mod cache;
 pub mod cli;
 pub mod config;
+pub mod doctor;
 pub mod http;
 pub mod model;
 pub mod parser;
