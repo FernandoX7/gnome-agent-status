@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.agent-status" path="/org/gnome/shell/extensions/agent-status/">
+    <key name="panel-mode" type="s">
+      <default>'icon'</default>
+      <summary>Top bar indicator display mode</summary>
+      <description>Selects how usage appears in the top panel: 'icon', 'compact-pills', or 'full-text'.</description>
+    </key>
+
+    <key name="panel-box" type="s">
+      <default>'right'</default>
+      <summary>Top bar box alignment</summary>
+      <description>Which GNOME top bar box holds the indicator: 'left', 'center', or 'right'.</description>
+    </key>
+
+    <key name="panel-position" type="i">
+      <default>0</default>
+      <summary>Position index within the selected top bar box</summary>
+      <description>Zero-based index inside the chosen panel box.</description>
+    </key>
+
+    <key name="auto-hide-when-empty" type="b">
+      <default>false</default>
+      <summary>Hide indicator when no active providers are present</summary>
+      <description>Automatically hides the top bar indicator when zero visible providers are configured or discovered.</description>
+    </key>
+
+    <key name="density-mode" type="s">
+      <default>'detailed'</default>
+      <summary>Popover list density</summary>
+      <description>Controls whether the main popover displays 'detailed' multi-bucket cards or 'compact' single-line rows.</description>
+    </key>
+
+    <key name="theme" type="s">
+      <default>'midnight-slate'</default>
+      <summary>Popover color theme preset</summary>
+      <description>Selects the popover theme preset: 'midnight-slate', 'system', 'tokyo-night', 'catppuccin', 'gruvbox', 'rose-pine', 'nord', or 'everforest'.</description>
+    </key>
+
+    <key name="font-style" type="s">
+      <default>'system'</default>
+      <summary>Popover and pill typography style</summary>
+      <description>Selects 'system' tabular UI font or 'monospace' developer font.</description>
+    </key>
+
+    <key name="metric-mode" type="s">
+      <default>'used'</default>
+      <summary>Quota percentage display metric</summary>
+      <description>Controls whether bars and labels display percentage 'used' or percentage 'remaining'.</description>
+    </key>
+
+    <key name="refresh-interval-seconds" type="i">
+      <default>300</default>
+      <summary>Background refresh interval in seconds</summary>
+      <description>How often the extension triggers a background status collection when active.</description>
+    </key>
+
+    <key name="hidden-providers" type="as">
+      <default>[]</default>
+      <summary>Hidden provider IDs</summary>
+      <description>List of canonical provider IDs hidden from the top bar and main popover.</description>
+    </key>
+
+    <key name="binary-path" type="s">
+      <default>''</default>
+      <summary>Optional custom path to gnome-agent-status binary</summary>
+      <description>Overrides automatic binary discovery when non-empty.</description>
+    </key>
+  </schema>
+</schemalist>

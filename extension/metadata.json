@@ -1,6 +1,6 @@
 {
   "name": "Agent Usage Status",
-  "description": "Displays 7-day usage limits for configured AI coding agents (Antigravity, Claude) in the GNOME top bar.",
+  "description": "Displays usage quotas, reset countdowns, and multi-account status for AI coding agents (Claude, Codex, Grok, Antigravity, Cursor) in the GNOME top bar.",
   "uuid": "agent-status@gnome-agent-status",
   "shell-version": [
     "45",
@@ -10,5 +10,6 @@
     "49",
     "50"
   ],
-  "version": 1
+  "settings-schema": "org.gnome.shell.extensions.agent-status",
+  "version": 2
 }
