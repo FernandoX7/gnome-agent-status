@@ -96,6 +96,23 @@ fn spawn_isolated(spec: &CommandSpec) -> Result<Child> {
         cmd.process_group(0);
     }
 
+    #[cfg(target_os = "linux")]
+    {
+        let expected_ppid = unsafe { libc::getpid() };
+        // Ensure child receives SIGKILL immediately from the Linux kernel if the spawning
+        // `gnome-agent-status` process/thread dies abruptly (e.g. `Gio.Subprocess.force_exit()`
+        // during GNOME Shell screen-lock `disable()`).
+        unsafe {
+            cmd.pre_exec(move || {
+                let _ = libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL);
+                if libc::getppid() != expected_ppid {
+                    libc::_exit(1);
+                }
+                Ok(())
+            });
+        }
+    }
+
     cmd.spawn()
         .with_context(|| format!("Failed to spawn '{}'", spec.program.display()))
 }
@@ -384,5 +401,83 @@ sleep 30
         assert!(elapsed < Duration::from_secs(2), "returned quickly in {:?}", elapsed);
         let parsed: serde_json::Value = serde_json::from_str(&line).expect("valid json");
         assert_eq!(parsed["result"]["rateLimits"]["primary"]["usedPercent"], 14);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    #[ignore]
+    fn pdeathsig_helper_entrypoint() {
+        let script_path = std::env::var("GAS_PDEATHSIG_SCRIPT").expect("GAS_PDEATHSIG_SCRIPT");
+        let spec = CommandSpec::new(PathBuf::from(script_path), Duration::from_secs(60));
+        let _ = run_command(&spec);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn test_pdeathsig_reaps_child_when_parent_sigkilled() {
+        let tmp_dir = std::env::temp_dir().join(format!(
+            "gas-pdeathsig-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&tmp_dir).expect("create temp dir");
+        let pid_file = tmp_dir.join("child.pid");
+        let script = tmp_dir.join("child_sleep.sh");
+
+        fs::write(
+            &script,
+            format!("#!/bin/sh\necho $$ > \"{}\"\nexec sleep 60\n", pid_file.display()),
+        )
+        .expect("write script");
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).expect("chmod");
+
+        let current_exe = std::env::current_exe().expect("current_exe");
+        let mut middle = Command::new(current_exe)
+            .args([
+                "--exact",
+                "proc_exec::tests::pdeathsig_helper_entrypoint",
+                "--ignored",
+                "--nocapture",
+            ])
+            .env("GAS_PDEATHSIG_SCRIPT", &script)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn middle helper");
+
+        let mut child_pid: Option<libc::pid_t> = None;
+        for _ in 0..100 {
+            if let Ok(raw) = fs::read_to_string(&pid_file) {
+                if let Ok(parsed) = raw.trim().parse::<libc::pid_t>() {
+                    if parsed > 0 {
+                        child_pid = Some(parsed);
+                        break;
+                    }
+                }
+            }
+            thread::sleep(Duration::from_millis(15));
+        }
+
+        let target_pid = child_pid.expect("child should have written its PID");
+        assert_eq!(unsafe { libc::kill(target_pid, 0) }, 0, "child alive before parent SIGKILL");
+
+        // Simulate Gio.Subprocess.force_exit() sending SIGKILL to `gnome-agent-status`.
+        let _ = middle.kill();
+        let _ = middle.wait();
+
+        let mut reaped = false;
+        for _ in 0..40 {
+            if unsafe { libc::kill(target_pid, 0) } == -1 {
+                reaped = true;
+                break;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        let _ = fs::remove_dir_all(&tmp_dir);
+        assert!(reaped, "child PID {target_pid} must die via PR_SET_PDEATHSIG when parent is SIGKILLed");
     }
 }

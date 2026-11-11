@@ -35,6 +35,10 @@ export default class AgentStatusExtension extends Extension {
             onLoadingChanged: loading => this._indicator?.handleLoadingChanged(loading),
         });
 
+        // Start backend before inserting into Main.panel so synchronous `<1ms` state.json
+        // hydration populates indicator labels/pills/visibility before frame 1 paints.
+        this._backend.start();
+
         const initialBox = this._getPanelBoxName();
         const initialPos = this._settings.get_int('panel-position');
         Main.panel.addToStatusArea(this.uuid, this._indicator, initialPos, initialBox);
@@ -43,8 +47,6 @@ export default class AgentStatusExtension extends Extension {
             this._settings.connect('changed::panel-box', () => this._repositionIndicator()),
             this._settings.connect('changed::panel-position', () => this._repositionIndicator())
         );
-
-        this._backend.start();
     }
 
     _getPanelBoxName() {

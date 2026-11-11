@@ -16,7 +16,7 @@ import {
 
 export const AgentStatusIndicator = GObject.registerClass(
 class AgentStatusIndicator extends PanelMenu.Button {
-    _init({extension, settings, backend}) {
+    _init({extension, settings, backend, buildFallbackMenu = false}) {
         super._init(0.5, 'Agent Usage Status', false);
 
         this._extension = extension;
@@ -100,7 +100,8 @@ class AgentStatusIndicator extends PanelMenu.Button {
         this._rootBox.add_child(this._fullTextLabel);
         this.add_child(this._rootBox);
 
-        this._buildFallbackMenu();
+        if (buildFallbackMenu)
+            this._buildFallbackMenu();
         this._connectSignals();
         this._syncPanelPresentation();
     }
@@ -489,6 +490,11 @@ class AgentStatusIndicator extends PanelMenu.Button {
     }
 
     destroy() {
+        if (this.menu?.isOpen) {
+            try {
+                this.menu.close(false);
+            } catch (_e) {}
+        }
         this._cleanupResources(false);
         super.destroy();
     }

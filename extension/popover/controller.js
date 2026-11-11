@@ -183,7 +183,8 @@ export class PopoverController {
                 this._themeContextSigId = this._themeContext.connect('changed', () => {
                     if (!this._destroyed) {
                         this._syncRootClasses();
-                        this._refreshViews();
+                        if (this._menu?.isOpen)
+                            this._refreshViews();
                     }
                 });
             }
@@ -212,7 +213,8 @@ export class PopoverController {
                         return;
                     this._syncRootClasses();
                     this._optionsPage.syncFromSettings();
-                    this._refreshViews();
+                    if (this._menu?.isOpen)
+                        this._refreshViews();
                 })
             );
         }
@@ -225,7 +227,8 @@ export class PopoverController {
                             if (this._destroyed)
                                 return;
                             this._syncRootClasses();
-                            this._refreshViews();
+                            if (this._menu?.isOpen)
+                                this._refreshViews();
                         })
                     );
                 } catch (_e) {
@@ -374,14 +377,16 @@ export class PopoverController {
             return;
         this._rawReport = report;
         this._errorMessage = null;
-        this._refreshViews();
+        if (this._menu?.isOpen)
+            this._refreshViews();
     }
 
     setError(message) {
         if (this._destroyed)
             return;
         this._errorMessage = message;
-        this._refreshViews();
+        if (this._menu?.isOpen)
+            this._refreshViews();
     }
 
     setLoading(isLoading) {
@@ -538,6 +543,9 @@ export class PopoverController {
         this._rootSigIds = [];
 
         if (!this._rootDisposed) {
+            this._mainPage?.actor?.remove_all_transitions?.();
+            this._detailPage?.actor?.remove_all_transitions?.();
+            this._optionsPage?.actor?.remove_all_transitions?.();
             this._mainPage.destroy();
             this._detailPage.destroy();
         }

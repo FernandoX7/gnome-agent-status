@@ -10,6 +10,7 @@ import {
 const BINARY_NAME = 'gnome-agent-status';
 const MIN_POLL_SECONDS = 30;
 const MONITOR_DEBOUNCE_MS = 60;
+const UTF8_DECODER = new TextDecoder('utf-8');
 
 /**
  * Queries a Gio.File asynchronously on GIO's worker pool to check whether it is
@@ -91,7 +92,7 @@ function loadFileTextAsync(file, cancellable) {
                     resolve(null);
                     return;
                 }
-                const text = new TextDecoder('utf-8').decode(bytes);
+                const text = UTF8_DECODER.decode(bytes);
                 resolve(text);
             } catch (e) {
                 if (e.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.NOT_FOUND)) {
@@ -204,7 +205,9 @@ export class BackendClient {
 
         this._setupStateMonitor();
         this._restartPollTimer();
-        void this._hydrateInitialState();
+
+        const syncReport = this._hydrateFromStateFileSync();
+        void this._hydrateInitialState(syncReport);
     }
 
     destroy() {
@@ -345,8 +348,52 @@ export class BackendClient {
         GLib.Source.set_name_by_id(this._monitorDebounceId, '[gnome-agent-status] state-monitor-debounce');
     }
 
-    async _hydrateInitialState() {
-        const loaded = await this._readStateFile();
+    /**
+     * Reads and normalizes `$XDG_CACHE_HOME/gnome-agent-status/state.json` synchronously
+     * (`~0.1–0.2ms` from page cache) without touching subprocesses or network I/O.
+     *
+     * @returns {object|null}
+     */
+    _readStateReportSync() {
+        if (this._destroyed)
+            return null;
+
+        try {
+            if (!GLib.file_test(this._stateFilePath, GLib.FileTest.EXISTS))
+                return null;
+
+            const [ok, bytes] = GLib.file_get_contents(this._stateFilePath);
+            if (!ok || !bytes || bytes.length === 0)
+                return null;
+
+            const rawText = UTF8_DECODER.decode(bytes);
+            if (!rawText || rawText.trim() === '')
+                return null;
+
+            const parsed = JSON.parse(rawText);
+            return normalizeStatusReport(parsed);
+        } catch (e) {
+            if (!this._destroyed)
+                console.error(`[gnome-agent-status] Error hydrating state.json synchronously: ${e.message}`);
+            return null;
+        }
+    }
+
+    /**
+     * Hydrates cached `state.json` synchronously during `enable()` so screen-unlock / startup
+     * renders top-bar pills/labels on frame 0 with zero empty-frame flicker.
+     *
+     * @returns {object|null}
+     */
+    _hydrateFromStateFileSync() {
+        const report = this._readStateReportSync();
+        if (report)
+            this._emitReport(report);
+        return report;
+    }
+
+    async _hydrateInitialState(initialReport = null) {
+        const loaded = initialReport ?? await this._readStateFile();
         if (this._destroyed)
             return;
 
