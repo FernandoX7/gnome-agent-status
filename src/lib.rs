@@ -1,8 +1,10 @@
 pub mod cache;
 pub mod config;
+pub mod http;
 pub mod model;
 pub mod parser;
 pub mod proc_exec;
+pub mod providers;
 pub mod reset;
 pub mod runner;
 pub mod text;
