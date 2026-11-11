@@ -856,6 +856,7 @@ mod tests {
             xdg_config_dir: Some(home.join(".config")),
             proc_root: tmp.join("proc"),
             endpoints: Default::default(),
+            env_overrides: Some(std::collections::BTreeMap::new()),
         };
 
         let provider = GeminiProvider::new();
@@ -985,6 +986,7 @@ mod tests {
             xdg_config_dir: Some(tmp.join(".config")),
             proc_root: tmp.join("proc"),
             endpoints: Default::default(),
+            env_overrides: Some(std::collections::BTreeMap::new()),
         };
 
         let cached_entry = CachedAccountState {

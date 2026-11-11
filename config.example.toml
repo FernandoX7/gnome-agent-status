@@ -15,7 +15,8 @@ separator = " | "
 # -----------------------------------------------------------------------------
 # Per-Provider Settings & Manual Account Locations
 # -----------------------------------------------------------------------------
-# Supported provider IDs: claude, codex, grok, agy, cursor, copilot, gemini
+# Supported provider IDs (in default UI priority order):
+#   claude, codex, grok, cursor, agy, openrouter, copilot, gemini, windsurf, deepseek
 #
 # Each [[providers.<id>.accounts]] table supports:
 #   id             = "work"                   # Stable slug identifier (required)
@@ -64,6 +65,16 @@ enabled = true
 # poll_mode = "active"
 # switch_command = "gswap switch work"
 
+[providers.cursor]
+enabled = true
+
+# Example: manual Cursor SQLite state.vscdb or JSON token file in a custom location
+# [[providers.cursor.accounts]]
+# id = "custom"
+# label = "Cursor Linux"
+# path = "~/.config/Cursor/User/globalStorage/state.vscdb"
+# poll_mode = "active"
+
 [providers.agy]
 enabled = true
 
@@ -75,14 +86,15 @@ enabled = true
 # poll_mode = "passive"
 # switch_command = "agy-auth switch work"
 
-[providers.cursor]
+[providers.openrouter]
 enabled = true
 
-# Example: manual Cursor SQLite state.vscdb or JSON token file in a custom location
-# [[providers.cursor.accounts]]
-# id = "custom"
-# label = "Cursor Linux"
-# path = "~/.config/Cursor/User/globalStorage/state.vscdb"
+# Example: OpenRouter API key file (0600 plain text or JSON `{"api_key": "..."}`;
+# auto-discovers $OPENROUTER_API_KEY or ~/.config/openrouter/{api_key,config.json,auth.json})
+# [[providers.openrouter.accounts]]
+# id = "work"
+# label = "Work OpenRouter"
+# path = "~/.config/openrouter/api_key"
 # poll_mode = "active"
 
 [providers.copilot]
@@ -103,6 +115,28 @@ enabled = true
 # id = "work"
 # label = "Work Gemini CLI"
 # path = "~/.gemini-work/oauth_creds.json"
+# poll_mode = "active"
+
+[providers.windsurf]
+enabled = true
+
+# Example: Windsurf custom state.vscdb path (auto-discovers running Windsurf language server
+# or read-only ~/.config/Windsurf/User/globalStorage/state.vscdb)
+# [[providers.windsurf.accounts]]
+# id = "default"
+# label = "Windsurf Linux"
+# path = "~/.config/Windsurf/User/globalStorage/state.vscdb"
+# poll_mode = "active"
+
+[providers.deepseek]
+enabled = true
+
+# Example: DeepSeek API key file (0600 plain text or JSON `{"api_key": "..."}`;
+# auto-discovers $DEEPSEEK_API_KEY or ~/.config/deepseek/{api_key,config.json,auth.json})
+# [[providers.deepseek.accounts]]
+# id = "work"
+# label = "Work DeepSeek"
+# path = "~/.config/deepseek/api_key"
 # poll_mode = "active"
 
 # -----------------------------------------------------------------------------

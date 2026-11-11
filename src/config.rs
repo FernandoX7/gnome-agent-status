@@ -19,8 +19,11 @@ pub enum AgentType {
     Codex,
     Grok,
     Cursor,
+    Openrouter,
     Copilot,
     Gemini,
+    Windsurf,
+    Deepseek,
 }
 
 impl AgentType {
@@ -31,8 +34,11 @@ impl AgentType {
             Self::Codex => "codex",
             Self::Grok => "grok",
             Self::Cursor => "cursor",
+            Self::Openrouter => "openrouter",
             Self::Copilot => "copilot",
             Self::Gemini => "gemini",
+            Self::Windsurf => "windsurf",
+            Self::Deepseek => "deepseek",
         }
     }
 
@@ -50,8 +56,11 @@ impl AgentType {
             "codex" => Some(Self::Codex),
             "grok" => Some(Self::Grok),
             "cursor" => Some(Self::Cursor),
+            "openrouter" => Some(Self::Openrouter),
             "copilot" => Some(Self::Copilot),
             "gemini" => Some(Self::Gemini),
+            "windsurf" => Some(Self::Windsurf),
+            "deepseek" => Some(Self::Deepseek),
             _ => None,
         }
     }
@@ -649,16 +658,25 @@ enabled = true
 [providers.grok]
 enabled = true
 
+[providers.cursor]
+enabled = true
+
 [providers.agy]
 enabled = true
 
-[providers.cursor]
+[providers.openrouter]
 enabled = true
 
 [providers.copilot]
 enabled = true
 
 [providers.gemini]
+enabled = true
+
+[providers.windsurf]
+enabled = true
+
+[providers.deepseek]
 enabled = true
 "#
     }
@@ -1112,7 +1130,7 @@ pub fn discover_provider_locations(
                     poll_mode: PollMode::Active,
                 });
             }
-            for dir in scan_prefixed_dirs(home, &[".gemini-", ".gemini_"]) {
+                for dir in scan_prefixed_dirs(home, &[".gemini-", ".gemini_"]) {
                 let creds = dir.join("oauth_creds.json");
                 if creds.is_file() {
                     let suffix = dir
@@ -1128,6 +1146,110 @@ pub fn discover_provider_locations(
                         is_system_default: false,
                         poll_mode: PollMode::Active,
                     });
+                }
+            }
+        }
+        "openrouter" => {
+            let mut dirs = Vec::new();
+            if let Some(xdg) = xdg_config {
+                dirs.push(xdg.join("openrouter"));
+            }
+            let def_dir = home.join(".config").join("openrouter");
+            if !dirs.contains(&def_dir) {
+                dirs.push(def_dir);
+            }
+            for dir in dirs {
+                for fname in ["api_key", "config.json", "auth.json"] {
+                    let candidate = dir.join(fname);
+                    if candidate.is_file() {
+                        out.push(DiscoveredLocation {
+                            suggested_id: "default".to_string(),
+                            source_label: abbreviate_home(&candidate, Some(home)),
+                            path: candidate,
+                            is_system_default: true,
+                            poll_mode: PollMode::Active,
+                        });
+                        break;
+                    }
+                }
+                if !out.is_empty() {
+                    break;
+                }
+            }
+        }
+        "windsurf" => {
+            let mut candidates = Vec::new();
+            if let Some(xdg) = xdg_config {
+                candidates.push(
+                    xdg.join("Windsurf")
+                        .join("User")
+                        .join("globalStorage")
+                        .join("state.vscdb"),
+                );
+            }
+            let linux_default = home
+                .join(".config")
+                .join("Windsurf")
+                .join("User")
+                .join("globalStorage")
+                .join("state.vscdb");
+            if !candidates.contains(&linux_default) {
+                candidates.push(linux_default);
+            }
+            let macos_default = home
+                .join("Library")
+                .join("Application Support")
+                .join("Windsurf")
+                .join("User")
+                .join("globalStorage")
+                .join("state.vscdb");
+            if !candidates.contains(&macos_default) {
+                candidates.push(macos_default);
+            }
+
+            for db_path in candidates {
+                if db_path.is_file() {
+                    let is_first = out.is_empty();
+                    let suggested_id = if is_first {
+                        "default".to_string()
+                    } else {
+                        format!("default-{}", out.len() + 1)
+                    };
+                    out.push(DiscoveredLocation {
+                        suggested_id,
+                        source_label: abbreviate_home(&db_path, Some(home)),
+                        path: db_path,
+                        is_system_default: is_first,
+                        poll_mode: PollMode::Active,
+                    });
+                }
+            }
+        }
+        "deepseek" => {
+            let mut dirs = Vec::new();
+            if let Some(xdg) = xdg_config {
+                dirs.push(xdg.join("deepseek"));
+            }
+            let def_dir = home.join(".config").join("deepseek");
+            if !dirs.contains(&def_dir) {
+                dirs.push(def_dir);
+            }
+            for dir in dirs {
+                for fname in ["api_key", "config.json", "auth.json"] {
+                    let candidate = dir.join(fname);
+                    if candidate.is_file() {
+                        out.push(DiscoveredLocation {
+                            suggested_id: "default".to_string(),
+                            source_label: abbreviate_home(&candidate, Some(home)),
+                            path: candidate,
+                            is_system_default: true,
+                            poll_mode: PollMode::Active,
+                        });
+                        break;
+                    }
+                }
+                if !out.is_empty() {
+                    break;
                 }
             }
         }
@@ -1170,11 +1292,10 @@ mod tests {
         assert!(cfg.auto_discover);
         assert_eq!(cfg.separator, " | ");
         assert_eq!(cfg.timeout_seconds, 30);
-        assert_eq!(cfg.providers.len(), 7);
-        assert!(cfg.providers["claude"].enabled);
-        assert!(cfg.providers["cursor"].enabled);
-        assert!(cfg.providers["copilot"].enabled);
-        assert!(cfg.providers["gemini"].enabled);
+        assert_eq!(cfg.providers.len(), 10);
+        for &id in CANONICAL_PROVIDER_IDS {
+            assert!(cfg.providers[id].enabled, "expected {id} enabled in sample");
+        }
         assert!(cfg.unknown_provider_warnings().is_empty());
     }
 
@@ -1353,6 +1474,30 @@ enabled = true
         assert_eq!(cursor_locs.len(), 1);
         assert!(cursor_locs[0].is_system_default);
         assert_eq!(cursor_locs[0].suggested_id, "default");
+
+        let or_cfg = xdg.join("openrouter/config.json");
+        fs::create_dir_all(or_cfg.parent().unwrap()).unwrap();
+        fs::write(&or_cfg, r#"{"api_key":"placeholder"}"#).unwrap();
+        let or_locs = discover_provider_locations("openrouter", Some(&tmp_home), Some(&xdg));
+        assert_eq!(or_locs.len(), 1);
+        assert_eq!(or_locs[0].source_label, "~/.config/openrouter/config.json");
+
+        let ws_db = xdg.join("Windsurf/User/globalStorage/state.vscdb");
+        fs::create_dir_all(ws_db.parent().unwrap()).unwrap();
+        fs::write(&ws_db, "sqlite").unwrap();
+        let ws_locs = discover_provider_locations("windsurf", Some(&tmp_home), Some(&xdg));
+        assert_eq!(ws_locs.len(), 1);
+        assert_eq!(
+            ws_locs[0].source_label,
+            "~/.config/Windsurf/User/globalStorage/state.vscdb"
+        );
+
+        let ds_key = xdg.join("deepseek/api_key");
+        fs::create_dir_all(ds_key.parent().unwrap()).unwrap();
+        fs::write(&ds_key, "placeholder").unwrap();
+        let ds_locs = discover_provider_locations("deepseek", Some(&tmp_home), Some(&xdg));
+        assert_eq!(ds_locs.len(), 1);
+        assert_eq!(ds_locs[0].source_label, "~/.config/deepseek/api_key");
 
         let _ = fs::remove_dir_all(&tmp_home);
     }

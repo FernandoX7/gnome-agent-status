@@ -10,7 +10,16 @@ pub const SCHEMA_VERSION: u8 = 2;
 
 /// Canonical provider order shown in the UI and default collector output.
 pub const CANONICAL_PROVIDER_IDS: &[&str] = &[
-    "claude", "codex", "grok", "agy", "cursor", "copilot", "gemini",
+    "claude",
+    "codex",
+    "grok",
+    "cursor",
+    "agy",
+    "openrouter",
+    "copilot",
+    "gemini",
+    "windsurf",
+    "deepseek",
 ];
 
 /// Overall health and severity state across active providers.
@@ -214,7 +223,17 @@ pub fn infer_window_seconds(id: &str, label: &str, short_label: &str) -> Option<
 
     if matches!(
         id_l.as_str(),
-        "30d" | "31d" | "monthly" | "premium" | "cursor-models" | "other-models" | "chat" | "completions"
+        "30d"
+            | "31d"
+            | "monthly"
+            | "premium"
+            | "cursor-models"
+            | "other-models"
+            | "chat"
+            | "completions"
+            | "prompt-credits"
+            | "flow-credits"
+            | "flex-credits"
     ) || matches!(sh_l.as_str(), "30d" | "31d" | "mo")
         || lbl_l.contains("monthly")
         || lbl_l.contains("premium requests")
@@ -687,16 +706,22 @@ pub fn canonical_provider_info(
             300,
         )),
         "grok" => Some(("Grok", "provider-grok", "https://grok.com", 300)),
+        "cursor" => Some((
+            "Cursor",
+            "provider-cursor",
+            "https://cursor.com/dashboard",
+            300,
+        )),
         "agy" => Some((
             "Antigravity",
             "provider-agy",
             "https://antigravity.google",
             300,
         )),
-        "cursor" => Some((
-            "Cursor",
-            "provider-cursor",
-            "https://cursor.com/dashboard",
+        "openrouter" => Some((
+            "OpenRouter",
+            "provider-openrouter",
+            "https://openrouter.ai/activity",
             300,
         )),
         "copilot" => Some((
@@ -709,6 +734,18 @@ pub fn canonical_provider_info(
             "Gemini CLI",
             "provider-gemini",
             "https://aistudio.google.com/",
+            300,
+        )),
+        "windsurf" => Some((
+            "Windsurf",
+            "provider-windsurf",
+            "https://windsurf.com/subscription",
+            300,
+        )),
+        "deepseek" => Some((
+            "DeepSeek",
+            "provider-deepseek",
+            "https://platform.deepseek.com/usage",
             300,
         )),
         _ => None,

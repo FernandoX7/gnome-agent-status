@@ -79,10 +79,13 @@ fn provider_short_tag(provider_id: &str, display_name: &str, single_provider: bo
         "claude" => "CC".to_string(),
         "codex" => "CX".to_string(),
         "grok" => "GK".to_string(),
-        "agy" => "AG".to_string(),
         "cursor" => "CU".to_string(),
+        "agy" => "AG".to_string(),
+        "openrouter" => "OR".to_string(),
         "copilot" => "CP".to_string(),
         "gemini" => "GM".to_string(),
+        "windsurf" => "WS".to_string(),
+        "deepseek" => "DS".to_string(),
         _ => {
             let clean = collapse_line(display_name);
             clean
@@ -410,7 +413,10 @@ fn format_account_buckets_and_credits(
         if let (Some(used), Some(limit)) = (cred.used_dollars, cred.limit_dollars) {
             parts.push(format!("{cred_label} ${used:.2}/${limit:.2}"));
         } else if let Some(balance) = cred.balance_dollars {
-            parts.push(format!("{cred_label} ${balance:.2}"));
+            let sym = if cred_label.contains("(CNY)") { "¥" } else { "$" };
+            parts.push(format!("{cred_label} {sym}{balance:.2}"));
+        } else if let Some(used) = cred.used_dollars {
+            parts.push(format!("{cred_label} ${used:.2} spent"));
         }
     }
 
@@ -1085,5 +1091,66 @@ mod tests {
         );
         let escaped = format_tmux(&injection);
         assert_eq!(escaped, "#[fg=green]Claude ##(whoami) 12%#[default]");
+    }
+
+    #[test]
+    fn test_all_10_canonical_provider_short_codes_in_waybar_and_tmux() {
+        let now = Utc.with_ymd_and_hms(2026, 11, 6, 16, 0, 0).unwrap();
+        let pst = FixedOffset::west_opt(8 * 3600).unwrap();
+
+        let providers: Vec<ProviderReport> = crate::model::CANONICAL_PROVIDER_IDS
+            .iter()
+            .enumerate()
+            .map(|(idx, &id)| {
+                let (display_name, icon, url, _) =
+                    crate::model::canonical_provider_info(id).expect("canonical provider");
+                ProviderReport::from_accounts(
+                    id,
+                    display_name,
+                    icon,
+                    Some(url.to_string()),
+                    vec![AccountReport {
+                        id: format!("{id}:default"),
+                        label: display_name.to_string(),
+                        source_label: None,
+                        is_system_default: true,
+                        is_active: true,
+                        plan_tier: None,
+                        state: AccountState::ActiveOk,
+                        is_stale: false,
+                        status_note: None,
+                        extra_info: None,
+                        error: None,
+                        login_command: None,
+                        updated_at_epoch: Some(1_794_356_800),
+                        buckets: vec![UsageBucket::new(
+                            "wk",
+                            "Weekly",
+                            "wk",
+                            BucketLayout::InlinePair,
+                            true,
+                            ((idx + 1) * 5) as f64,
+                            None,
+                        )],
+                        credits: None,
+                        sparkline: Vec::new(),
+                    }],
+                    None,
+                )
+            })
+            .collect();
+
+        let report = StatusReport::from_providers(providers, " | ", 1_794_356_800, None);
+        let wb: WaybarOutput =
+            serde_json::from_str(&format_waybar_in(&report, now, &pst).unwrap()).unwrap();
+        assert_eq!(
+            wb.text,
+            "CC 5% · CX 10% · GK 15% · CU 20% · AG 25% · OR 30% · CP 35% · GM 40% · WS 45% · DS 50%"
+        );
+
+        let tmux_out = format_tmux(&report);
+        for code in ["CC", "CX", "GK", "CU", "AG", "OR", "CP", "GM", "WS", "DS"] {
+            assert!(tmux_out.contains(&format!("{code} ")), "missing {code} in {tmux_out}");
+        }
     }
 }

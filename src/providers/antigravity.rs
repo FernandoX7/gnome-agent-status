@@ -778,6 +778,9 @@ fn verify_pid_is_language_server(
     }
     if let Ok(cmdline) = fs::read(proc_dir.join("cmdline")) {
         let lower = String::from_utf8_lossy(&cmdline).to_ascii_lowercase();
+        if lower.contains("windsurf") || lower.contains(".codeium/windsurf") {
+            return false;
+        }
         if lower.contains("language_server") {
             return true;
         }
@@ -805,6 +808,15 @@ pub fn parse_proc_cmdline(raw: &[u8]) -> Option<ProcLanguageServerArgs> {
 
     let exe_lower = args[0].to_ascii_lowercase();
     if !exe_lower.contains("language_server") {
+        return None;
+    }
+
+    // Strictly distinguish Antigravity from Windsurf (`windsurf` / `.codeium/windsurf`)!
+    let is_windsurf = args.iter().any(|a| {
+        let l = a.to_ascii_lowercase();
+        l.contains("windsurf") || l.contains(".codeium/windsurf")
+    });
+    if is_windsurf {
         return None;
     }
 
@@ -1592,5 +1604,14 @@ mod tests {
         // Must NOT have connected to the primary IDE's local RPC server!
         assert!(listener.accept().is_err());
         assert!(matches!(outcome, AccountFetchOutcome::Error { .. }));
+    }
+
+    #[test]
+    fn test_antigravity_proc_cmdline_excludes_windsurf_processes() {
+        let windsurf_cmd = b"/usr/share/windsurf/resources/app/extensions/windsurf/bin/language_server_linux_x64\0--csrf_token\0ws-csrf-123\0--app_data_dir\0/home/dev/.codeium/windsurf\0";
+        assert!(parse_proc_cmdline(windsurf_cmd).is_none());
+
+        let codeium_ws_cmd = b"/opt/bin/language_server_linux_x64\x00--csrf_token\x00ws-csrf-456\x00--windsurf_version\x001.4.2\x00";
+        assert!(parse_proc_cmdline(codeium_ws_cmd).is_none());
     }
 }

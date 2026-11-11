@@ -5,8 +5,11 @@ pub mod claude;
 pub mod codex;
 pub mod copilot;
 pub mod cursor;
+pub mod deepseek;
 pub mod gemini;
 pub mod grok;
+pub mod openrouter;
+pub mod windsurf;
 
 use crate::cache::{
     apply_report_time_decay, default_jitter_secs, prune_sparkline, CacheStore, CachedAccountState,
@@ -62,6 +65,8 @@ pub struct FetchContext {
     pub xdg_config_dir: Option<PathBuf>,
     pub proc_root: PathBuf,
     pub endpoints: EndpointOverrides,
+    /// Optional hermetic environment map for unit/integration tests (`None` reads `std::env`).
+    pub env_overrides: Option<BTreeMap<String, String>>,
 }
 
 impl FetchContext {
@@ -77,11 +82,25 @@ impl FetchContext {
             xdg_config_dir: xdg,
             proc_root: PathBuf::from("/proc"),
             endpoints: EndpointOverrides::default(),
+            env_overrides: None,
         }
     }
 
     pub fn now_epoch(&self) -> i64 {
         self.now.timestamp()
+    }
+
+    pub fn env_var(&self, key: &str) -> Option<String> {
+        if let Some(ref map) = self.env_overrides {
+            return map
+                .get(key)
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty());
+        }
+        std::env::var(key)
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
     }
 }
 
@@ -168,10 +187,13 @@ impl ProviderRegistry {
                 Box::new(claude::ClaudeProvider::new()),
                 Box::new(codex::CodexProvider::new()),
                 Box::new(grok::GrokProvider::new()),
-                Box::new(antigravity::AntigravityProvider::new()),
                 Box::new(cursor::CursorProvider::new()),
+                Box::new(antigravity::AntigravityProvider::new()),
+                Box::new(openrouter::OpenRouterProvider::new()),
                 Box::new(copilot::CopilotProvider::new()),
                 Box::new(gemini::GeminiProvider::new()),
+                Box::new(windsurf::WindsurfProvider::new()),
+                Box::new(deepseek::DeepSeekProvider::new()),
             ],
         }
     }

@@ -161,8 +161,11 @@ fn execute_and_parse(agent: &AgentConfig, timeout: Duration) -> Result<crate::pa
         AgentType::Codex
         | AgentType::Grok
         | AgentType::Cursor
+        | AgentType::Openrouter
         | AgentType::Copilot
-        | AgentType::Gemini => {
+        | AgentType::Gemini
+        | AgentType::Windsurf
+        | AgentType::Deepseek => {
             return Err(anyhow!(
                 "Provider '{}' requires v2 provider collector",
                 agent.agent_type.as_str()
@@ -205,8 +208,11 @@ fn execute_and_parse(agent: &AgentConfig, timeout: Duration) -> Result<crate::pa
         AgentType::Codex
         | AgentType::Grok
         | AgentType::Cursor
+        | AgentType::Openrouter
         | AgentType::Copilot
-        | AgentType::Gemini => unreachable!(),
+        | AgentType::Gemini
+        | AgentType::Windsurf
+        | AgentType::Deepseek => unreachable!(),
     }
 }
 

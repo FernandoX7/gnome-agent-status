@@ -756,6 +756,7 @@ fn test_all_7_providers_cli_workflow_dedup_429_decay_switch_and_hook() {
             gemini_load_url: Some(format!("{}/v1internal:loadCodeAssist", server.base_url)),
             ..Default::default()
         },
+        env_overrides: Some(std::collections::BTreeMap::new()),
     };
 
     let collect_cli = Cli::parse_from([
@@ -785,7 +786,7 @@ fn test_all_7_providers_cli_workflow_dedup_429_decay_switch_and_hook() {
     assert_eq!(
         ids,
         vec![
-            "claude", "codex", "grok", "agy", "cursor", "copilot", "gemini"
+            "claude", "codex", "grok", "cursor", "agy", "copilot", "gemini"
         ]
     );
     assert_eq!(server.claude_hits.load(Ordering::SeqCst), 2);
@@ -1238,6 +1239,7 @@ fn test_copilot_gh_404_noise_free_omission_and_gemini_passive_expiry_e2e() {
             gemini_load_url: Some(format!("{}/v1internal:loadCodeAssist", server.base_url)),
             ..Default::default()
         },
+        env_overrides: Some(std::collections::BTreeMap::new()),
     };
 
     let collect_cli = Cli::parse_from([

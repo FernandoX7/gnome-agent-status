@@ -1419,6 +1419,7 @@ github.com:
                 copilot_user_url: Some(format!("http://{addr}/copilot_internal/user")),
                 ..Default::default()
             },
+            env_overrides: Some(std::collections::BTreeMap::new()),
         };
 
         let provider = CopilotProvider::new();
