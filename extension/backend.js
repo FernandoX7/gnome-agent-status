@@ -4,12 +4,18 @@ import GLib from 'gi://GLib';
 import {
     TERMINAL_CANDIDATES,
     buildTerminalArgv,
+    defaultCredentialWatchPaths,
     normalizeStatusReport,
 } from './format.js';
 
 const BINARY_NAME = 'gnome-agent-status';
 const MIN_POLL_SECONDS = 30;
 const MONITOR_DEBOUNCE_MS = 60;
+const WAKE_NETWORK_DEBOUNCE_MS = 2500;
+const CRED_MONITOR_DEBOUNCE_MS = 1500;
+const LOGIN1_BUS_NAME = 'org.freedesktop.login1';
+const LOGIN1_OBJECT_PATH = '/org/freedesktop/login1';
+const LOGIN1_MANAGER_IFACE = 'org.freedesktop.login1.Manager';
 const UTF8_DECODER = new TextDecoder('utf-8');
 
 /**
@@ -119,16 +125,29 @@ export class BackendClient {
     /**
      * @param {{
      *   settings: Gio.Settings,
-     *   onReport?: (report: object) => void,
+     *   onReport?: (report: object, meta?: {isInitialHydration?: boolean}) => void,
      *   onError?: (message: string) => void,
-     *   onLoadingChanged?: (isLoading: boolean) => void
+     *   onLoadingChanged?: (isLoading: boolean) => void,
+     *   credentialWatchPaths?: string[]|null,
+     *   systemBus?: Gio.DBusConnection|null
      * }} params
      */
-    constructor({settings, onReport, onError, onLoadingChanged}) {
+    constructor({
+        settings,
+        onReport,
+        onError,
+        onLoadingChanged,
+        credentialWatchPaths = null,
+        systemBus = null,
+    }) {
         this._settings = settings;
         this._onReport = onReport ?? null;
         this._onError = onError ?? null;
         this._onLoadingChanged = onLoadingChanged ?? null;
+        this._customCredentialWatchPaths = Array.isArray(credentialWatchPaths)
+            ? [...credentialWatchPaths]
+            : null;
+        this._injectedSystemBus = systemBus ?? null;
 
         this._destroyed = false;
         this._resolvedBinary = null;
@@ -144,8 +163,15 @@ export class BackendClient {
 
         this._pollTimerId = 0;
         this._monitorDebounceId = 0;
+        this._wakeNetworkDebounceId = 0;
+        this._credDebounceId = 0;
         this._fileMonitor = null;
         this._fileMonitorSigId = 0;
+        this._credMonitors = [];
+        this._networkMonitor = null;
+        this._networkMonitorSigId = 0;
+        this._systemBus = null;
+        this._sleepSubId = 0;
         this._settingsSigIds = [];
 
         this._stateFilePath = GLib.build_filenamev([
@@ -204,6 +230,9 @@ export class BackendClient {
         );
 
         this._setupStateMonitor();
+        this._setupNetworkWatcher();
+        this._setupSleepWatcher();
+        this._setupCredentialMonitors();
         this._restartPollTimer();
 
         const syncReport = this._hydrateFromStateFileSync();
@@ -229,6 +258,16 @@ export class BackendClient {
             this._monitorDebounceId = 0;
         }
 
+        if (this._wakeNetworkDebounceId !== 0) {
+            GLib.Source.remove(this._wakeNetworkDebounceId);
+            this._wakeNetworkDebounceId = 0;
+        }
+
+        if (this._credDebounceId !== 0) {
+            GLib.Source.remove(this._credDebounceId);
+            this._credDebounceId = 0;
+        }
+
         if (this._fileMonitor) {
             if (this._fileMonitorSigId !== 0) {
                 this._fileMonitor.disconnect(this._fileMonitorSigId);
@@ -241,6 +280,46 @@ export class BackendClient {
             }
             this._fileMonitor = null;
         }
+
+        for (const entry of this._credMonitors) {
+            if (entry.monitor && entry.sigId !== 0) {
+                try {
+                    entry.monitor.disconnect(entry.sigId);
+                } catch (_e) {
+                    // Ignore disconnect cleanup errors
+                }
+            }
+            if (entry.monitor) {
+                try {
+                    entry.monitor.cancel();
+                } catch (_e) {
+                    // Ignore cancellation cleanup errors
+                }
+            }
+        }
+        this._credMonitors = [];
+
+        if (this._networkMonitor) {
+            if (this._networkMonitorSigId !== 0) {
+                try {
+                    this._networkMonitor.disconnect(this._networkMonitorSigId);
+                } catch (_e) {
+                    // Ignore disconnect cleanup errors
+                }
+                this._networkMonitorSigId = 0;
+            }
+            this._networkMonitor = null;
+        }
+
+        if (this._systemBus && this._sleepSubId !== 0) {
+            try {
+                this._systemBus.signal_unsubscribe(this._sleepSubId);
+            } catch (_e) {
+                // Ignore D-Bus unsubscribe cleanup errors
+            }
+        }
+        this._sleepSubId = 0;
+        this._systemBus = null;
 
         for (const cancellable of this._cancellables) {
             try {
@@ -346,6 +425,236 @@ export class BackendClient {
             }
         );
         GLib.Source.set_name_by_id(this._monitorDebounceId, '[gnome-agent-status] state-monitor-debounce');
+    }
+
+    /**
+     * Subscribes to `Gio.NetworkMonitor.get_default()` `'network-changed'` and
+     * triggers a `2500ms`-debounced `collect(false)` when connectivity returns.
+     */
+    _setupNetworkWatcher() {
+        if (this._destroyed)
+            return;
+
+        try {
+            const monitor = Gio.NetworkMonitor.get_default();
+            if (!monitor)
+                return;
+            this._networkMonitor = monitor;
+            this._networkMonitorSigId = monitor.connect(
+                'network-changed',
+                (mon, available) => {
+                    if (this._destroyed)
+                        return;
+                    const isAvailable = typeof available === 'boolean'
+                        ? available
+                        : Boolean(mon.get_network_available?.());
+                    if (isAvailable) {
+                        this._scheduleWakeOrNetworkCollect();
+                    } else if (this._wakeNetworkDebounceId !== 0) {
+                        GLib.Source.remove(this._wakeNetworkDebounceId);
+                        this._wakeNetworkDebounceId = 0;
+                    }
+                }
+            );
+        } catch (e) {
+            console.error(`[gnome-agent-status] Failed to attach Gio.NetworkMonitor: ${e.message}`);
+        }
+    }
+
+    /**
+     * Subscribes to `org.freedesktop.login1.Manager.PrepareForSleep` on the system
+     * D-Bus so waking from suspend (`sleeping === false`) triggers a `2500ms`-debounced
+     * `collect(false)` refresh once Wi-Fi / network interfaces settle.
+     */
+    _setupSleepWatcher() {
+        if (this._destroyed)
+            return;
+
+        try {
+            const bus = this._injectedSystemBus ?? Gio.DBus.system;
+            if (!bus)
+                return;
+            this._systemBus = bus;
+            this._sleepSubId = bus.signal_subscribe(
+                LOGIN1_BUS_NAME,
+                LOGIN1_MANAGER_IFACE,
+                'PrepareForSleep',
+                LOGIN1_OBJECT_PATH,
+                null,
+                Gio.DBusSignalFlags.NONE,
+                (_conn, _sender, _path, _iface, _signal, params) => {
+                    if (this._destroyed || !params)
+                        return;
+                    let sleeping = null;
+                    try {
+                        const unpacked = params.deepUnpack();
+                        sleeping = Array.isArray(unpacked) ? unpacked[0] : unpacked;
+                    } catch (_e) {
+                        return;
+                    }
+                    if (sleeping === false) {
+                        this._scheduleWakeOrNetworkCollect();
+                    } else if (sleeping === true && this._wakeNetworkDebounceId !== 0) {
+                        GLib.Source.remove(this._wakeNetworkDebounceId);
+                        this._wakeNetworkDebounceId = 0;
+                    }
+                }
+            );
+        } catch (_e) {
+            // System D-Bus may be unavailable in isolated test sessions
+            this._systemBus = null;
+            this._sleepSubId = 0;
+        }
+    }
+
+    _scheduleWakeOrNetworkCollect() {
+        if (this._destroyed)
+            return;
+
+        if (this._wakeNetworkDebounceId !== 0) {
+            GLib.Source.remove(this._wakeNetworkDebounceId);
+            this._wakeNetworkDebounceId = 0;
+        }
+
+        this._wakeNetworkDebounceId = GLib.timeout_add(
+            GLib.PRIORITY_DEFAULT,
+            WAKE_NETWORK_DEBOUNCE_MS,
+            () => {
+                this._wakeNetworkDebounceId = 0;
+                if (!this._destroyed)
+                    void this.collect(false);
+                return GLib.SOURCE_REMOVE;
+            }
+        );
+        GLib.Source.set_name_by_id(
+            this._wakeNetworkDebounceId,
+            '[gnome-agent-status] wake-network-debounce'
+        );
+    }
+
+    /**
+     * Attaches `Gio.FileMonitor` filesystem event watchers to canonical provider
+     * credential paths (`CHANGED` / `CHANGES_DONE_HINT` / `CREATED` / `DELETED`
+     * events ONLY — credential file contents are NEVER read by the extension) so
+     * completing `[Sign in]` in a terminal refreshes the popover within ~`1.5s`.
+     */
+    _setupCredentialMonitors() {
+        if (this._destroyed)
+            return;
+
+        const watchPaths = this._customCredentialWatchPaths ?? defaultCredentialWatchPaths(
+            GLib.get_home_dir(),
+            GLib.get_user_config_dir()
+        );
+
+        const watchedParentDirs = new Set();
+
+        for (const credPath of watchPaths) {
+            if (!credPath)
+                continue;
+            this._attachSingleCredentialFileMonitor(credPath);
+
+            // If the provider config directory (e.g. ~/.gemini) has not been created yet,
+            // also watch its directory entry so first-ever CLI sign-in triggers immediately.
+            const parentDir = GLib.path_get_dirname(credPath);
+            if (
+                parentDir &&
+                !watchedParentDirs.has(parentDir) &&
+                !GLib.file_test(parentDir, GLib.FileTest.IS_DIR)
+            ) {
+                watchedParentDirs.add(parentDir);
+                this._attachParentDirCreationMonitor(parentDir, credPath);
+            }
+        }
+    }
+
+    _attachSingleCredentialFileMonitor(credPath) {
+        if (this._destroyed)
+            return;
+
+        try {
+            const monitor = Gio.File.new_for_path(credPath).monitor_file(
+                Gio.FileMonitorFlags.NONE,
+                null
+            );
+            const sigId = monitor.connect(
+                'changed',
+                (_mon, _file, _otherFile, eventType) => {
+                    if (this._destroyed)
+                        return;
+                    if (
+                        eventType !== Gio.FileMonitorEvent.CHANGED &&
+                        eventType !== Gio.FileMonitorEvent.CHANGES_DONE_HINT &&
+                        eventType !== Gio.FileMonitorEvent.CREATED &&
+                        eventType !== Gio.FileMonitorEvent.DELETED
+                    ) {
+                        return;
+                    }
+                    this._scheduleCredentialCollect();
+                }
+            );
+            this._credMonitors.push({monitor, sigId, path: credPath});
+        } catch (_e) {
+            // Non-fatal if filesystem blocks monitor attachment on a candidate path
+        }
+    }
+
+    _attachParentDirCreationMonitor(parentDir, credPath) {
+        if (this._destroyed)
+            return;
+
+        try {
+            const monitor = Gio.File.new_for_path(parentDir).monitor_file(
+                Gio.FileMonitorFlags.NONE,
+                null
+            );
+            const sigId = monitor.connect(
+                'changed',
+                (_mon, _file, _otherFile, eventType) => {
+                    if (this._destroyed)
+                        return;
+                    if (
+                        eventType !== Gio.FileMonitorEvent.CREATED &&
+                        eventType !== Gio.FileMonitorEvent.CHANGES_DONE_HINT
+                    ) {
+                        return;
+                    }
+                    if (GLib.file_test(parentDir, GLib.FileTest.IS_DIR)) {
+                        this._attachSingleCredentialFileMonitor(credPath);
+                        if (GLib.file_test(credPath, GLib.FileTest.EXISTS))
+                            this._scheduleCredentialCollect();
+                    }
+                }
+            );
+            this._credMonitors.push({monitor, sigId, path: parentDir});
+        } catch (_e) {
+            // Non-fatal fallback
+        }
+    }
+
+    _scheduleCredentialCollect() {
+        if (this._destroyed)
+            return;
+
+        if (this._credDebounceId !== 0) {
+            GLib.Source.remove(this._credDebounceId);
+            this._credDebounceId = 0;
+        }
+
+        this._credDebounceId = GLib.timeout_add(
+            GLib.PRIORITY_DEFAULT,
+            CRED_MONITOR_DEBOUNCE_MS,
+            () => {
+                this._credDebounceId = 0;
+                if (!this._destroyed)
+                    void this.collect(true);
+                return GLib.SOURCE_REMOVE;
+            }
+        );
+        GLib.Source.set_name_by_id(
+            this._credDebounceId,
+            '[gnome-agent-status] cred-monitor-debounce'
+        );
     }
 
     /**
@@ -785,7 +1094,28 @@ export class BackendClient {
         }
 
         try {
-            const argv = buildTerminalArgv(chosenTerminal, loginCommand);
+            const homeDir = GLib.get_home_dir();
+            const rawTrimmed = String(loginCommand ?? '').replace(/\0/g, '').trim();
+            let pretokenizedArgv = null;
+            if (rawTrimmed !== '') {
+                const expanded = rawTrimmed === '~'
+                    ? homeDir
+                    : rawTrimmed.startsWith('~/')
+                        ? GLib.build_filenamev([homeDir, rawTrimmed.slice(2)])
+                        : rawTrimmed;
+                if (
+                    GLib.file_test(expanded, GLib.FileTest.EXISTS) &&
+                    !GLib.file_test(expanded, GLib.FileTest.IS_DIR)
+                ) {
+                    pretokenizedArgv = [expanded];
+                }
+            }
+
+            const argv = buildTerminalArgv(chosenTerminal, loginCommand, {
+                quoteFn: s => GLib.shell_quote(String(s ?? '').replace(/\0/g, '')),
+                homeDir,
+                pretokenizedArgv,
+            });
             Gio.Subprocess.new(argv, Gio.SubprocessFlags.NONE);
             return true;
         } catch (e) {

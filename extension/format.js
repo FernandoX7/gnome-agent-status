@@ -1190,20 +1190,245 @@ export function buildConfigUpsertArgs(spec) {
 }
 
 /**
+ * Returns the canonical deduplicated list of credential file paths watched via
+ * `Gio.FileMonitor` (filesystem events only — never read by the extension) so
+ * completing `[Sign in]` in an external terminal triggers a live refresh.
+ *
+ * @param {string} homeDir
+ * @param {string|null} [configDir=null]
+ * @returns {string[]}
+ */
+export function defaultCredentialWatchPaths(homeDir, configDir = null) {
+    const cleanHome = String(homeDir || '').replace(/\/+$/, '');
+    if (!cleanHome)
+        return [];
+
+    const defaultConfig = `${cleanHome}/.config`;
+    const cleanConfig = configDir
+        ? String(configDir).replace(/\/+$/, '')
+        : defaultConfig;
+
+    const candidates = [
+        `${cleanHome}/.claude/.credentials.json`,
+        `${cleanHome}/.codex/auth.json`,
+        `${cleanHome}/.grok/auth.json`,
+        `${defaultConfig}/gh/hosts.yml`,
+        `${defaultConfig}/github-copilot/hosts.json`,
+        `${cleanHome}/.gemini/oauth_creds.json`,
+    ];
+
+    if (cleanConfig && cleanConfig !== defaultConfig) {
+        candidates.push(
+            `${cleanConfig}/gh/hosts.yml`,
+            `${cleanConfig}/github-copilot/hosts.json`
+        );
+    }
+
+    return [...new Set(candidates)];
+}
+
+/**
+ * Quotes an arbitrary string as a single literal POSIX `sh` token (`'...'`),
+ * stripping NUL bytes and escaping embedded single quotes as `'\''`.
+ *
+ * @param {string} value
+ * @returns {string}
+ */
+export function posixShellQuote(value) {
+    const clean = String(value ?? '').replace(/\0/g, '');
+    return `'${clean.replace(/'/g, "'\\''")}'`;
+}
+
+/**
+ * Tokenizes a login command string into literal argv tokens using POSIX-style
+ * single/double quote grouping without performing any shell expansion (`$`,
+ * backticks, `;`, `|`, `&`, redirects, and newlines are never interpreted as
+ * shell operators).
+ *
+ * @param {string} raw
+ * @returns {string[]}
+ */
+export function tokenizeLoginCommand(raw) {
+    const text = String(raw ?? '').replace(/\0/g, '');
+    const tokens = [];
+    let current = '';
+    let hasToken = false;
+    let inSingle = false;
+    let inDouble = false;
+
+    for (let i = 0; i < text.length; i++) {
+        const ch = text[i];
+
+        if (inSingle) {
+            if (ch === '\'')
+                inSingle = false;
+            else
+                current += ch;
+            continue;
+        }
+
+        if (inDouble) {
+            if (ch === '"') {
+                inDouble = false;
+            } else if (ch === '\\' && i + 1 < text.length && (text[i + 1] === '"' || text[i + 1] === '\\')) {
+                current += text[i + 1];
+                i++;
+            } else {
+                current += ch;
+            }
+            continue;
+        }
+
+        if (/\s/.test(ch)) {
+            if (hasToken) {
+                tokens.push(current);
+                current = '';
+                hasToken = false;
+            }
+            continue;
+        }
+
+        hasToken = true;
+        if (ch === '\'') {
+            inSingle = true;
+        } else if (ch === '"') {
+            inDouble = true;
+        } else if (ch === '\\' && i + 1 < text.length) {
+            current += text[i + 1];
+            i++;
+        } else {
+            current += ch;
+        }
+    }
+
+    if (hasToken)
+        tokens.push(current);
+
+    return tokens;
+}
+
+/**
+ * Quotes a command or argument token safely using `quoteFn`, expanding a leading
+ * `~` or `~/` prefix without allowing shell metacharacter injection.
+ *
+ * @param {string} token
+ * @param {(s: string) => string} quoteFn
+ * @param {string|null} homeDir
+ * @param {boolean} expandTilde
+ * @returns {string}
+ */
+function quoteShellTokenSafe(token, quoteFn, homeDir, expandTilde) {
+    const clean = String(token ?? '').replace(/\0/g, '');
+    if (expandTilde && (clean === '~' || clean.startsWith('~/'))) {
+        const rest = clean.slice(1); // '' or '/...'
+        if (homeDir) {
+            const trimmedHome = String(homeDir).replace(/\/+$/, '');
+            return quoteFn(`${trimmedHome}${rest}`);
+        }
+        return rest === '' ? '"$HOME"' : `"$HOME"${quoteFn(rest)}`;
+    }
+    return quoteFn(clean);
+}
+
+/**
+ * Quotes a `KEY=VALUE` environment assignment safely using `quoteFn`, expanding
+ * a leading `~` or `~/` in `VALUE` without allowing shell metacharacter injection.
+ *
+ * @param {string} assignment
+ * @param {(s: string) => string} quoteFn
+ * @param {string|null} homeDir
+ * @returns {string}
+ */
+function quoteEnvAssignmentSafe(assignment, quoteFn, homeDir) {
+    const clean = String(assignment ?? '').replace(/\0/g, '');
+    const eqIdx = clean.indexOf('=');
+    if (eqIdx <= 0)
+        return quoteFn(clean);
+
+    const key = clean.slice(0, eqIdx);
+    const val = clean.slice(eqIdx + 1);
+    if (val === '~' || val.startsWith('~/')) {
+        const rest = val.slice(1);
+        if (homeDir) {
+            const trimmedHome = String(homeDir).replace(/\/+$/, '');
+            return quoteFn(`${key}=${trimmedHome}${rest}`);
+        }
+        return rest === ''
+            ? `${quoteFn(`${key}=`)}"$HOME"`
+            : `${quoteFn(`${key}=`)}"$HOME"${quoteFn(rest)}`;
+    }
+    return quoteFn(clean);
+}
+
+/**
  * Builds terminal invocation argv for launching an interactive `login_command`
- * across standard Linux terminal emulators.
+ * across standard Linux terminal emulators, quoting every custom token via
+ * `quoteFn` (`GLib.shell_quote` in GNOME Shell or `posixShellQuote` in pure JS)
+ * so spaces and shell metacharacters can never cause command injection.
  *
  * @param {string} terminalBinary
  * @param {string} loginCommand
+ * @param {{
+ *   quoteFn?: (value: string) => string,
+ *   homeDir?: string|null,
+ *   pretokenizedArgv?: string[]|null
+ * }} [options]
  * @returns {string[]}
  */
-export function buildTerminalArgv(terminalBinary, loginCommand) {
+export function buildTerminalArgv(terminalBinary, loginCommand, options = {}) {
+    const quoteFn = typeof options?.quoteFn === 'function' ? options.quoteFn : posixShellQuote;
+    const homeDir = options?.homeDir ? String(options.homeDir) : null;
+    const pretokenized = Array.isArray(options?.pretokenizedArgv) && options.pretokenizedArgv.length > 0
+        ? options.pretokenizedArgv
+        : null;
+
     const baseName = String(terminalBinary || '').split('/').pop();
-    const rawCmd = String(loginCommand || '').trim();
-    let safeCmd = rawCmd || 'echo "No login command configured"';
-    if (safeCmd === 'agy auth login') {
+    const rawCmd = String(loginCommand || '').replace(/\0/g, '').trim();
+
+    let safeCmd;
+    if (pretokenized) {
+        const quotedArgs = pretokenized.map((tok, idx) =>
+            quoteShellTokenSafe(tok, quoteFn, homeDir, idx === 0)
+        );
+        safeCmd = String(pretokenized[0] ?? '').startsWith('-')
+            ? `env -- ${quotedArgs.join(' ')}`
+            : quotedArgs.join(' ');
+    } else if (rawCmd === '') {
+        safeCmd = 'echo "No login command configured"';
+    } else if (rawCmd === 'agy auth login') {
         safeCmd = 'if command -v agy >/dev/null 2>&1; then agy auth login; elif command -v antigravity >/dev/null 2>&1; then antigravity; else agy auth login; fi';
+    } else {
+        const tokens = tokenizeLoginCommand(rawCmd);
+        if (tokens.length === 0) {
+            safeCmd = 'echo "No login command configured"';
+        } else {
+            const envTokens = [];
+            let idx = 0;
+            while (
+                idx < tokens.length - 1 &&
+                /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[idx])
+            ) {
+                envTokens.push(tokens[idx]);
+                idx++;
+            }
+            const cmdTokens = tokens.slice(idx);
+            const quotedCmd = cmdTokens.map((tok, cIdx) =>
+                quoteShellTokenSafe(tok, quoteFn, homeDir, cIdx === 0)
+            );
+
+            if (envTokens.length > 0) {
+                const quotedEnv = envTokens.map(tok =>
+                    quoteEnvAssignmentSafe(tok, quoteFn, homeDir)
+                );
+                safeCmd = `env ${quotedEnv.join(' ')} ${quotedCmd.join(' ')}`;
+            } else if (String(cmdTokens[0] ?? '').startsWith('-')) {
+                safeCmd = `env -- ${quotedCmd.join(' ')}`;
+            } else {
+                safeCmd = quotedCmd.join(' ');
+            }
+        }
     }
+
     const pathBootstrap = 'export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$HOME/.grok/bin:$PATH"';
     const interactiveScript = `${pathBootstrap}; ${safeCmd}; printf '\\nPress Enter to close...'; read -r _`;
 
