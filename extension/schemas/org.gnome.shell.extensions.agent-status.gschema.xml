@@ -66,5 +66,29 @@
       <summary>Optional custom path to gnome-agent-status binary</summary>
       <description>Overrides automatic binary discovery when non-empty.</description>
     </key>
+
+    <key name="provider-order" type="as">
+      <default>['claude', 'codex', 'grok', 'agy', 'cursor', 'copilot', 'gemini']</default>
+      <summary>Provider display order</summary>
+      <description>Ordered list of canonical provider IDs controlling top bar pills, text summaries, and main popover cards.</description>
+    </key>
+
+    <key name="notify-on-warning" type="b">
+      <default>false</default>
+      <summary>Notify when a provider crosses the 80% warning threshold</summary>
+      <description>Sends a desktop notification once per quota window when an active provider reaches 80% used.</description>
+    </key>
+
+    <key name="notify-on-critical" type="b">
+      <default>true</default>
+      <summary>Notify when a provider crosses the 90% critical threshold</summary>
+      <description>Sends an urgent desktop notification once per quota window when an active provider reaches 90% used.</description>
+    </key>
+
+    <key name="notify-on-reset" type="b">
+      <default>true</default>
+      <summary>Notify when a high-usage quota window resets</summary>
+      <description>Sends a desktop notification when a previously high-usage primary bucket resets back to fresh capacity.</description>
+    </key>
   </schema>
 </schemalist>

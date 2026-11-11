@@ -1,6 +1,6 @@
 {
   "name": "Agent Usage Status",
-  "description": "Displays usage quotas, reset countdowns, and multi-account status for AI coding agents (Claude, Codex, Grok, Antigravity, Cursor) in the GNOME top bar.",
+  "description": "Displays usage quotas, reset countdowns, pace indicators, and multi-account status for AI coding agents (Claude, Codex, Grok, Antigravity, Cursor, GitHub Copilot, Gemini CLI) in the GNOME top bar.",
   "uuid": "agent-status@gnome-agent-status",
   "shell-version": [
     "45",
@@ -11,5 +11,6 @@
     "50"
   ],
   "settings-schema": "org.gnome.shell.extensions.agent-status",
+  "url": "https://github.com/ToxicBakery/gnome-agent-status",
   "version": 2
 }

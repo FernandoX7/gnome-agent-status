@@ -21,10 +21,159 @@ import {
 const BINARY_NAME = 'gnome-agent-status';
 const TIMEOUT_SPIN_DEBOUNCE_MS = 250;
 
+export const DEFAULT_PROVIDER_ORDER = Object.freeze([
+    'claude',
+    'codex',
+    'grok',
+    'agy',
+    'cursor',
+    'copilot',
+    'gemini',
+]);
+
+const BASE_PREFS_PROVIDER_SPECS = Object.freeze([
+    Object.freeze({
+        id: 'claude',
+        displayName: 'Claude Code',
+        locationHint: '~/.claude-work',
+    }),
+    Object.freeze({
+        id: 'codex',
+        displayName: 'OpenAI Codex',
+        locationHint: '~/.codex-work',
+    }),
+    Object.freeze({
+        id: 'grok',
+        displayName: 'xAI Grok',
+        locationHint: '~/.grok-work',
+    }),
+    Object.freeze({
+        id: 'agy',
+        displayName: 'Google Antigravity',
+        locationHint: '~/.gemini/antigravity',
+    }),
+    Object.freeze({
+        id: 'cursor',
+        displayName: 'Cursor',
+        locationHint: '~/.config/Cursor/User/globalStorage/state.vscdb',
+    }),
+    Object.freeze({
+        id: 'copilot',
+        displayName: 'GitHub Copilot',
+        locationHint: '~/.config/github-copilot/hosts.json',
+    }),
+    Object.freeze({
+        id: 'gemini',
+        displayName: 'Gemini CLI',
+        locationHint: '~/.gemini/oauth_creds.json',
+    }),
+]);
+
+export const PREFS_PROVIDERS = Object.freeze((() => {
+    const merged = BASE_PREFS_PROVIDER_SPECS.map(spec => {
+        const fromFormat = PROVIDER_BY_ID?.[spec.id] ?? null;
+        return Object.freeze({
+            ...(fromFormat ?? {}),
+            id: spec.id,
+            displayName: spec.displayName,
+            locationHint: spec.locationHint || fromFormat?.locationHint || '',
+        });
+    });
+    const seen = new Set(merged.map(p => p.id));
+    for (const extra of CANONICAL_PROVIDERS ?? []) {
+        if (extra?.id && !seen.has(extra.id)) {
+            seen.add(extra.id);
+            merged.push(Object.freeze({
+                ...extra,
+                displayName: extra.displayName || extra.id,
+                locationHint: extra.locationHint || '',
+            }));
+        }
+    }
+    return merged;
+})());
+
+export const PREFS_PROVIDER_BY_ID = Object.freeze(
+    Object.fromEntries(PREFS_PROVIDERS.map(p => [p.id, p]))
+);
+
 const POLL_MODE_OPTIONS = Object.freeze([
     Object.freeze({id: 'active', label: 'Active Polling'}),
     Object.freeze({id: 'passive', label: 'Passive Cache Only'}),
 ]);
+
+/**
+ * Checks safely whether `settings` exposes `key` in its compiled GSettings schema.
+ *
+ * @param {Gio.Settings} settings
+ * @param {string} key
+ * @returns {boolean}
+ */
+function hasSettingKey(settings, key) {
+    try {
+        return Boolean(settings?.settings_schema?.has_key?.(key));
+    } catch (_e) {
+        return false;
+    }
+}
+
+/**
+ * Normalizes a raw `provider-order` string array so all canonical providers appear
+ * exactly once, preserving custom user ordering and appending any newly added providers.
+ *
+ * @param {ReadonlyArray<string>|null|undefined} rawOrder
+ * @returns {string[]}
+ */
+export function normalizeProviderOrder(rawOrder) {
+    const result = [];
+    const seen = new Set();
+
+    if (Array.isArray(rawOrder)) {
+        for (const item of rawOrder) {
+            const id = String(item ?? '').trim();
+            if (id && PREFS_PROVIDER_BY_ID[id] && !seen.has(id)) {
+                seen.add(id);
+                result.push(id);
+            }
+        }
+    }
+
+    for (const prov of PREFS_PROVIDERS) {
+        if (!seen.has(prov.id)) {
+            seen.add(prov.id);
+            result.push(prov.id);
+        }
+    }
+
+    return result;
+}
+
+/**
+ * Returns a new normalized provider order with the item at `fromIndex` shifted by `delta`.
+ *
+ * @param {ReadonlyArray<string>} currentOrder
+ * @param {number} fromIndex
+ * @param {number} delta
+ * @returns {string[]}
+ */
+export function moveProviderInOrder(currentOrder, fromIndex, delta) {
+    const normalized = normalizeProviderOrder(currentOrder);
+    const targetIndex = fromIndex + delta;
+    if (
+        fromIndex < 0 ||
+        fromIndex >= normalized.length ||
+        targetIndex < 0 ||
+        targetIndex >= normalized.length ||
+        fromIndex === targetIndex
+    ) {
+        return normalized;
+    }
+
+    const next = [...normalized];
+    const [moved] = next.splice(fromIndex, 1);
+    next.splice(targetIndex, 0, moved);
+    return next;
+}
 
 /**
  * Escapes plain text for Libadwaita properties (`Adw.PreferencesGroup` title/description,
@@ -656,7 +805,9 @@ export default class AgentStatusPreferences extends ExtensionPreferences {
 
         const autoDiscoverRow = new Adw.SwitchRow({
             title: escapeMarkup('Auto-Discover Local Accounts'),
-            subtitle: escapeMarkup('Automatically detect local Claude, Codex, Grok, Antigravity, and Cursor profiles'),
+            subtitle: escapeMarkup(
+                'Automatically detect local Claude, Codex, Grok, Antigravity, Cursor, Copilot, and Gemini profiles'
+            ),
             active: true,
         });
         autoDiscoverRow.connect('notify::active', () => {
@@ -782,13 +933,193 @@ export default class AgentStatusPreferences extends ExtensionPreferences {
 
         page.add(cadenceGroup);
 
+        // Desktop Notifications Group
+        const notificationsGroup = new Adw.PreferencesGroup({
+            title: escapeMarkup('Desktop Notifications'),
+            description: escapeMarkup(
+                'Alert once per quota window when active providers cross usage thresholds or reset.'
+            ),
+        });
+
+        const notificationSpecs = [
+            {
+                key: 'notify-on-warning',
+                title: 'Warning Threshold (80%)',
+                subtitle: 'Send a calm notification once per window when a primary bucket reaches 80% used',
+                fallback: false,
+            },
+            {
+                key: 'notify-on-critical',
+                title: 'Critical Threshold (90%)',
+                subtitle: 'Send an urgent notification once per window when a primary bucket reaches 90% used',
+                fallback: true,
+            },
+            {
+                key: 'notify-on-reset',
+                title: 'Quota Reset Notification',
+                subtitle: 'Notify when a previously high-usage primary bucket resets back to fresh capacity',
+                fallback: true,
+            },
+        ];
+
+        for (const spec of notificationSpecs) {
+            const hasKey = hasSettingKey(settings, spec.key);
+            const notifyRow = new Adw.SwitchRow({
+                title: escapeMarkup(spec.title),
+                subtitle: escapeMarkup(spec.subtitle),
+                active: hasKey ? settings.get_boolean(spec.key) : spec.fallback,
+                sensitive: hasKey,
+            });
+            if (hasKey) {
+                settings.bind(spec.key, notifyRow, 'active', Gio.SettingsBindFlags.DEFAULT);
+                cli.trackCleanup(() => Gio.Settings.unbind(notifyRow, 'active'));
+            }
+            notificationsGroup.add(notifyRow);
+        }
+
+        page.add(notificationsGroup);
+
+        // Provider Display Order Group
+        const orderGroup = new Adw.PreferencesGroup({
+            title: escapeMarkup('Provider Display Order'),
+            description: escapeMarkup(
+                'Reorder how providers appear in top bar pills, text summaries, and the usage popover.'
+            ),
+        });
+
+        const hasOrderKey = hasSettingKey(settings, 'provider-order');
+        const readNormalizedOrder = () =>
+            normalizeProviderOrder(hasOrderKey ? settings.get_strv('provider-order') : DEFAULT_PROVIDER_ORDER);
+
+        const resetOrderBtn = new Gtk.Button({
+            label: 'Reset Order',
+            tooltip_text: 'Restore default provider display order',
+            valign: Gtk.Align.CENTER,
+            has_frame: false,
+            css_classes: ['flat'],
+        });
+        orderGroup.set_header_suffix(resetOrderBtn);
+
+        const orderSlots = [];
+        for (let idx = 0; idx < PREFS_PROVIDERS.length; idx++) {
+            const row = new Adw.ActionRow({
+                title: escapeMarkup(PREFS_PROVIDERS[idx].displayName),
+                subtitle: escapeMarkup(`Position ${idx + 1} · Provider ID: ${PREFS_PROVIDERS[idx].id}`),
+            });
+
+            const upBtn = new Gtk.Button({
+                icon_name: 'go-up-symbolic',
+                valign: Gtk.Align.CENTER,
+                has_frame: false,
+                css_classes: ['flat'],
+            });
+
+            const downBtn = new Gtk.Button({
+                icon_name: 'go-down-symbolic',
+                valign: Gtk.Align.CENTER,
+                has_frame: false,
+                css_classes: ['flat'],
+            });
+
+            upBtn.connect('clicked', () => {
+                if (cli.isDestroyed || !hasOrderKey || idx <= 0)
+                    return;
+                const hadFocus = upBtn.has_focus;
+                const nextOrder = moveProviderInOrder(readNormalizedOrder(), idx, -1);
+                settings.set_strv('provider-order', nextOrder);
+                if (hadFocus && orderSlots[idx - 1]) {
+                    const targetSlot = orderSlots[idx - 1];
+                    if (idx - 1 > 0)
+                        targetSlot.upBtn.grab_focus();
+                    else
+                        targetSlot.downBtn.grab_focus();
+                }
+            });
+
+            downBtn.connect('clicked', () => {
+                if (cli.isDestroyed || !hasOrderKey || idx >= PREFS_PROVIDERS.length - 1)
+                    return;
+                const hadFocus = downBtn.has_focus;
+                const nextOrder = moveProviderInOrder(readNormalizedOrder(), idx, 1);
+                settings.set_strv('provider-order', nextOrder);
+                if (hadFocus && orderSlots[idx + 1]) {
+                    const targetSlot = orderSlots[idx + 1];
+                    if (idx + 1 < PREFS_PROVIDERS.length - 1)
+                        targetSlot.downBtn.grab_focus();
+                    else
+                        targetSlot.upBtn.grab_focus();
+                }
+            });
+
+            row.add_suffix(upBtn);
+            row.add_suffix(downBtn);
+            orderGroup.add(row);
+            orderSlots.push({row, upBtn, downBtn});
+        }
+
+        const syncOrderRows = () => {
+            if (cli.isDestroyed)
+                return;
+            const orderedIds = readNormalizedOrder();
+            for (let idx = 0; idx < orderSlots.length; idx++) {
+                const slot = orderSlots[idx];
+                const provId = orderedIds[idx] ?? PREFS_PROVIDERS[idx].id;
+                const prov = PREFS_PROVIDER_BY_ID[provId] ?? {
+                    id: provId,
+                    displayName: provId,
+                };
+
+                slot.row.set_title(escapeMarkup(prov.displayName));
+                slot.row.set_subtitle(escapeMarkup(`Position ${idx + 1} · Provider ID: ${prov.id}`));
+
+                const upLabel = `Move ${prov.displayName} up`;
+                const downLabel = `Move ${prov.displayName} down`;
+                slot.upBtn.set_tooltip_text(upLabel);
+                slot.downBtn.set_tooltip_text(downLabel);
+                slot.upBtn.update_property([Gtk.AccessibleProperty.LABEL], [upLabel]);
+                slot.downBtn.update_property([Gtk.AccessibleProperty.LABEL], [downLabel]);
+
+                slot.upBtn.set_sensitive(hasOrderKey && idx > 0);
+                slot.downBtn.set_sensitive(hasOrderKey && idx < orderSlots.length - 1);
+            }
+
+            const isDefaultOrder =
+                orderedIds.length === DEFAULT_PROVIDER_ORDER.length &&
+                orderedIds.every((id, i) => id === DEFAULT_PROVIDER_ORDER[i]);
+            resetOrderBtn.set_sensitive(hasOrderKey && !isDefaultOrder);
+        };
+
+        resetOrderBtn.connect('clicked', () => {
+            if (cli.isDestroyed || !hasOrderKey)
+                return;
+            settings.set_strv('provider-order', [...DEFAULT_PROVIDER_ORDER]);
+        });
+
+        syncOrderRows();
+
+        if (hasOrderKey) {
+            let orderSigId = settings.connect('changed::provider-order', () => {
+                syncOrderRows();
+            });
+            const disconnectOrderSig = () => {
+                if (orderSigId !== 0) {
+                    settings.disconnect(orderSigId);
+                    orderSigId = 0;
+                }
+            };
+            cli.trackCleanup(disconnectOrderSig);
+            orderGroup.connect('destroy', disconnectOrderSig);
+        }
+
+        page.add(orderGroup);
+
         // Provider Visibility Group
         const visibilityGroup = new Adw.PreferencesGroup({
             title: escapeMarkup('Visible Providers'),
             description: escapeMarkup('Choose which providers appear in the top bar and usage popover.'),
         });
 
-        for (const prov of CANONICAL_PROVIDERS) {
+        for (const prov of PREFS_PROVIDERS) {
             const hiddenInitial = new Set(settings.get_strv('hidden-providers') || []);
             const switchRow = new Adw.SwitchRow({
                 title: escapeMarkup(prov.displayName),
@@ -938,13 +1269,15 @@ export default class AgentStatusPreferences extends ExtensionPreferences {
         // 2. Add / Update Manual Account Form Group
         const formGroup = new Adw.PreferencesGroup({
             title: escapeMarkup('Add or Update Manual Account'),
-            description: escapeMarkup('Point manually to any custom Claude, Codex, Grok, Antigravity, or Cursor directory or file if auto-discovery does not find it.'),
+            description: escapeMarkup(
+                'Point manually to any custom Claude, Codex, Grok, Antigravity, Cursor, Copilot, or Gemini directory or file if auto-discovery does not find it.'
+            ),
         });
 
         const providerCombo = new Adw.ComboRow({
             title: escapeMarkup('Provider'),
-            subtitle: escapeMarkup(`Example location: ${CANONICAL_PROVIDERS[0].locationHint}`),
-            model: Gtk.StringList.new(CANONICAL_PROVIDERS.map(p => p.displayName)),
+            subtitle: escapeMarkup(`Example location: ${PREFS_PROVIDERS[0].locationHint}`),
+            model: Gtk.StringList.new(PREFS_PROVIDERS.map(p => p.displayName)),
         });
 
         const labelEntry = new Adw.EntryRow({
@@ -1029,7 +1362,7 @@ export default class AgentStatusPreferences extends ExtensionPreferences {
         providerCombo.connect('notify::selected', () => {
             if (cli.isDestroyed)
                 return;
-            const chosen = CANONICAL_PROVIDERS[providerCombo.get_selected()] ?? CANONICAL_PROVIDERS[0];
+            const chosen = PREFS_PROVIDERS[providerCombo.get_selected()] ?? PREFS_PROVIDERS[0];
             providerCombo.set_subtitle(escapeMarkup(`Example location: ${chosen.locationHint}`));
         });
 
@@ -1049,7 +1382,7 @@ export default class AgentStatusPreferences extends ExtensionPreferences {
                 provider: String(acc.provider),
                 id: String(acc.id),
             };
-            const pIdx = CANONICAL_PROVIDERS.findIndex(p => p.id === acc.provider);
+            const pIdx = PREFS_PROVIDERS.findIndex(p => p.id === acc.provider);
             providerCombo.set_selected(pIdx >= 0 ? pIdx : 0);
             labelEntry.set_text(acc.label || '');
             idEntry.set_text(acc.id || '');
@@ -1110,7 +1443,7 @@ export default class AgentStatusPreferences extends ExtensionPreferences {
             }
 
             for (const acc of accounts) {
-                const provMeta = PROVIDER_BY_ID[acc.provider];
+                const provMeta = PREFS_PROVIDER_BY_ID[acc.provider] ?? PROVIDER_BY_ID[acc.provider];
                 const provName = provMeta?.displayName || acc.provider;
                 const details = [];
                 if (acc.path)
@@ -1217,7 +1550,7 @@ export default class AgentStatusPreferences extends ExtensionPreferences {
         saveBtn.connect('clicked', () => {
             if (cli.isDestroyed)
                 return;
-            const chosenProv = CANONICAL_PROVIDERS[providerCombo.get_selected()] ?? CANONICAL_PROVIDERS[0];
+            const chosenProv = PREFS_PROVIDERS[providerCombo.get_selected()] ?? PREFS_PROVIDERS[0];
             const rawLabel = labelEntry.get_text().trim();
             const rawId = idEntry.get_text().trim();
             const rawPath = pathEntry.get_text().trim();
