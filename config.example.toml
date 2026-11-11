@@ -1,15 +1,97 @@
-# gnome-agent-status configuration
-# Default location: ~/.config/gnome-agent-status/config.toml
+# gnome-agent-status v0.2 configuration
+# Default location: $XDG_CONFIG_HOME/gnome-agent-status/config.toml
+#                   (fallback: ~/.config/gnome-agent-status/config.toml)
 
-separator = " | "
+# Automatically discover local credentials & profile directories (read-only).
+# Discovered accounts are deduplicated and merged with any manual entries below.
+auto_discover = true
+
+# Per-account network/CLI collection timeout in seconds.
 timeout_seconds = 30
 
-[[agents]]
-name = "Claude"
-type = "claude"
-path = "~/.claude"
+# Separator used in Full Text top-bar mode and legacy summary labels.
+separator = " | "
 
-[[agents]]
-name = "AGY"
-type = "agy"
-path = "~/.gemini"
+# -----------------------------------------------------------------------------
+# Per-Provider Settings & Manual Account Locations
+# -----------------------------------------------------------------------------
+# Supported provider IDs: claude, codex, grok, agy, cursor
+#
+# Each [[providers.<id>.accounts]] table supports:
+#   id             = "work"                   # Stable slug identifier (required)
+#   label          = "Work Profile"           # Display name in popover & CLI (required)
+#   path           = "~/.claude-work"         # Custom config dir, SQLite DB, or token file
+#   binary         = "/usr/local/bin/claude"  # Optional explicit CLI binary override
+#   poll_mode      = "active"                 # "active" (default) or "passive" (cache/hook only)
+#   switch_command = "my-switcher use work"   # Optional command run on `account select`
+
+[providers.claude]
+enabled = true
+
+# Example: isolated active Claude Code profile directory ($CLAUDE_CONFIG_DIR)
+# [[providers.claude.accounts]]
+# id = "work"
+# label = "Work Claude"
+# path = "~/.claude-work"
+# binary = "/usr/local/bin/claude"
+# poll_mode = "active"
+
+# Example: passive profile updated via `gnome-agent-status ingest-hook claude --account personal`
+# [[providers.claude.accounts]]
+# id = "personal"
+# label = "Personal Claude"
+# path = "~/.claude-personal"
+# poll_mode = "passive"
+
+[providers.codex]
+enabled = true
+
+# Example: isolated OpenAI Codex profile directory ($CODEX_HOME with auth.json)
+# [[providers.codex.accounts]]
+# id = "work"
+# label = "Work Codex"
+# path = "~/.codex-work"
+# poll_mode = "active"
+
+[providers.grok]
+enabled = true
+
+# Example: isolated xAI Grok profile directory ($GROK_HOME) with external switcher hook
+# [[providers.grok.accounts]]
+# id = "work"
+# label = "Work Grok"
+# path = "~/.grok-work"
+# poll_mode = "active"
+# switch_command = "gswap switch work"
+
+[providers.agy]
+enabled = true
+
+# Example: Antigravity custom CLI binary or passive keyring-switched profile
+# [[providers.agy.accounts]]
+# id = "work"
+# label = "Work Antigravity"
+# binary = "~/.local/bin/agy"
+# poll_mode = "passive"
+# switch_command = "agy-auth switch work"
+
+[providers.cursor]
+enabled = true
+
+# Example: manual Cursor SQLite state.vscdb or JSON token file in a custom location
+# [[providers.cursor.accounts]]
+# id = "custom"
+# label = "Cursor Linux"
+# path = "~/.config/Cursor/User/globalStorage/state.vscdb"
+# poll_mode = "active"
+
+# -----------------------------------------------------------------------------
+# Backwards Compatibility (v0.1 `[[agents]]` format)
+# -----------------------------------------------------------------------------
+# Legacy v0.1 `[[agents]]` entries (`name`, `type`, `path`, `binary`) remain
+# 100% supported and map automatically into `providers.<type>.accounts`:
+#
+# [[agents]]
+# name = "Claude"
+# type = "claude"
+# path = "~/.claude"
