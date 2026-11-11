@@ -388,12 +388,12 @@ export class BackendClient {
     _hydrateFromStateFileSync() {
         const report = this._readStateReportSync();
         if (report)
-            this._emitReport(report);
+            this._emitReport(report, {isInitialHydration: true});
         return report;
     }
 
     async _hydrateInitialState(initialReport = null) {
-        const loaded = initialReport ?? await this._readStateFile();
+        const loaded = initialReport ?? await this._readStateFile({isInitialHydration: true});
         if (this._destroyed)
             return;
 
@@ -429,7 +429,7 @@ export class BackendClient {
             if (trimmed !== '') {
                 const parsed = JSON.parse(trimmed);
                 const report = normalizeStatusReport(parsed);
-                this._emitReport(report);
+                this._emitReport(report, {isInitialHydration: true});
                 return report;
             }
         } catch (_e) {
@@ -438,7 +438,7 @@ export class BackendClient {
         return null;
     }
 
-    async _readStateFile() {
+    async _readStateFile({isInitialHydration = false} = {}) {
         if (this._destroyed)
             return null;
 
@@ -451,7 +451,7 @@ export class BackendClient {
 
             const parsed = JSON.parse(rawText);
             const report = normalizeStatusReport(parsed);
-            this._emitReport(report);
+            this._emitReport(report, {isInitialHydration});
             return report;
         } catch (e) {
             if (!this._destroyed && !e.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED))
@@ -462,12 +462,12 @@ export class BackendClient {
         }
     }
 
-    _emitReport(report) {
+    _emitReport(report, meta = {isInitialHydration: false}) {
         if (this._destroyed)
             return;
         this._lastReport = report;
         this._lastError = null;
-        this._onReport?.(report);
+        this._onReport?.(report, meta);
     }
 
     _emitError(message) {

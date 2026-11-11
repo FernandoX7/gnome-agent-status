@@ -960,6 +960,179 @@ export function computePanelSummary(visibleProviders, metricMode = 'used', separ
 }
 
 /**
+ * Evaluates smart quota warning, critical, and reset notification transitions across
+ * providers while mutating `bucketStates` in-place.
+ *
+ * - When `isInitialHydration` is `true`, seeds baseline bucket state across all providers
+ *   and accounts without emitting any notifications.
+ * - On live updates, evaluates each visible active provider's primary bucket:
+ *   - Reset (`prev >= 80% -> curr < 20%` with clock or new-window boundary)
+ *   - Critical (`prev < 90% -> curr >= 90%`, once per `(key, resets_at_epoch)` window)
+ *   - Warning (`prev < 80% -> 80% <= curr < 90%`, once per `(key, resets_at_epoch)` window)
+ *
+ * @param {Map<string, object>} bucketStates
+ * @param {object} report
+ * @param {{
+ *   isInitialHydration?: boolean,
+ *   nowEpoch?: number,
+ *   hiddenProviderIds?: ReadonlyArray<string>,
+ *   providerOrder?: ReadonlyArray<string>,
+ *   notifyOnWarning?: boolean,
+ *   notifyOnCritical?: boolean,
+ *   notifyOnReset?: boolean
+ * }} [options]
+ * @returns {Array<{
+ *   kind: 'warning' | 'critical' | 'reset',
+ *   providerId: string,
+ *   title: string,
+ *   body: string,
+ *   urgency: 'normal' | 'critical'
+ * }>}
+ */
+export function evaluateQuotaNotificationStep(
+    bucketStates,
+    report,
+    {
+        isInitialHydration = false,
+        nowEpoch = Math.floor(Date.now() / 1000),
+        hiddenProviderIds = [],
+        providerOrder = DEFAULT_PROVIDER_ORDER,
+        notifyOnWarning = false,
+        notifyOnCritical = true,
+        notifyOnReset = true,
+    } = {}
+) {
+    if (!(bucketStates instanceof Map) || !report || typeof report !== 'object')
+        return [];
+
+    const normalized = normalizeStatusReport(report, nowEpoch);
+    const allProviders = sortProvidersByOrder(normalized.providers ?? [], providerOrder);
+    const visibleSet = new Set(
+        filterVisibleProviders(allProviders, hiddenProviderIds).map(p => p.id)
+    );
+
+    const emitted = [];
+
+    for (const prov of allProviders) {
+        const accounts = Array.isArray(prov?.accounts) ? prov.accounts : [];
+        const activeAcc = getActiveAccount(prov);
+
+        for (const acc of accounts) {
+            if (!acc || acc.state === 'signed_out')
+                continue;
+
+            const primaryBucket =
+                acc.buckets?.find(b => b.is_primary) ?? acc.buckets?.[0] ?? null;
+            if (!primaryBucket)
+                continue;
+
+            const bucketId = primaryBucket.id || primaryBucket.short_label || 'primary';
+            const key = `${prov.id}::${acc.id || 'default'}::${bucketId}`;
+            const usedPercent = clampPercent(primaryBucket.used_percent ?? 0);
+            const resetsAtEpoch =
+                typeof primaryBucket.resets_at_epoch === 'number' &&
+                Number.isFinite(primaryBucket.resets_at_epoch) &&
+                primaryBucket.resets_at_epoch > 0
+                    ? primaryBucket.resets_at_epoch
+                    : null;
+            const windowToken = resetsAtEpoch !== null ? String(resetsAtEpoch) : 'static';
+
+            const isTargetActive = activeAcc === acc && visibleSet.has(prov.id);
+            const prev = bucketStates.get(key);
+
+            if (isInitialHydration || !prev) {
+                bucketStates.set(key, {
+                    usedPercent,
+                    resetsAtEpoch,
+                    notifiedWarningWindow: usedPercent >= 80 ? windowToken : null,
+                    notifiedCriticalWindow: usedPercent >= 90 ? windowToken : null,
+                });
+                continue;
+            }
+
+            let notifiedWarningWindow = prev.notifiedWarningWindow ?? null;
+            let notifiedCriticalWindow = prev.notifiedCriticalWindow ?? null;
+
+            const hasPrevReset =
+                typeof prev.resetsAtEpoch === 'number' && prev.resetsAtEpoch > 0;
+            const hasCurrReset = resetsAtEpoch !== null;
+            const resetByClock = hasPrevReset && nowEpoch >= (prev.resetsAtEpoch - 60);
+            const resetByNewWindow =
+                hasPrevReset &&
+                hasCurrReset &&
+                resetsAtEpoch > (prev.resetsAtEpoch + 60);
+
+            if (hasPrevReset && hasCurrReset && resetsAtEpoch > (prev.resetsAtEpoch + 60)) {
+                notifiedWarningWindow = null;
+                notifiedCriticalWindow = null;
+            }
+
+            const bucketLabel = formatBucketDisplayLabel(primaryBucket);
+
+            if (prev.usedPercent >= 80 && usedPercent < 20 && (resetByClock || resetByNewWindow)) {
+                notifiedWarningWindow = null;
+                notifiedCriticalWindow = null;
+                if (isTargetActive && notifyOnReset) {
+                    emitted.push({
+                        kind: 'reset',
+                        providerId: prov.id,
+                        title: `${prov.display_name} Quota Reset`,
+                        body: `${bucketLabel} quota is fresh again (${usedPercent}% used)`,
+                        urgency: 'normal',
+                    });
+                }
+            } else if (prev.usedPercent < 90 && usedPercent >= 90) {
+                if (isTargetActive && notifiedCriticalWindow !== windowToken) {
+                    notifiedCriticalWindow = windowToken;
+                    notifiedWarningWindow = windowToken;
+                    if (notifyOnCritical) {
+                        const countdown = formatResetCountdown(resetsAtEpoch, nowEpoch, {
+                            prefix: false,
+                        });
+                        const suffix =
+                            countdown && countdown !== 'now' ? ` (resets in ${countdown})` : '';
+                        emitted.push({
+                            kind: 'critical',
+                            providerId: prov.id,
+                            title: `${prov.display_name} Quota Critical (${usedPercent}%)`,
+                            body: `${bucketLabel} usage reached ${usedPercent}%${suffix}`,
+                            urgency: 'critical',
+                        });
+                    }
+                }
+            } else if (prev.usedPercent < 80 && usedPercent >= 80 && usedPercent < 90) {
+                if (isTargetActive && notifiedWarningWindow !== windowToken) {
+                    notifiedWarningWindow = windowToken;
+                    if (notifyOnWarning) {
+                        const countdown = formatResetCountdown(resetsAtEpoch, nowEpoch, {
+                            prefix: false,
+                        });
+                        const suffix =
+                            countdown && countdown !== 'now' ? ` (resets in ${countdown})` : '';
+                        emitted.push({
+                            kind: 'warning',
+                            providerId: prov.id,
+                            title: `${prov.display_name} Quota Warning`,
+                            body: `${bucketLabel} usage reached ${usedPercent}%${suffix}`,
+                            urgency: 'normal',
+                        });
+                    }
+                }
+            }
+
+            bucketStates.set(key, {
+                usedPercent,
+                resetsAtEpoch,
+                notifiedWarningWindow,
+                notifiedCriticalWindow,
+            });
+        }
+    }
+
+    return emitted;
+}
+
+/**
  * Normalizes an arbitrary string into a clean account slug (`[a-z0-9_-]`).
  *
  * @param {string} raw
