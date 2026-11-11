@@ -143,35 +143,30 @@ export function crossfadePages(outgoingActor, incomingActor, desktopSettings, on
 
 /**
  * Wires an interactive St.Button inside a PopupMenu so mouse/touch/keyboard clicks
- * invoke `callback` while returning Clutter.EVENT_STOP on press/release so the
- * enclosing popover never closes prematurely.
+ * invoke `callback` cleanly across GNOME 45-50 without blocking Clutter.ClickGesture.
  *
  * @param {St.Button} button
  * @param {Function} callback
  * @returns {number[]} Connected signal IDs on `button`
  */
 export function connectInteractiveButton(button, callback) {
-    const ids = [];
-    ids.push(button.connect('clicked', () => {
-        callback();
-        return Clutter.EVENT_STOP;
-    }));
-    ids.push(button.connect_after('button-press-event', () => Clutter.EVENT_STOP));
-    ids.push(button.connect_after('button-release-event', () => Clutter.EVENT_STOP));
-    return ids;
+    return [
+        button.connect('clicked', () => {
+            callback();
+        }),
+    ];
 }
 
 /**
- * Prevents background clicks inside a custom popover container from bubbling up
- * and dismissing the PopupMenu.
+ * Marks a custom popover root container reactive so PopupMenuManager treats
+ * non-interactive background clicks inside the container as inside the menu
+ * without returning Clutter.EVENT_STOP on legacy button signals (which cancels
+ * St.Button Clutter.ClickGesture recognition in GNOME Shell 49/50).
  *
  * @param {Clutter.Actor} container
  * @returns {number[]} Connected signal IDs on `container`
  */
 export function containPopoverEvents(container) {
     container.reactive = true;
-    const ids = [];
-    ids.push(container.connect('button-press-event', () => Clutter.EVENT_STOP));
-    ids.push(container.connect('button-release-event', () => Clutter.EVENT_STOP));
-    return ids;
+    return [];
 }
