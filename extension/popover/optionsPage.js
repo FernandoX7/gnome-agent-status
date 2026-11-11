@@ -1,4 +1,5 @@
 import Clutter from 'gi://Clutter';
+import Pango from 'gi://Pango';
 import St from 'gi://St';
 
 import {
@@ -67,6 +68,7 @@ export class QuickOptionsPage {
             accessible_name: 'Back to Usage',
             child: backInner,
         });
+        this._backBtn = backBtn;
         connectInteractiveButton(backBtn, () => {
             onBack();
         });
@@ -107,6 +109,8 @@ export class QuickOptionsPage {
                 style_class: 'gas-theme-grid-row',
                 x_expand: true,
             });
+            if (row.layout_manager)
+                row.layout_manager.homogeneous = true;
             for (const preset of THEME_PRESETS.slice(i, i + 2)) {
                 const chip = this._createThemeChip(preset);
                 row.add_child(chip);
@@ -214,6 +218,7 @@ export class QuickOptionsPage {
             y_align: Clutter.ActorAlign.CENTER,
             style_class: 'gas-theme-chip-label',
         });
+        label.clutter_text.ellipsize = Pango.EllipsizeMode.END;
         inner.add_child(swatch);
         inner.add_child(label);
 
@@ -230,6 +235,10 @@ export class QuickOptionsPage {
 
         this._themeButtons.set(preset.id, btn);
         return btn;
+    }
+
+    focusBackButton() {
+        this._backBtn?.grab_key_focus?.();
     }
 
     syncFromSettings() {

@@ -752,6 +752,10 @@ export class ProviderDetailPage {
         }
     }
 
+    focusBackButton() {
+        this._backBtn?.grab_key_focus?.();
+    }
+
     repaintBars() {
         for (const slot of this._heroBucketPool) {
             if (slot.block.visible)

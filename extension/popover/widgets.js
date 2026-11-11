@@ -200,6 +200,8 @@ export class SegmentedToggle {
             style_class: 'gas-segmented-track',
             x_expand: true,
         });
+        if (this.actor.layout_manager)
+            this.actor.layout_manager.homogeneous = true;
 
         for (const opt of options) {
             const label = new St.Label({

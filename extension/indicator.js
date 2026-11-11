@@ -4,6 +4,7 @@ import GLib from 'gi://GLib';
 import GObject from 'gi://GObject';
 import St from 'gi://St';
 
+import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
@@ -33,6 +34,9 @@ class AgentStatusIndicator extends PanelMenu.Button {
         this._pillPool = [];
         this._settingsSigIds = [];
         this._menuSigIds = [];
+        this._selfSigIds = [];
+        this._themeContext = null;
+        this._themeContextSigId = 0;
 
         this._rootBox = createHBox({
             style_class: 'panel-status-menu-box gas-panel-box',
@@ -185,6 +189,52 @@ class AgentStatusIndicator extends PanelMenu.Button {
                     this._updateAutoHideVisibility();
             })
         );
+
+        this._selfSigIds.push(
+            this.connect('notify::mapped', () => {
+                if (!this._destroyed)
+                    this._syncPanelLuminanceClass();
+            }),
+            this.connect('destroy', () => {
+                this._cleanupResources(true);
+            })
+        );
+
+        try {
+            this._themeContext = St.ThemeContext.get_for_stage(global.stage);
+            if (this._themeContext) {
+                this._themeContextSigId = this._themeContext.connect('changed', () => {
+                    if (!this._destroyed)
+                        this._syncPanelLuminanceClass();
+                });
+            }
+        } catch (_e) {
+            this._themeContext = null;
+            this._themeContextSigId = 0;
+        }
+    }
+
+    _syncPanelLuminanceClass() {
+        try {
+            if (!Main.panel?.get_stage?.() || !Main.panel.mapped || !this._rootBox?.get_stage?.())
+                return;
+            const bg = Main.panel.get_theme_node().get_background_color();
+            if ((bg.alpha ?? 0) < 40) {
+                this._rootBox.remove_style_class_name('on-light-panel');
+                return;
+            }
+            const toLinear = c => {
+                const v = c / 255.0;
+                return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+            };
+            const lum = 0.2126 * toLinear(bg.red) + 0.7152 * toLinear(bg.green) + 0.0722 * toLinear(bg.blue);
+            if (lum > 0.45)
+                this._rootBox.add_style_class_name('on-light-panel');
+            else
+                this._rootBox.remove_style_class_name('on-light-panel');
+        } catch (_e) {
+            // Ignore before stage realization
+        }
     }
 
     handleReport(report) {
@@ -275,6 +325,7 @@ class AgentStatusIndicator extends PanelMenu.Button {
         else
             this._rootBox.remove_style_class_name('font-monospace');
 
+        this._syncPanelLuminanceClass();
         this._updateAutoHideVisibility();
 
         if (panelMode === 'compact-pills') {
@@ -393,20 +444,40 @@ class AgentStatusIndicator extends PanelMenu.Button {
             this._fullTextLabel.add_style_class_name('is-warning');
     }
 
-    destroy() {
-        if (this._destroyed) {
-            super.destroy();
+    _cleanupResources(fromDestroySignal = false) {
+        if (this._destroyed)
             return;
-        }
         this._destroyed = true;
 
         for (const sigId of this._settingsSigIds)
             this._settings.disconnect(sigId);
         this._settingsSigIds = [];
 
-        for (const sigId of this._menuSigIds)
-            this.menu.disconnect(sigId);
+        if (this.menu) {
+            for (const sigId of this._menuSigIds) {
+                try {
+                    this.menu.disconnect(sigId);
+                } catch (_e) {}
+            }
+        }
         this._menuSigIds = [];
+
+        if (!fromDestroySignal) {
+            for (const sigId of this._selfSigIds) {
+                try {
+                    this.disconnect(sigId);
+                } catch (_e) {}
+            }
+        }
+        this._selfSigIds = [];
+
+        if (this._themeContext && this._themeContextSigId !== 0) {
+            try {
+                this._themeContext.disconnect(this._themeContextSigId);
+            } catch (_e) {}
+            this._themeContextSigId = 0;
+        }
+        this._themeContext = null;
 
         if (this._popoverController) {
             this._popoverController.destroy();
@@ -415,6 +486,10 @@ class AgentStatusIndicator extends PanelMenu.Button {
 
         this._iconCache.clear();
         this._pillPool = [];
+    }
+
+    destroy() {
+        this._cleanupResources(false);
         super.destroy();
     }
 });

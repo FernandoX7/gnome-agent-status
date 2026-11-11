@@ -160,9 +160,12 @@ class ProviderCardWidget {
                 x_expand: true,
                 y_align: Clutter.ActorAlign.CENTER,
             });
+            if (row.layout_manager)
+                row.layout_manager.homogeneous = true;
             const cells = [0, 1].map(() => {
                 const cell = createHBox({
                     style_class: 'gas-bucket-inline-cell',
+                    x_expand: true,
                     y_align: Clutter.ActorAlign.CENTER,
                 });
                 const shortLabel = new St.Label({
@@ -581,9 +584,11 @@ export class MainUsagePage {
     setLoading(isLoading) {
         if (isLoading) {
             this._refreshBtn.add_style_class_name('is-loading');
+            this._refreshBtn.opacity = 140;
             this._subtitleLabel.set_text('updating…');
         } else {
             this._refreshBtn.remove_style_class_name('is-loading');
+            this._refreshBtn.opacity = 255;
             this._subtitleLabel.set_text('all agents');
         }
     }

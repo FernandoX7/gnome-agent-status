@@ -1,6 +1,7 @@
 import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
+import St from 'gi://St';
 
 import {
     containPopoverEvents,
@@ -51,8 +52,14 @@ export class PopoverController {
 
         this._countdownTimerId = 0;
         this._settingsSigIds = [];
+        this._desktopSigIds = [];
         this._menuSigIds = [];
+        this._menuActorSigIds = [];
         this._rootSigIds = [];
+        this._rootDisposed = false;
+        this._menuActorDisposed = false;
+        this._themeContext = null;
+        this._themeContextSigId = 0;
 
         this._rootBox = createVBox({
             style_class: 'gas-popover theme-midnight-slate',
@@ -60,7 +67,11 @@ export class PopoverController {
         });
         this._rootSigIds.push(...containPopoverEvents(this._rootBox));
         this._rootSigIds.push(
-            this._rootBox.connect('key-press-event', (_actor, event) => this._onKeyPress(event))
+            this._rootBox.connect('key-press-event', (_actor, event) => this._onKeyPress(event)),
+            this._rootBox.connect('destroy', () => {
+                this._rootDisposed = true;
+                this.destroy();
+            })
         );
 
         const isMenuOpen = () => Boolean(this._menu?.isOpen);
@@ -151,6 +162,37 @@ export class PopoverController {
                     this._onMenuClosed();
             })
         );
+
+        if (this._menu.actor) {
+            this._menuActorSigIds.push(
+                this._menu.actor.connect('captured-event', (_actor, event) => {
+                    if (this._destroyed || event.type() !== Clutter.EventType.KEY_PRESS)
+                        return Clutter.EVENT_PROPAGATE;
+                    return this._onKeyPress(event);
+                }),
+                this._menu.actor.connect('destroy', () => {
+                    this._menuActorDisposed = true;
+                    this.destroy();
+                })
+            );
+        }
+
+        try {
+            this._themeContext = St.ThemeContext.get_for_stage(global.stage);
+            if (this._themeContext) {
+                this._themeContextSigId = this._themeContext.connect('changed', () => {
+                    if (!this._destroyed) {
+                        this._syncRootClasses();
+                        this._refreshViews();
+                    }
+                });
+            }
+        } catch (_e) {
+            this._themeContext = null;
+            this._themeContextSigId = 0;
+        }
+
+        this._syncRootClasses();
     }
 
     _connectSettings() {
@@ -174,11 +216,55 @@ export class PopoverController {
                 })
             );
         }
+
+        if (this._desktopSettings) {
+            for (const dKey of ['color-scheme', 'gtk-theme']) {
+                try {
+                    this._desktopSigIds.push(
+                        this._desktopSettings.connect(`changed::${dKey}`, () => {
+                            if (this._destroyed)
+                                return;
+                            this._syncRootClasses();
+                            this._refreshViews();
+                        })
+                    );
+                } catch (_e) {
+                    // Ignore missing desktop schema keys
+                }
+            }
+        }
     }
 
     _getThemeId() {
         const raw = this._settings.get_string('theme') || 'midnight-slate';
         return THEME_BY_ID[raw] ? raw : 'midnight-slate';
+    }
+
+    _isLightHostSurface() {
+        try {
+            if (this._menu?.box?.get_stage?.() && this._menu.box.mapped) {
+                const bg = this._menu.box.get_theme_node().get_background_color();
+                if ((bg.alpha ?? 0) >= 30) {
+                    const toLinear = c => {
+                        const v = c / 255.0;
+                        return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+                    };
+                    const lum =
+                        0.2126 * toLinear(bg.red) +
+                        0.7152 * toLinear(bg.green) +
+                        0.0722 * toLinear(bg.blue);
+                    return lum > 0.45;
+                }
+            }
+        } catch (_e) {
+            // Fall through to desktop color-scheme preference
+        }
+
+        try {
+            return this._desktopSettings?.get_string('color-scheme') === 'prefer-light';
+        } catch (_e) {
+            return false;
+        }
     }
 
     _syncRootClasses() {
@@ -206,6 +292,11 @@ export class PopoverController {
                     this._menu.box.remove_style_class_name(cls);
             }
         }
+
+        if (themeId === 'system' && this._isLightHostSurface())
+            this._rootBox.add_style_class_name('is-light-surface');
+        else
+            this._rootBox.remove_style_class_name('is-light-surface');
     }
 
     _onKeyPress(event) {
@@ -232,9 +323,23 @@ export class PopoverController {
         return this._mainPage.actor;
     }
 
+    _restorePageFocus(pageName) {
+        if (!this._menu?.isOpen)
+            return;
+        if (pageName === 'detail')
+            this._detailPage.focusBackButton();
+        else if (pageName === 'options')
+            this._optionsPage.focusBackButton();
+        else
+            this._mainPage._optionsBtn?.grab_key_focus?.();
+    }
+
     navigateTo(pageName, {animate = true} = {}) {
         if (this._destroyed || pageName === this._activePageName)
             return;
+
+        const currentFocus = global.stage?.get_key_focus?.();
+        const hadFocusInside = Boolean(currentFocus && this._rootBox.contains(currentFocus));
 
         const outgoing = this._getPageActor(this._activePageName);
         const incoming = this._getPageActor(pageName);
@@ -246,14 +351,21 @@ export class PopoverController {
             outgoing.hide();
             incoming.opacity = 255;
             incoming.show();
+            if (hadFocusInside)
+                this._restorePageFocus(pageName);
             this._repaintActivePageBars();
             return;
         }
 
         crossfadePages(outgoing, incoming, this._desktopSettings, () => {
-            if (!this._destroyed)
+            if (!this._destroyed) {
+                if (hadFocusInside)
+                    this._restorePageFocus(pageName);
                 this._repaintActivePageBars();
+            }
         });
+        if (hadFocusInside)
+            this._restorePageFocus(pageName);
         this._repaintActivePageBars();
     }
 
@@ -280,6 +392,7 @@ export class PopoverController {
     }
 
     _onMenuOpened() {
+        this._syncRootClasses();
         this._refreshViews();
         this._repaintActivePageBars();
         this._startCountdownTicker();
@@ -384,18 +497,50 @@ export class PopoverController {
             this._settings.disconnect(sigId);
         this._settingsSigIds = [];
 
+        if (this._desktopSettings) {
+            for (const sigId of this._desktopSigIds)
+                this._desktopSettings.disconnect(sigId);
+        }
+        this._desktopSigIds = [];
+
         if (this._menu) {
-            for (const sigId of this._menuSigIds)
-                this._menu.disconnect(sigId);
+            for (const sigId of this._menuSigIds) {
+                try {
+                    this._menu.disconnect(sigId);
+                } catch (_e) {}
+            }
+            if (this._menu.actor && !this._menuActorDisposed) {
+                for (const sigId of this._menuActorSigIds) {
+                    try {
+                        this._menu.actor.disconnect(sigId);
+                    } catch (_e) {}
+                }
+            }
         }
         this._menuSigIds = [];
+        this._menuActorSigIds = [];
 
-        for (const sigId of this._rootSigIds)
-            this._rootBox.disconnect(sigId);
+        if (this._themeContext && this._themeContextSigId) {
+            try {
+                this._themeContext.disconnect(this._themeContextSigId);
+            } catch (_e) {}
+        }
+        this._themeContextSigId = 0;
+        this._themeContext = null;
+
+        if (this._rootBox && !this._rootDisposed) {
+            for (const sigId of this._rootSigIds) {
+                try {
+                    this._rootBox.disconnect(sigId);
+                } catch (_e) {}
+            }
+        }
         this._rootSigIds = [];
 
-        this._mainPage.destroy();
-        this._detailPage.destroy();
+        if (!this._rootDisposed) {
+            this._mainPage.destroy();
+            this._detailPage.destroy();
+        }
         this._desktopSettings = null;
     }
 }
