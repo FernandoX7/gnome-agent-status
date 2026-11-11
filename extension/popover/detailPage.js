@@ -3,6 +3,7 @@ import Pango from 'gi://Pango';
 import St from 'gi://St';
 
 import {
+    _,
     connectInteractiveButton,
     createHBox,
     createVBox,
@@ -19,6 +20,7 @@ import {
 } from '../format.js';
 import {
     CapsuleBar,
+    SparklineChart,
     applySeverityClass,
     createFooterRowButton,
 } from './widgets.js';
@@ -277,9 +279,16 @@ export class ProviderDetailPage {
             style_class: 'gas-back-chevron',
         });
         this._headerBrandIcon = new St.Icon({
-            icon_size: 16,
+            icon_size: 14,
+            x_align: Clutter.ActorAlign.CENTER,
             y_align: Clutter.ActorAlign.CENTER,
             style_class: 'gas-brand-icon',
+        });
+        this._headerAvatarBin = new St.Bin({
+            style_class: 'gas-avatar-ring gas-avatar-ring-xs',
+            x_align: Clutter.ActorAlign.CENTER,
+            y_align: Clutter.ActorAlign.CENTER,
+            child: this._headerBrandIcon,
         });
         this._headerTitleLabel = new St.Label({
             text: '',
@@ -287,20 +296,20 @@ export class ProviderDetailPage {
             style_class: 'gas-detail-title',
         });
         backInner.add_child(backChevron);
-        backInner.add_child(this._headerBrandIcon);
+        backInner.add_child(this._headerAvatarBin);
         backInner.add_child(this._headerTitleLabel);
 
         this._backBtn = new St.Button({
             style_class: 'gas-back-btn',
             can_focus: true,
             track_hover: true,
-            accessible_name: 'Back to All Agents (Esc)',
+            accessible_name: _('Back to All Agents (Esc)'),
             child: backInner,
         });
         connectInteractiveButton(this._backBtn, () => {
             onBack();
         });
-        this._tooltips?.attach(this._backBtn, 'Back to All Agents (Esc)');
+        this._tooltips?.attach(this._backBtn, _('Back to All Agents (Esc)'));
 
         const headerSpacer = new St.Widget({x_expand: true});
 
@@ -362,6 +371,11 @@ export class ProviderDetailPage {
             x_expand: true,
         });
 
+        this._sparklineChart = new SparklineChart({
+            height: 36,
+            isMenuOpen: this._isMenuOpen,
+        });
+
         this._heroEmptyNote = new St.Label({
             text: '',
             style_class: 'gas-hero-empty-note',
@@ -378,6 +392,7 @@ export class ProviderDetailPage {
 
         this._heroCard.add_child(heroHeaderRow);
         this._heroCard.add_child(this._heroBucketsBox);
+        this._heroCard.add_child(this._sparklineChart.actor);
         this._heroCard.add_child(this._heroEmptyNote);
         this._heroCard.add_child(this._heroCreditsLabel);
 
@@ -701,6 +716,11 @@ export class ProviderDetailPage {
             this._heroBucketPool[i].block.hide();
 
         this._heroBucketsBox.visible = heroBuckets.length > 0;
+        this._sparklineChart.update({
+            points: activeAcc?.sparkline,
+            metricMode,
+            themeId,
+        });
 
         if (heroBuckets.length === 0) {
             const emptyMsg = activeAcc?.error ||
@@ -790,11 +810,42 @@ export class ProviderDetailPage {
         this._backBtn?.grab_key_focus?.();
     }
 
+    handleKeyPress(event) {
+        const symbol = event.get_key_symbol();
+        if (symbol !== Clutter.KEY_Down && symbol !== Clutter.KEY_Up)
+            return Clutter.EVENT_PROPAGATE;
+
+        const focusables = [];
+        if (this._sysDefaultBtn?.visible)
+            focusables.push(this._sysDefaultBtn);
+        for (const rowWidget of this._accountRowPool) {
+            if (rowWidget.actor?.visible)
+                focusables.push(rowWidget.actor);
+        }
+        if (focusables.length === 0)
+            return Clutter.EVENT_PROPAGATE;
+
+        const currentFocus = global.stage?.get_key_focus?.() ?? null;
+        const curIdx = focusables.indexOf(currentFocus);
+        let nextIdx;
+        if (curIdx === -1) {
+            nextIdx = symbol === Clutter.KEY_Down ? 0 : focusables.length - 1;
+        } else if (symbol === Clutter.KEY_Down) {
+            nextIdx = (curIdx + 1) % focusables.length;
+        } else {
+            nextIdx = (curIdx - 1 + focusables.length) % focusables.length;
+        }
+
+        focusables[nextIdx]?.grab_key_focus?.();
+        return Clutter.EVENT_STOP;
+    }
+
     repaintBars() {
         for (const slot of this._heroBucketPool) {
             if (slot.block.visible)
                 slot.bar.repaintIfOpen();
         }
+        this._sparklineChart.repaintIfOpen();
         for (const rowWidget of this._accountRowPool) {
             if (rowWidget.actor.visible)
                 rowWidget.repaintBars();
@@ -802,6 +853,7 @@ export class ProviderDetailPage {
     }
 
     destroy() {
+        this._sparklineChart.destroy();
         for (const slot of this._heroBucketPool)
             slot.bar.destroy();
         this._heroBucketPool = [];

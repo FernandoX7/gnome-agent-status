@@ -3,33 +3,40 @@ import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import St from 'gi://St';
 
+import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+
 import {
     connectSettingChangedSafe,
     containPopoverEvents,
     createDesktopInterfaceSettings,
     createVBox,
     crossfadePages,
+    getSettingStringSafe,
     getSettingStrvSafe,
 } from '../compat.js';
 import {
+    DEFAULT_HIDDEN_PROVIDERS,
     DEFAULT_PROVIDER_ORDER,
     THEME_BY_ID,
     THEME_PRESETS,
     filterVisibleProviders,
     normalizeStatusReport,
+    resolveEffectivePopoverLayout,
     sortProvidersByOrder,
 } from '../format.js';
 import {ProviderDetailPage} from './detailPage.js';
 import {MainUsagePage} from './mainPage.js';
 import {QuickOptionsPage} from './optionsPage.js';
+import {ThemesPage} from './themesPage.js';
 import {PopoverTooltipManager} from './widgets.js';
 
 const COUNTDOWN_TICK_SECONDS = 60;
 
 /**
- * Orchestrates the 3-page (`main`, `detail`, `options`) fixed-width (`352px`) popover,
- * theme & font class switching, `130ms` opacity crossfades (or `0ms` reduced-motion),
- * keyboard Escape/Back navigation, and an open-only 60s countdown timer.
+ * Orchestrates the 4-page (`main`, `detail`, `options`, `themes`) popover
+ * (`352px` compact list or `688px` wide 2-column Bento grid), 24-theme & font
+ * class switching, `130ms` opacity crossfades (`0ms` reduced-motion), keyboard
+ * `Escape`/`BackSpace`/arrow navigation, and an open-only 60s countdown timer.
  */
 export class PopoverController {
     /**
@@ -49,6 +56,8 @@ export class PopoverController {
         this._menu = null;
         this._activePageName = 'main';
         this._selectedProviderId = null;
+        this._isLightSurface = false;
+        this._isWideGrid = false;
 
         this._rawReport = null;
         this._report = null;
@@ -94,6 +103,9 @@ export class PopoverController {
             tooltips: this._tooltips,
             onRefresh: () => {
                 void this._backend.collect(true);
+            },
+            onCopySummary: () => {
+                this._indicator.copyUsageSummaryToClipboard();
             },
             onOpenOptions: () => {
                 this.navigateTo('options');
@@ -147,15 +159,34 @@ export class PopoverController {
             onBack: () => {
                 this.navigateTo('main');
             },
+            onOpenThemes: () => {
+                this.navigateTo('themes');
+            },
+            onLayoutChanged: () => {
+                this._syncRootClasses();
+                if (this._menu?.isOpen) {
+                    this._refreshViews();
+                    this._repaintActivePageBars();
+                }
+            },
             onOpenPreferences: () => {
                 this._menu?.close();
                 this._indicator.openExtensionPreferences();
             },
         });
 
+        this._themesPage = new ThemesPage({
+            settings: this._settings,
+            tooltips: this._tooltips,
+            onBack: () => {
+                this.navigateTo('options');
+            },
+        });
+
         this._rootBox.add_child(this._mainPage.actor);
         this._rootBox.add_child(this._detailPage.actor);
         this._rootBox.add_child(this._optionsPage.actor);
+        this._rootBox.add_child(this._themesPage.actor);
 
         this._connectSettings();
         this._syncRootClasses();
@@ -197,8 +228,10 @@ export class PopoverController {
                 this._themeContextSigId = this._themeContext.connect('changed', () => {
                     if (!this._destroyed) {
                         this._syncRootClasses();
-                        if (this._menu?.isOpen)
+                        if (this._menu?.isOpen) {
                             this._refreshViews();
+                            this._repaintActivePageBars();
+                        }
                     }
                 });
             }
@@ -227,24 +260,33 @@ export class PopoverController {
                         return;
                     this._syncRootClasses();
                     this._optionsPage.syncFromSettings();
-                    if (this._menu?.isOpen)
+                    this._themesPage.syncFromSettings();
+                    if (this._menu?.isOpen) {
                         this._refreshViews();
+                        this._repaintActivePageBars();
+                    }
                 })
             );
         }
 
-        const orderSigId = connectSettingChangedSafe(
-            this._settings,
-            'provider-order',
-            () => {
-                if (this._destroyed)
-                    return;
-                if (this._menu?.isOpen)
-                    this._refreshViews();
-            }
-        );
-        if (orderSigId)
-            this._settingsSigIds.push(orderSigId);
+        for (const optKey of ['provider-order', 'popover-layout']) {
+            const sigId = connectSettingChangedSafe(
+                this._settings,
+                optKey,
+                () => {
+                    if (this._destroyed)
+                        return;
+                    this._syncRootClasses();
+                    this._optionsPage.syncFromSettings();
+                    if (this._menu?.isOpen) {
+                        this._refreshViews();
+                        this._repaintActivePageBars();
+                    }
+                }
+            );
+            if (sigId)
+                this._settingsSigIds.push(sigId);
+        }
 
         if (this._desktopSettings) {
             for (const dKey of ['color-scheme', 'gtk-theme']) {
@@ -254,8 +296,10 @@ export class PopoverController {
                             if (this._destroyed)
                                 return;
                             this._syncRootClasses();
-                            if (this._menu?.isOpen)
+                            if (this._menu?.isOpen) {
                                 this._refreshViews();
+                                this._repaintActivePageBars();
+                            }
                         })
                     );
                 } catch (_e) {
@@ -270,10 +314,38 @@ export class PopoverController {
         return THEME_BY_ID[raw] ? raw : 'midnight-slate';
     }
 
+    _getEffectiveCairoThemeId() {
+        const themeId = this._getThemeId();
+        if (themeId === 'system' && this._isLightSurface)
+            return 'system-light';
+        return themeId;
+    }
+
     _isLightHostSurface() {
         try {
-            if (this._menu?.box?.get_stage?.() && this._menu.box.mapped) {
-                const bg = this._menu.box.get_theme_node().get_background_color();
+            const scheme = this._desktopSettings?.get_string('color-scheme') || '';
+            if (scheme === 'prefer-light')
+                return true;
+            if (scheme === 'prefer-dark')
+                return false;
+        } catch (_e) {
+            // Continue to gtk-theme / host menu inspection
+        }
+
+        try {
+            const gtkTheme = (this._desktopSettings?.get_string('gtk-theme') || '').toLowerCase();
+            if (gtkTheme.endsWith('-dark') || gtkTheme.includes(':dark'))
+                return false;
+            if (gtkTheme.endsWith('-light') || gtkTheme.includes(':light'))
+                return true;
+        } catch (_e) {
+            // Continue to unstripped context menu inspection
+        }
+
+        try {
+            const refBox = this._indicator?._contextMenu?.box;
+            if (refBox?.get_stage?.()) {
+                const bg = refBox.get_theme_node().get_background_color();
                 if ((bg.alpha ?? 0) >= 30) {
                     const toLinear = c => {
                         const v = c / 255.0;
@@ -287,14 +359,42 @@ export class PopoverController {
                 }
             }
         } catch (_e) {
-            // Fall through to desktop color-scheme preference
+            // Default to dark Shell surface
         }
 
+        return false;
+    }
+
+    _getMonitorWidth() {
         try {
-            return this._desktopSettings?.get_string('color-scheme') === 'prefer-light';
-        } catch (_e) {
-            return false;
-        }
+            const mon = Main.layoutManager?.findMonitorForActor?.(this._indicator) ??
+                Main.layoutManager?.primaryMonitor ??
+                null;
+            if (mon && typeof mon.width === 'number' && mon.width > 0)
+                return mon.width;
+        } catch (_e) {}
+        return 1920;
+    }
+
+    _applyWideGridState(visibleCount) {
+        const layoutSetting = getSettingStringSafe(this._settings, 'popover-layout', 'list');
+        const effective = resolveEffectivePopoverLayout(
+            layoutSetting,
+            visibleCount,
+            this._getMonitorWidth()
+        );
+        const allowWideOnPage =
+            this._activePageName === 'main' || this._activePageName === 'themes';
+        const isWide = allowWideOnPage && effective === 'grid';
+        this._isWideGrid = isWide;
+
+        if (isWide)
+            this._rootBox.add_style_class_name('is-wide-grid');
+        else
+            this._rootBox.remove_style_class_name('is-wide-grid');
+
+        this._themesPage?.setWideGrid(isWide);
+        return isWide;
     }
 
     _syncRootClasses() {
@@ -313,17 +413,8 @@ export class PopoverController {
         else
             this._rootBox.remove_style_class_name('font-monospace');
 
-        if (this._menu?.box) {
-            for (const preset of THEME_PRESETS) {
-                const cls = `gas-host-${preset.id}`;
-                if (preset.id === themeId)
-                    this._menu.box.add_style_class_name(cls);
-                else
-                    this._menu.box.remove_style_class_name(cls);
-            }
-        }
-
         const isLightSurface = themeId === 'system' && this._isLightHostSurface();
+        this._isLightSurface = isLightSurface;
         if (isLightSurface)
             this._rootBox.add_style_class_name('is-light-surface');
         else
@@ -337,16 +428,30 @@ export class PopoverController {
     }
 
     _onKeyPress(event) {
+        const symbol = event.get_key_symbol();
+
+        if (symbol === Clutter.KEY_Down || symbol === Clutter.KEY_Up) {
+            if (this._activePageName === 'main')
+                return this._mainPage.handleKeyPress(event);
+            if (this._activePageName === 'themes')
+                return this._themesPage.handleKeyPress(event);
+            if (this._activePageName === 'detail')
+                return this._detailPage.handleKeyPress(event);
+            return Clutter.EVENT_PROPAGATE;
+        }
+
         if (this._activePageName === 'main')
             return Clutter.EVENT_PROPAGATE;
 
-        const symbol = event.get_key_symbol();
         if (
             symbol === Clutter.KEY_BackSpace ||
             symbol === Clutter.KEY_Escape ||
             (symbol === Clutter.KEY_Left && (event.get_state() & Clutter.ModifierType.MOD1_MASK))
         ) {
-            this.navigateTo('main');
+            if (this._activePageName === 'themes')
+                this.navigateTo('options');
+            else
+                this.navigateTo('main');
             return Clutter.EVENT_STOP;
         }
         return Clutter.EVENT_PROPAGATE;
@@ -357,6 +462,8 @@ export class PopoverController {
             return this._detailPage.actor;
         if (pageName === 'options')
             return this._optionsPage.actor;
+        if (pageName === 'themes')
+            return this._themesPage.actor;
         return this._mainPage.actor;
     }
 
@@ -367,6 +474,8 @@ export class PopoverController {
             this._detailPage.focusBackButton();
         else if (pageName === 'options')
             this._optionsPage.focusBackButton();
+        else if (pageName === 'themes')
+            this._themesPage.focusBackButton();
         else
             this._mainPage._optionsBtn?.grab_key_focus?.();
     }
@@ -433,6 +542,7 @@ export class PopoverController {
     }
 
     _onMenuOpened() {
+        this._mainPage.resetDisclosureOnOpen();
         this._syncRootClasses();
         this._refreshViews();
         this._repaintActivePageBars();
@@ -498,8 +608,12 @@ export class PopoverController {
         const metricMode = this._settings.get_string('metric-mode') === 'remaining'
             ? 'remaining'
             : 'used';
-        const themeId = this._getThemeId();
-        const hiddenIds = this._settings.get_strv('hidden-providers') ?? [];
+        const cairoThemeId = this._getEffectiveCairoThemeId();
+        const hiddenIds = getSettingStrvSafe(
+            this._settings,
+            'hidden-providers',
+            DEFAULT_HIDDEN_PROVIDERS
+        );
         const orderIds = getSettingStrvSafe(
             this._settings,
             'provider-order',
@@ -511,12 +625,15 @@ export class PopoverController {
             orderIds
         );
 
+        const isWideGrid = this._applyWideGridState(visibleProviders.length);
+
         this._mainPage.update({
             visibleProviders,
             errorMessage: this._errorMessage,
             densityMode,
             metricMode,
-            themeId,
+            themeId: cairoThemeId,
+            isWideGrid,
             nowEpoch,
         });
 
@@ -527,7 +644,7 @@ export class PopoverController {
                     provider: target,
                     reportUpdatedEpoch: this._report?.updated_at_epoch || 0,
                     metricMode,
-                    themeId,
+                    themeId: cairoThemeId,
                     nowEpoch,
                 });
             } else if (this._report) {
@@ -591,8 +708,10 @@ export class PopoverController {
             this._mainPage?.actor?.remove_all_transitions?.();
             this._detailPage?.actor?.remove_all_transitions?.();
             this._optionsPage?.actor?.remove_all_transitions?.();
+            this._themesPage?.actor?.remove_all_transitions?.();
             this._mainPage.destroy();
             this._detailPage.destroy();
+            this._themesPage.destroy();
         }
         this._tooltips?.destroy();
         this._tooltips = null;

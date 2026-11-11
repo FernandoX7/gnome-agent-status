@@ -5,14 +5,18 @@ import St from 'gi://St';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
 import {
+    _,
     areAnimationsEnabled,
     connectInteractiveButton,
     createHBox,
+    createVBox,
 } from '../compat.js';
 import {
     THEME_PRESETS,
     getBarFillRgba,
     getThemePalette,
+    hexToRgba,
+    normalizeSparklinePoints,
 } from '../format.js';
 
 /**
@@ -141,6 +145,172 @@ export class CapsuleBar {
 }
 
 /**
+ * 7-day usage trend Cairo sparkline (`St.DrawingArea`) for the Provider Drill-Down Hero Card.
+ *
+ * Guardrails enforced:
+ * - Every `'repaint'` callback wraps drawing in `try { ... } finally { cr.$dispose(); }`
+ * - `queue_repaint()` is strictly gated on `isMenuOpen()` so closed popovers never wake Mutter
+ * - Automatically hides itself when fewer than 2 valid data points exist
+ */
+export class SparklineChart {
+    /**
+     * @param {{
+     *   height?: number,
+     *   isMenuOpen: () => boolean
+     * }} params
+     */
+    constructor({height = 36, isMenuOpen}) {
+        this._isMenuOpen = isMenuOpen;
+        this._series = null;
+        this._themeId = 'midnight-slate';
+
+        this.actor = createVBox({
+            style_class: 'gas-sparkline-block',
+            x_expand: true,
+            visible: false,
+        });
+
+        const headerRow = createHBox({
+            style_class: 'gas-sparkline-header',
+            x_expand: true,
+            y_align: Clutter.ActorAlign.CENTER,
+        });
+        this._titleLabel = new St.Label({
+            text: _('7-Day Trend'),
+            x_expand: true,
+            x_align: Clutter.ActorAlign.START,
+            y_align: Clutter.ActorAlign.CENTER,
+            style_class: 'gas-sparkline-title',
+        });
+        this._metaLabel = new St.Label({
+            text: '',
+            x_align: Clutter.ActorAlign.END,
+            y_align: Clutter.ActorAlign.CENTER,
+            style_class: 'gas-sparkline-meta',
+        });
+        headerRow.add_child(this._titleLabel);
+        headerRow.add_child(this._metaLabel);
+
+        this._drawingArea = new St.DrawingArea({
+            style_class: 'gas-sparkline-area',
+            x_expand: true,
+            height,
+        });
+        this._repaintSigId = this._drawingArea.connect('repaint', area => {
+            this._onRepaint(area);
+        });
+
+        this.actor.add_child(headerRow);
+        this.actor.add_child(this._drawingArea);
+    }
+
+    _onRepaint(area) {
+        const cr = area.get_context();
+        try {
+            const [w, h] = area.get_surface_size();
+            if (w <= 4 || h <= 4 || !this._series || this._series.points.length < 2)
+                return;
+
+            const palette = getThemePalette(this._themeId);
+            const guideRgba = palette.heroTrackRgba;
+            const strokeRgba = this._series.severity === 'normal'
+                ? hexToRgba(palette.accentHex, 1.0)
+                : getBarFillRgba(this._series.severity, this._themeId);
+            const fillAlpha = palette.isLight ? 0.16 : 0.20;
+
+            const padX = 4;
+            const padY = 4;
+            const plotW = Math.max(2, w - padX * 2);
+            const plotH = Math.max(2, h - padY * 2);
+            const baseY = padY + plotH;
+
+            // Subtle baseline & mid-height reference hairline
+            cr.setLineWidth(1);
+            cr.setSourceRGBA(guideRgba[0], guideRgba[1], guideRgba[2], 0.55);
+            cr.moveTo(padX, Math.round(padY + plotH / 2) + 0.5);
+            cr.lineTo(padX + plotW, Math.round(padY + plotH / 2) + 0.5);
+            cr.moveTo(padX, Math.round(baseY) - 0.5);
+            cr.lineTo(padX + plotW, Math.round(baseY) - 0.5);
+            cr.stroke();
+
+            const coords = this._series.points.map(pt => ({
+                x: padX + pt.xNorm * plotW,
+                y: padY + pt.yNorm * plotH,
+            }));
+
+            // Soft under-curve area fill
+            cr.newPath();
+            cr.moveTo(coords[0].x, baseY);
+            for (const c of coords)
+                cr.lineTo(c.x, c.y);
+            cr.lineTo(coords[coords.length - 1].x, baseY);
+            cr.closePath();
+            cr.setSourceRGBA(strokeRgba[0], strokeRgba[1], strokeRgba[2], fillAlpha);
+            cr.fill();
+
+            // Crisp anti-aliased trend polyline
+            cr.newPath();
+            cr.setLineWidth(1.75);
+            cr.setLineCap(1);
+            cr.setLineJoin(1);
+            cr.moveTo(coords[0].x, coords[0].y);
+            for (let i = 1; i < coords.length; i++)
+                cr.lineTo(coords[i].x, coords[i].y);
+            cr.setSourceRGBA(strokeRgba[0], strokeRgba[1], strokeRgba[2], strokeRgba[3]);
+            cr.stroke();
+
+            // Latest point indicator dot
+            const last = coords[coords.length - 1];
+            cr.newPath();
+            cr.arc(last.x, last.y, 2.5, 0, Math.PI * 2);
+            cr.setSourceRGBA(strokeRgba[0], strokeRgba[1], strokeRgba[2], 1.0);
+            cr.fill();
+        } finally {
+            cr.$dispose();
+        }
+    }
+
+    /**
+     * Updates the sparkline series and queues a repaint when visible & open.
+     *
+     * @param {{
+     *   points: Array<{ts: number, used: number}>|null|undefined,
+     *   metricMode?: 'used'|'remaining',
+     *   themeId?: string
+     * }} params
+     * @returns {boolean} `true` when >= 2 points exist and chart is visible
+     */
+    update({points, metricMode = 'used', themeId = 'midnight-slate'}) {
+        const normalized = normalizeSparklinePoints(points, metricMode);
+        if (!normalized) {
+            this._series = null;
+            this.actor.hide();
+            return false;
+        }
+
+        this._series = normalized;
+        this._themeId = themeId || 'midnight-slate';
+        this._titleLabel.set_text(_('7-Day Trend'));
+        this._metaLabel.set_text(normalized.summaryText);
+        this.actor.show();
+        this.repaintIfOpen();
+        return true;
+    }
+
+    repaintIfOpen() {
+        if (this._isMenuOpen?.() && this.actor.visible && this._drawingArea.visible)
+            this._drawingArea.queue_repaint();
+    }
+
+    destroy() {
+        if (this._repaintSigId) {
+            this._drawingArea.disconnect(this._repaintSigId);
+            this._repaintSigId = 0;
+        }
+    }
+}
+
+/**
  * Circular brand icon avatar badge (`28px` regular or `24px` compact) preserving full SVG colors.
  */
 export class BrandAvatar {
@@ -210,7 +380,7 @@ export class SegmentedToggle {
 
         for (const opt of options) {
             const label = new St.Label({
-                text: opt.label,
+                text: _(opt.label),
                 x_align: Clutter.ActorAlign.CENTER,
                 y_align: Clutter.ActorAlign.CENTER,
                 style_class: 'gas-segmented-label',
@@ -265,7 +435,7 @@ export function createFooterRowButton({title, trailingGlyph = '›', onActivate}
     });
 
     const label = new St.Label({
-        text: title,
+        text: _(title),
         x_expand: true,
         x_align: Clutter.ActorAlign.START,
         y_align: Clutter.ActorAlign.CENTER,
