@@ -83,9 +83,11 @@ export const TERMINAL_CANDIDATES = Object.freeze([
     'ptyxis',
     'kgx',
     'gnome-terminal',
+    'x-terminal-emulator',
     'kitty',
     'alacritty',
     'ghostty',
+    'foot',
 ]);
 
 /**
@@ -753,19 +755,27 @@ export function buildConfigUpsertArgs(spec) {
  */
 export function buildTerminalArgv(terminalBinary, loginCommand) {
     const baseName = String(terminalBinary || '').split('/').pop();
-    const safeCmd = String(loginCommand || '').trim() || 'echo "No login command configured"';
-    const interactiveScript = `${safeCmd}; printf '\\nPress Enter to close...'; read -r _`;
+    const rawCmd = String(loginCommand || '').trim();
+    let safeCmd = rawCmd || 'echo "No login command configured"';
+    if (safeCmd === 'agy auth login') {
+        safeCmd = 'if command -v agy >/dev/null 2>&1; then agy auth login; elif command -v antigravity >/dev/null 2>&1; then antigravity; else agy auth login; fi';
+    }
+    const pathBootstrap = 'export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$HOME/.grok/bin:$PATH"';
+    const interactiveScript = `${pathBootstrap}; ${safeCmd}; printf '\\nPress Enter to close...'; read -r _`;
 
     switch (baseName) {
     case 'ptyxis':
+        return [terminalBinary, '--new-window', '--', 'sh', '-c', interactiveScript];
     case 'kgx':
     case 'gnome-terminal':
+    case 'xdg-terminal-exec':
         return [terminalBinary, '--', 'sh', '-c', interactiveScript];
     case 'alacritty':
     case 'ghostty':
+    case 'x-terminal-emulator':
         return [terminalBinary, '-e', 'sh', '-c', interactiveScript];
     case 'kitty':
-    case 'xdg-terminal-exec':
+    case 'foot':
     default:
         return [terminalBinary, 'sh', '-c', interactiveScript];
     }

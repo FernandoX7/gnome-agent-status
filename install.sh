@@ -33,14 +33,20 @@ cp -f "${SCRIPT_DIR}"/extension/schemas/*.gschema.xml "${EXT_DEST}/schemas/"
 
 if command -v glib-compile-schemas >/dev/null 2>&1; then
     echo "==> Compiling GSettings schemas..."
-    glib-compile-schemas "${EXT_DEST}/schemas"
+    glib-compile-schemas --strict "${EXT_DEST}/schemas"
 else
     echo "    Warning: glib-compile-schemas not found; install glib2 development tools so extension preferences and GSettings can load."
 fi
 
 if command -v gnome-extensions >/dev/null 2>&1; then
-    echo "==> Enabling extension ${EXT_UUID}..."
-    gnome-extensions enable "${EXT_UUID}" || true
+    if gnome-extensions info "${EXT_UUID}" >/dev/null 2>&1; then
+        echo "==> Enabling extension ${EXT_UUID}..."
+        gnome-extensions enable "${EXT_UUID}" || true
+        echo "==> Done! If updating an already-loaded extension on Wayland, log out and back in to reload ES modules."
+    else
+        echo "==> Done! GNOME Shell (Wayland) discovers newly installed extensions at session login."
+        echo "    Log out and back in, then enable with: gnome-extensions enable ${EXT_UUID}"
+    fi
+else
+    echo "==> Done! Log out and back in so GNOME Shell discovers ${EXT_UUID}."
 fi
-
-echo "==> Done! Note: On Wayland, log out and back in if this is the first time installing the extension."

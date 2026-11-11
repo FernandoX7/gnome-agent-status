@@ -690,9 +690,14 @@ export class BackendClient {
         const cancellable = this._newCancellable();
         let chosenTerminal = null;
         try {
-            const pathDirs = (GLib.getenv('PATH') || '/usr/local/bin:/usr/bin:/bin')
-                .split(':')
-                .filter(Boolean);
+            const rawDirs = (GLib.getenv('PATH') || '').split(':').filter(Boolean);
+            const fallbackDirs = [
+                '/usr/local/bin',
+                '/usr/bin',
+                '/bin',
+                GLib.build_filenamev([GLib.get_home_dir(), '.local', 'bin']),
+            ];
+            const pathDirs = [...new Set([...rawDirs, ...fallbackDirs])];
 
             for (const termName of TERMINAL_CANDIDATES) {
                 for (const dir of pathDirs) {
@@ -712,6 +717,24 @@ export class BackendClient {
         if (this._destroyed || !chosenTerminal) {
             this._emitError('No supported terminal emulator found to run Sign in');
             return false;
+        }
+
+        // Resolve Debian/Ubuntu alternatives symlink (e.g. x-terminal-emulator -> ptyxis)
+        if (chosenTerminal.endsWith('/x-terminal-emulator')) {
+            let resolved = chosenTerminal;
+            for (let depth = 0; depth < 8; depth++) {
+                if (!GLib.file_test(resolved, GLib.FileTest.IS_SYMLINK))
+                    break;
+                try {
+                    const linkTarget = GLib.file_read_link(resolved);
+                    resolved = GLib.path_is_absolute(linkTarget)
+                        ? linkTarget
+                        : GLib.build_filenamev([GLib.path_get_dirname(resolved), linkTarget]);
+                } catch (_e) {
+                    break;
+                }
+            }
+            chosenTerminal = resolved;
         }
 
         try {
