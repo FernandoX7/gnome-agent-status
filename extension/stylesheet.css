@@ -1008,7 +1008,7 @@
 .gas-popover.theme-system.is-light-surface .gas-hero-card { background-color: rgba(0, 0, 0, 0.045); border-color: rgba(0, 0, 0, 0.12); }
 .gas-popover.theme-system.is-light-surface .gas-hero-tier-badge { background-color: rgba(26, 95, 180, 0.12); color: #1a5fb4; }
 .gas-popover.theme-system.is-light-surface .gas-hero-pace-pill { background-color: rgba(0, 0, 0, 0.055); border-color: rgba(0, 0, 0, 0.14); color: #4a505c; }
-.gas-popover.theme-system.is-light-surface .gas-hero-pace-pill.is-warning { background-color: rgba(154, 84, 0, 0.09); border-color: rgba(154, 84, 0, 0.28); color: #9a5400; }
+.gas-popover.theme-system.is-light-surface .gas-hero-pace-pill.is-warning { background-color: rgba(154, 84, 0, 0.09); border-color: rgba(154, 84, 0, 0.28); color: #884900; }
 .gas-popover.theme-system.is-light-surface .gas-hero-pace-pill.is-critical { background-color: rgba(201, 42, 42, 0.09); border-color: rgba(201, 42, 42, 0.28); color: #b82222; }
 .gas-popover.theme-system.is-light-surface .gas-hero-credits,
 .gas-popover.theme-system.is-light-surface .gas-extra-info-note { color: #1a5fb4; }
@@ -1239,7 +1239,7 @@
 .gas-popover.theme-gruvbox .gas-account-minibar-pct.is-warning { color: #fabd2f; }
 .gas-popover.theme-gruvbox .gas-bucket-pct.is-critical,
 .gas-popover.theme-gruvbox .gas-account-minibar-pct.is-critical { color: #ff634f; }
-.gas-popover.theme-gruvbox .gas-error-banner { background-color: rgba(255, 99, 79, 0.14); color: #ff634f; border: 1px solid rgba(255, 99, 79, 0.35); }
+.gas-popover.theme-gruvbox .gas-error-banner { background-color: rgba(255, 99, 79, 0.14); color: #ff8678; border: 1px solid rgba(255, 99, 79, 0.35); }
 .gas-popover.theme-gruvbox .gas-scroll-view StScrollBar StButton#vhandle,
 .gas-popover.theme-gruvbox .gas-scroll-view StScrollBar > .vhandle { background-color: #665c54; }
 
@@ -1379,7 +1379,7 @@
 .gas-popover.theme-nord .gas-account-minibar-pct.is-warning { color: #ebcb8b; }
 .gas-popover.theme-nord .gas-bucket-pct.is-critical,
 .gas-popover.theme-nord .gas-account-minibar-pct.is-critical { color: #ff6b74; }
-.gas-popover.theme-nord .gas-error-banner { background-color: rgba(191, 97, 106, 0.18); color: #ff8088; border: 1px solid rgba(191, 97, 106, 0.40); }
+.gas-popover.theme-nord .gas-error-banner { background-color: rgba(191, 97, 106, 0.18); color: #ff9ea4; border: 1px solid rgba(191, 97, 106, 0.40); }
 .gas-popover.theme-nord .gas-scroll-view StScrollBar StButton#vhandle,
 .gas-popover.theme-nord .gas-scroll-view StScrollBar > .vhandle { background-color: #4c566a; }
 
@@ -1449,6 +1449,6 @@
 .gas-popover.theme-everforest .gas-account-minibar-pct.is-warning { color: #dbbc7f; }
 .gas-popover.theme-everforest .gas-bucket-pct.is-critical,
 .gas-popover.theme-everforest .gas-account-minibar-pct.is-critical { color: #e67e80; }
-.gas-popover.theme-everforest .gas-error-banner { background-color: rgba(230, 126, 128, 0.16); color: #e67e80; border: 1px solid rgba(230, 126, 128, 0.35); }
+.gas-popover.theme-everforest .gas-error-banner { background-color: rgba(230, 126, 128, 0.16); color: #ff9a9c; border: 1px solid rgba(230, 126, 128, 0.35); }
 .gas-popover.theme-everforest .gas-scroll-view StScrollBar StButton#vhandle,
 .gas-popover.theme-everforest .gas-scroll-view StScrollBar > .vhandle { background-color: #56635f; }

@@ -201,20 +201,20 @@ class AgentStatusIndicator extends PanelMenu.Button {
                 this._toggleContextMenu();
             });
             this.add_action(this._secondaryClickGesture);
+        } else if (!this._clickGesture) {
+            this._selfSigIds.push(
+                this.connect('captured-event', (_actor, event) => {
+                    if (
+                        event.type() === Clutter.EventType.BUTTON_PRESS &&
+                        event.get_button() === Clutter.BUTTON_SECONDARY
+                    ) {
+                        this._toggleContextMenu();
+                        return Clutter.EVENT_STOP;
+                    }
+                    return Clutter.EVENT_PROPAGATE;
+                })
+            );
         }
-    }
-
-    vfunc_event(event) {
-        if (
-            !this._secondaryClickGesture &&
-            !this._clickGesture &&
-            event.type() === Clutter.EventType.BUTTON_PRESS &&
-            event.get_button() === Clutter.BUTTON_SECONDARY
-        ) {
-            this._toggleContextMenu();
-            return Clutter.EVENT_STOP;
-        }
-        return super.vfunc_event(event);
     }
 
     _buildContextMenu() {
