@@ -1,4 +1,5 @@
 pub mod cache;
+pub mod cli;
 pub mod config;
 pub mod http;
 pub mod model;
@@ -8,3 +9,6 @@ pub mod providers;
 pub mod reset;
 pub mod runner;
 pub mod text;
+
+#[cfg(test)]
+mod integration_tests;

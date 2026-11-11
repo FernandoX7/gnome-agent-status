@@ -442,9 +442,9 @@ struct AgyCliBucket {
     name: String,
     #[serde(default)]
     window: Option<String>,
-    #[serde(default)]
+    #[serde(default, alias = "remainingFraction")]
     remaining_fraction: Option<f64>,
-    #[serde(default)]
+    #[serde(default, alias = "resetTime")]
     reset_time: Option<String>,
 }
 

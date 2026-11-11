@@ -1,96 +1,40 @@
 use anyhow::{Context, Result};
 use clap::Parser;
-use gnome_agent_status::config::Config;
-use gnome_agent_status::model::StatusReport;
-use gnome_agent_status::{runner, text};
-use std::fs;
-use std::path::PathBuf;
-
-#[derive(Debug, Parser)]
-#[command(
-    name = "gnome-agent-status",
-    version,
-    about = "Queries usage limits for configured AI coding agents in parallel and prints JSON for the GNOME Shell extension."
-)]
-struct Cli {
-    /// Path to configuration file (TOML or JSON).
-    /// Defaults to ~/.config/gnome-agent-status/config.toml
-    #[arg(short, long)]
-    config: Option<PathBuf>,
-
-    /// Initialize default config file at ~/.config/gnome-agent-status/config.toml if missing
-    #[arg(long)]
-    init_config: bool,
-
-    /// Pretty-print the JSON output
-    #[arg(long)]
-    pretty: bool,
-
-    /// Print one status line per agent in plain text
-    #[arg(long)]
-    text: bool,
-
-    /// Add ANSI colors to plain-text output
-    #[arg(long)]
-    color: bool,
-}
+use gnome_agent_status::cli::{execute_cli, Cli, CliRuntime, Commands};
+use std::io::{self, Read};
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    if cli.init_config {
-        let target = cli
-            .config
-            .clone()
-            .unwrap_or_else(Config::default_config_path);
-        if let Some(parent) = target.parent() {
-            fs::create_dir_all(parent).with_context(|| {
-                format!("Failed to create config directory {}", parent.display())
-            })?;
-        }
-        if !target.exists() {
-            fs::write(&target, Config::sample_toml()).with_context(|| {
-                format!("Failed to write sample config to {}", target.display())
-            })?;
-            eprintln!("Created default config at {}", target.display());
-        } else {
-            eprintln!("Config already exists at {}", target.display());
-        }
-        return Ok(());
-    }
-
-    let cfg = match Config::load(cli.config.as_deref()) {
-        Ok(c) => c,
-        Err(err) => {
-            // Even if config fails to parse, emit valid JSON so the GNOME top bar can show the error cleanly
-            let fallback = StatusReport::config_error(format!("{:#}", err), 0);
-            let out = format_report(&fallback, &cli)?;
-            println!("{}", out);
-            return Ok(());
-        }
+    let stdin_owned = if matches!(cli.command, Some(Commands::IngestHook { .. })) {
+        let mut buf = String::new();
+        io::stdin()
+            .read_to_string(&mut buf)
+            .context("Failed to read statusLine JSON from stdin")?;
+        Some(buf)
+    } else {
+        None
     };
 
-    let report = runner::collect_status(&cfg);
-    let out = format_report(&report, &cli)?;
-    println!("{}", out);
+    let runtime = CliRuntime {
+        stdin_data: stdin_owned.as_deref(),
+        ..CliRuntime::default()
+    };
+
+    if let Some(output) = execute_cli(&cli, &runtime)? {
+        println!("{output}");
+    }
 
     Ok(())
-}
-
-fn format_report(report: &StatusReport, cli: &Cli) -> Result<String> {
-    if cli.text {
-        Ok(text::format_text(report, cli.color))
-    } else if cli.pretty {
-        Ok(serde_json::to_string_pretty(report)?)
-    } else {
-        Ok(serde_json::to_string(report)?)
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gnome_agent_status::model::{AgentStatusResult, OverallStatus, SummaryStats, SCHEMA_VERSION};
+    use gnome_agent_status::cli::format_report;
+    use gnome_agent_status::model::{
+        AgentStatusResult, OverallStatus, StatusReport, SummaryStats, SCHEMA_VERSION,
+    };
 
     #[test]
     fn test_cli_text_overrides_pretty() {

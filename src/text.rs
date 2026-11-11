@@ -1,9 +1,13 @@
 use chrono::{DateTime, Local, TimeZone, Utc};
 
-use crate::model::{AgentStatusResult, StatusReport};
+use crate::model::{
+    AccountReport, AccountState, AgentStatusResult, CreditSummary, ProviderReport, StatusReport,
+    UsageBucket,
+};
 use crate::reset;
 
 const MAX_MESSAGE_CHARS: usize = 80;
+const MAX_BUCKETS_CHARS: usize = 96;
 
 const ANSI_RED: &str = "\x1b[31m";
 const ANSI_GREEN: &str = "\x1b[32m";
@@ -13,14 +17,18 @@ const ANSI_RESET: &str = "\x1b[0m";
 struct RowData {
     name: String,
     pct: String,
+    buckets: String,
     reset: String,
     message: String,
     used_percent: Option<u8>,
     is_error: bool,
 }
 
-/// Formats a status report as aligned plain-text lines, one line per agent.
-/// Reset times show in ISO 8601 in the local time zone.
+/// Formats a status report as aligned plain-text lines.
+///
+/// Uses the hierarchical v2 `providers` table (with plan badges, active multi-account labels,
+/// and secondary bucket/credit summaries) when `report.providers` is populated, and falls back
+/// to the legacy `agents` table when `report.providers` is empty.
 pub fn format_text(report: &StatusReport, color: bool) -> String {
     format_text_in(report, color, Utc::now(), &Local)
 }
@@ -35,15 +43,23 @@ fn format_text_in<T: TimeZone>(
 where
     T::Offset: std::fmt::Display,
 {
-    if report.agents.is_empty() {
+    if report.providers.is_empty() && report.agents.is_empty() {
         return "No agents configured".to_string();
     }
 
-    let rows: Vec<RowData> = report
-        .agents
-        .iter()
-        .map(|agent| build_row(agent, now, tz))
-        .collect();
+    let rows: Vec<RowData> = if !report.providers.is_empty() {
+        report
+            .providers
+            .iter()
+            .map(|provider| build_provider_row(provider, now, tz))
+            .collect()
+    } else {
+        report
+            .agents
+            .iter()
+            .map(|agent| build_legacy_row(agent, now, tz))
+            .collect()
+    };
 
     let name_width = rows
         .iter()
@@ -55,6 +71,11 @@ where
         .map(|r| r.pct.chars().count())
         .max()
         .unwrap_or(0);
+    let buckets_width = rows
+        .iter()
+        .map(|r| r.buckets.chars().count())
+        .max()
+        .unwrap_or(0);
     let reset_width = rows
         .iter()
         .map(|r| r.reset.chars().count())
@@ -62,12 +83,141 @@ where
         .unwrap_or(0);
 
     rows.iter()
-        .map(|row| format_row(row, name_width, pct_width, reset_width, color))
+        .map(|row| format_row(row, name_width, pct_width, buckets_width, reset_width, color))
         .collect::<Vec<_>>()
         .join("\n")
 }
 
-fn build_row<T: TimeZone>(agent: &AgentStatusResult, now: DateTime<Utc>, tz: &T) -> RowData
+fn build_provider_row<T: TimeZone>(
+    provider: &ProviderReport,
+    now: DateTime<Utc>,
+    tz: &T,
+) -> RowData
+where
+    T::Offset: std::fmt::Display,
+{
+    let active = provider.active_account();
+    let name = format_provider_title(provider, active);
+
+    let pct = match provider.primary_used_percent {
+        Some(value) => format!("{value}%"),
+        None => "--".to_string(),
+    };
+
+    let buckets = active
+        .map(|acct| format_account_buckets_and_credits(&acct.buckets, acct.credits.as_ref()))
+        .unwrap_or_default();
+
+    let reset = provider
+        .primary_reset_epoch
+        .and_then(|epoch| reset::normalize_epoch(epoch, tz).map(|(_, iso)| iso))
+        .or_else(|| {
+            provider
+                .primary_reset_iso
+                .as_deref()
+                .map(collapse_line)
+                .map(|r| reset::to_iso(&r, now, tz).unwrap_or(r))
+        })
+        .unwrap_or_default();
+
+    let raw_message = active.and_then(|acct| {
+        acct.error
+            .as_deref()
+            .map(collapse_line)
+            .filter(|s| !s.is_empty())
+            .or_else(|| {
+                acct.status_note
+                    .as_deref()
+                    .map(collapse_line)
+                    .filter(|s| !s.is_empty())
+            })
+            .or_else(|| match acct.state {
+                AccountState::SignedOut => Some(match acct.login_command.as_deref() {
+                    Some(cmd) if !cmd.trim().is_empty() => {
+                        format!("Sign in required ({})", cmd.trim())
+                    }
+                    _ => "Sign in required".to_string(),
+                }),
+                _ => None,
+            })
+    });
+
+    let message = raw_message
+        .map(|s| truncate_chars(&s, MAX_MESSAGE_CHARS))
+        .unwrap_or_default();
+
+    let is_error = match active {
+        Some(acct) => {
+            matches!(acct.state, AccountState::SignedOut | AccountState::Error)
+                || acct.error.is_some()
+                || provider.primary_used_percent.is_none()
+        }
+        None => true,
+    };
+
+    RowData {
+        name,
+        pct,
+        buckets,
+        reset,
+        message,
+        used_percent: provider.primary_used_percent,
+        is_error,
+    }
+}
+
+fn format_provider_title(provider: &ProviderReport, active: Option<&AccountReport>) -> String {
+    let mut title = collapse_line(&provider.display_name);
+    if let Some(badge) = provider
+        .plan_badge
+        .as_deref()
+        .map(collapse_line)
+        .filter(|b| !b.is_empty())
+    {
+        title.push_str(&format!(" [{badge}]"));
+    }
+    if provider.accounts.len() > 1 {
+        if let Some(acct) = active {
+            let acct_label = collapse_line(&acct.label);
+            if !acct_label.is_empty()
+                && !acct_label.eq_ignore_ascii_case(&provider.display_name)
+            {
+                title.push_str(&format!(" ({acct_label})"));
+            }
+        }
+    }
+    title
+}
+
+fn format_account_buckets_and_credits(
+    buckets: &[UsageBucket],
+    credits: Option<&CreditSummary>,
+) -> String {
+    let mut parts: Vec<String> = buckets
+        .iter()
+        .map(|b| {
+            let label = collapse_line(&b.short_label);
+            format!("{label} {}%", b.used_percent)
+        })
+        .collect();
+
+    if let Some(cred) = credits {
+        let cred_label = collapse_line(&cred.label);
+        if let (Some(used), Some(limit)) = (cred.used_dollars, cred.limit_dollars) {
+            parts.push(format!("{cred_label} ${used:.2}/${limit:.2}"));
+        } else if let Some(balance) = cred.balance_dollars {
+            parts.push(format!("{cred_label} ${balance:.2}"));
+        }
+    }
+
+    if parts.is_empty() {
+        String::new()
+    } else {
+        truncate_chars(&parts.join(" · "), MAX_BUCKETS_CHARS)
+    }
+}
+
+fn build_legacy_row<T: TimeZone>(agent: &AgentStatusResult, now: DateTime<Utc>, tz: &T) -> RowData
 where
     T::Offset: std::fmt::Display,
 {
@@ -105,6 +255,7 @@ where
     RowData {
         name,
         pct,
+        buckets: String::new(),
         reset,
         message,
         used_percent: agent.used_percent,
@@ -116,6 +267,7 @@ fn format_row(
     row: &RowData,
     name_width: usize,
     pct_width: usize,
+    buckets_width: usize,
     reset_width: usize,
     color: bool,
 ) -> String {
@@ -127,18 +279,30 @@ fn format_row(
         padded_pct
     };
 
-    if !row.message.is_empty() {
-        if reset_width > 0 {
-            let col_reset = format!("{:<reset_width$}", row.reset);
-            format!("{col_name}  {col_pct}  {col_reset}  {}", row.message)
-        } else {
-            format!("{col_name}  {col_pct}  {}", row.message)
+    let mut out = format!("{col_name}  {col_pct}");
+
+    let has_reset = !row.reset.is_empty();
+    let has_msg = !row.message.is_empty();
+
+    if buckets_width > 0 {
+        if has_reset || has_msg {
+            out.push_str(&format!("  {:<buckets_width$}", row.buckets));
+        } else if !row.buckets.is_empty() {
+            out.push_str(&format!("  {}", row.buckets));
         }
-    } else if !row.reset.is_empty() {
-        format!("{col_name}  {col_pct}  {}", row.reset)
-    } else {
-        format!("{col_name}  {col_pct}")
     }
+
+    if has_msg {
+        if reset_width > 0 {
+            out.push_str(&format!("  {:<reset_width$}  {}", row.reset, row.message));
+        } else {
+            out.push_str(&format!("  {}", row.message));
+        }
+    } else if has_reset {
+        out.push_str(&format!("  {}", row.reset));
+    }
+
+    out
 }
 
 fn colorize_pct(padded_pct: &str, used_percent: Option<u8>, is_error: bool) -> String {
@@ -181,6 +345,7 @@ fn truncate_chars(input: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::{BucketLayout, OverallStatus, SummaryStats, SCHEMA_VERSION};
     use crate::parser::strip_ansi;
     use chrono::FixedOffset;
 
@@ -215,11 +380,11 @@ mod tests {
 
     fn sample_report(agents: Vec<AgentStatusResult>) -> StatusReport {
         StatusReport {
-            schema_version: crate::model::SCHEMA_VERSION,
+            schema_version: SCHEMA_VERSION,
             label: String::new(),
-            status: crate::model::OverallStatus::Ok,
+            status: OverallStatus::Ok,
             updated_at_epoch: 1_700_000_000,
-            summary: crate::model::SummaryStats::default(),
+            summary: SummaryStats::default(),
             providers: Vec::new(),
             agents,
         }
@@ -319,7 +484,6 @@ mod tests {
 
     #[test]
     fn test_cut_long_error_text_on_char_boundary() {
-        // Put multi-byte UTF-8 characters ('é' and '·') across the 77..80 character boundary.
         let long_err = format!("{}é·é·{}", "a".repeat(75), "b".repeat(30));
         let report = sample_report(vec![sample_agent(
             "Claude",
@@ -376,5 +540,131 @@ mod tests {
         let report = sample_report(vec![]);
         assert_eq!(format_text(&report, false), "No agents configured");
         assert_eq!(format_text(&report, true), "No agents configured");
+    }
+
+    #[test]
+    fn test_v2_providers_multi_bucket_table_and_color_alignment() {
+        let claude_work = AccountReport {
+            id: "claude:work".to_string(),
+            label: "work@company.com".to_string(),
+            source_label: Some("~/.claude-work".to_string()),
+            is_system_default: false,
+            is_active: true,
+            plan_tier: Some("Max".to_string()),
+            state: AccountState::ActiveOk,
+            is_stale: false,
+            status_note: None,
+            error: None,
+            login_command: Some("claude auth login".to_string()),
+            updated_at_epoch: Some(1_794_356_800),
+            buckets: vec![
+                UsageBucket::new(
+                    "wk",
+                    "Weekly",
+                    "wk",
+                    BucketLayout::InlinePair,
+                    true,
+                    89.0,
+                    Some((1_794_492_000, "2026-11-12T14:00:00Z".to_string())),
+                ),
+                UsageBucket::new(
+                    "5h",
+                    "Session (5h)",
+                    "5h",
+                    BucketLayout::InlinePair,
+                    false,
+                    37.0,
+                    None,
+                ),
+                UsageBucket::new(
+                    "fable",
+                    "Fable",
+                    "Fable",
+                    BucketLayout::InlinePair,
+                    false,
+                    12.0,
+                    None,
+                ),
+            ],
+            credits: Some(CreditSummary {
+                label: "Extra".to_string(),
+                used_dollars: Some(4.5),
+                limit_dollars: Some(50.0),
+                balance_dollars: Some(45.5),
+                used_percent: Some(9),
+            }),
+        };
+
+        let claude_personal = AccountReport {
+            id: "claude:personal".to_string(),
+            label: "personal@home.io".to_string(),
+            source_label: Some("~/.claude".to_string()),
+            is_system_default: true,
+            is_active: false,
+            plan_tier: Some("Pro".to_string()),
+            state: AccountState::ActiveOk,
+            is_stale: false,
+            status_note: None,
+            error: None,
+            login_command: Some("claude auth login".to_string()),
+            updated_at_epoch: Some(1_794_356_800),
+            buckets: vec![UsageBucket::new(
+                "wk",
+                "Weekly",
+                "wk",
+                BucketLayout::InlinePair,
+                true,
+                20.0,
+                None,
+            )],
+            credits: None,
+        };
+
+        let grok_signed_out = AccountReport {
+            id: "grok:default".to_string(),
+            label: "Grok".to_string(),
+            source_label: Some("~/.grok".to_string()),
+            is_system_default: true,
+            is_active: true,
+            plan_tier: None,
+            state: AccountState::SignedOut,
+            is_stale: false,
+            status_note: None,
+            error: None,
+            login_command: Some("grok login".to_string()),
+            updated_at_epoch: Some(1_794_356_800),
+            buckets: Vec::new(),
+            credits: None,
+        };
+
+        let providers = vec![
+            ProviderReport::from_accounts(
+                "claude",
+                "Claude",
+                "provider-claude",
+                Some("https://claude.ai/settings/usage".to_string()),
+                vec![claude_work, claude_personal],
+                Some("claude:work"),
+            ),
+            ProviderReport::from_accounts(
+                "grok",
+                "Grok",
+                "provider-grok",
+                Some("https://grok.com".to_string()),
+                vec![grok_signed_out],
+                None,
+            ),
+        ];
+
+        let report = StatusReport::from_providers(providers, " | ", 1_794_356_800, None);
+        let plain = format_text(&report, false);
+        let colored = format_text(&report, true);
+
+        assert_eq!(strip_ansi(&colored), plain);
+        assert!(plain.contains("Claude [Max] (work@company.com)"));
+        assert!(plain.contains("wk 89% · 5h 37% · Fable 12% · Extra $4.50/$50.00"));
+        assert!(plain.contains("Sign in required (grok login)"));
+        assert!(colored.contains("\x1b[31m89%\x1b[0m"));
+        assert!(colored.contains("\x1b[31m --\x1b[0m"));
     }
 }
