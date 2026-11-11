@@ -158,6 +158,12 @@ fn execute_and_parse(agent: &AgentConfig, timeout: Duration) -> Result<crate::pa
                 }
             }
         }
+        AgentType::Codex | AgentType::Grok | AgentType::Cursor => {
+            return Err(anyhow!(
+                "Provider '{}' requires v2 provider collector",
+                agent.agent_type.as_str()
+            ));
+        }
     }
 
     let output = run_command(&spec)?;
@@ -192,6 +198,7 @@ fn execute_and_parse(agent: &AgentConfig, timeout: Duration) -> Result<crate::pa
             }
             parse_claude_output(&combined)
         }
+        AgentType::Codex | AgentType::Grok | AgentType::Cursor => unreachable!(),
     }
 }
 
@@ -240,8 +247,10 @@ EOF
             .expect("chmod mock claude");
 
         let cfg = Config {
+            auto_discover: false,
             separator: " | ".to_string(),
             timeout_seconds: 10,
+            providers: Default::default(),
             agents: vec![
                 AgentConfig {
                     name: "AGY".to_string(),
