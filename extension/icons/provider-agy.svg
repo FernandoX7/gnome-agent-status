@@ -1,7 +1,31 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
-  <path fill="#4285F4" d="M4.6 18.8C6.2 14.4 8.6 5.2 12.0 5.2C10.4 8.4 8.6 14.5 7.4 18.8C6.6 19.4 5.3 19.4 4.6 18.8Z"/>
-  <path fill="#24C1E0" d="M7.4 18.8C8.5 15.2 10.2 12.6 12.0 12.6C13.8 12.6 15.5 15.2 16.6 18.8C15.2 17.0 13.6 15.6 12.0 15.6C10.4 15.6 8.8 17.0 7.4 18.8Z"/>
-  <path fill="#EA4335" d="M12.0 5.2C14.1 5.2 15.8 8.3 17.2 12.3L14.5 13.2C13.5 10.1 12.7 7.8 12.0 5.2Z"/>
-  <path fill="#FBBC04" d="M14.5 13.2L17.2 12.3C18.1 14.8 18.8 17.2 19.4 18.8C18.6 19.4 17.3 19.4 16.6 18.8C16.0 17.0 15.3 15.1 14.5 13.2Z"/>
+  <defs>
+    <clipPath id="agyArch">
+      <path d="M21.751 22.607c1.34 1.005 3.35.335 1.508-1.508C17.73 15.74 18.904 1 12.037 1 5.17 1 6.342 15.74.815 21.1c-2.01 2.009.167 2.511 1.507 1.506 5.192-3.517 4.857-9.714 9.715-9.714 4.857 0 4.522 6.197 9.714 9.715Z"/>
+    </clipPath>
+    <radialGradient id="agyGreen" cx="4.8" cy="9.8" r="10.2" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#34C769"/>
+      <stop offset="0.52" stop-color="#3BB685" stop-opacity="0.72"/>
+      <stop offset="1" stop-color="#3588FE" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="agyAmber" cx="9.8" cy="1.8" r="9.2" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F7BA2A"/>
+      <stop offset="0.48" stop-color="#F29E2B" stop-opacity="0.86"/>
+      <stop offset="1" stop-color="#F29E2B" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="agyRed" cx="16.8" cy="5.0" r="9.8" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F9533D"/>
+      <stop offset="0.52" stop-color="#EE6148" stop-opacity="0.76"/>
+      <stop offset="1" stop-color="#3588FE" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <g transform="translate(1.2 0.85) scale(0.90)">
+    <g clip-path="url(#agyArch)">
+      <rect x="-2" y="-2" width="28" height="28" fill="#3688FE"/>
+      <rect x="-2" y="-2" width="28" height="28" fill="url(#agyGreen)"/>
+      <rect x="-2" y="-2" width="28" height="28" fill="url(#agyAmber)"/>
+      <rect x="-2" y="-2" width="28" height="28" fill="url(#agyRed)"/>
+    </g>
+  </g>
 </svg>

@@ -1,7 +1,17 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
-  <polygon fill="#F2F4F8" points="12,3.2 19.6,7.6 12,12 4.4,7.6"/>
-  <polygon fill="#C5CEE0" points="4.4,7.6 12,12 12,20.8 4.4,16.4"/>
-  <polygon fill="#7F89A6" points="12,12 19.6,7.6 19.6,16.4 12,20.8"/>
-  <polygon fill="#1E1F2F" points="12,6.4 16.4,9.0 12,15.6"/>
+  <defs>
+    <clipPath id="cursorHex">
+      <path d="M22.106 5.68L12.5 0.135a0.998 0.998 0 0 0 -0.998 0L1.893 5.68a0.84 0.84 0 0 0 -0.419 0.726v11.186c0 0.3 0.16 0.577 0.42 0.727l9.607 5.547a0.999 0.999 0 0 0 0.998 0l9.608 -5.547a0.84 0.84 0 0 0 0.42 -0.727V6.407a0.84 0.84 0 0 0 -0.42 -0.726Z"/>
+    </clipPath>
+  </defs>
+  <g transform="translate(1.44 1.44) scale(0.88)">
+    <g clip-path="url(#cursorHex)">
+      <polygon fill="#70778A" points="12,-1 1,5.8 1,18.2 12,12"/>
+      <polygon fill="#585F70" points="12,-1 23,5.8 23,18.2 12,12"/>
+      <polygon fill="#8C94A8" points="1,18.2 12,25 23,18.2 12,12"/>
+    </g>
+    <path fill="#FFFFFF" d="M2.657 6.322H21.207c0.24 0 0.395 0.24 0.32 0.45L12 12L2.595 6.55c-0.107 -0.062 -0.063 -0.228 0.062 -0.228Z"/>
+    <path fill="#DCE1EC" d="M12 12L21.527 6.772c-0.008 0.028 -0.02 0.056 -0.036 0.084L12.228 22.92c-0.063 0.108 -0.228 0.064 -0.228 -0.061V12Z"/>
+  </g>
 </svg>
