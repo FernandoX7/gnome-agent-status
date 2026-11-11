@@ -1,9 +1,21 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use gnome_agent_status::cli::{execute_cli, Cli, CliRuntime, Commands};
+use gnome_agent_status::http::redact_secrets;
 use std::io::{self, Read};
+use std::process::ExitCode;
 
-fn main() -> Result<()> {
+fn main() -> ExitCode {
+    match run_main() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(err) => {
+            eprintln!("Error: {}", redact_secrets(&format!("{err:#}")));
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run_main() -> Result<()> {
     let cli = Cli::parse();
 
     let stdin_owned = if matches!(cli.command, Some(Commands::IngestHook { .. })) {

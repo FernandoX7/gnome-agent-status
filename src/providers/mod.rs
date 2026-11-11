@@ -11,7 +11,7 @@ use crate::cache::{
     PollDecision,
 };
 use crate::config::{home_dir, xdg_config_dir, Config, ManualAccountConfig, PollMode};
-use crate::http::{EndpointOverrides, HttpClient};
+use crate::http::{redact_secrets, EndpointOverrides, HttpClient};
 use crate::model::{
     AccountReport, AccountState, ProviderReport, StatusReport,
 };
@@ -517,6 +517,8 @@ fn apply_poll_outcome(
             if report.login_command.is_none() {
                 report.login_command = desc.login_command.clone();
             }
+            report.status_note = report.status_note.as_deref().map(redact_secrets);
+            report.error = report.error.as_deref().map(redact_secrets);
 
             // If identity changed from generic `:default` to `:email`, remove stale generic key.
             if report.id != desc.id {
@@ -582,6 +584,7 @@ fn apply_poll_outcome(
             label,
             plan_tier,
         } => {
+            let safe_msg = redact_secrets(&message);
             let resolved_label = label.unwrap_or_else(|| desc.label.clone());
             let resolved_login = login_command.or_else(|| desc.login_command.clone());
             let entry = collector_state
@@ -596,7 +599,7 @@ fn apply_poll_outcome(
                     plan_tier: plan_tier.clone(),
                     state: AccountState::SignedOut,
                     status_note: None,
-                    error: Some(message.clone()),
+                    error: Some(safe_msg.clone()),
                     login_command: resolved_login.clone(),
                     last_fetch_attempt_epoch: Some(now_epoch),
                     last_success_epoch: None,
@@ -610,7 +613,7 @@ fn apply_poll_outcome(
                 entry.plan_tier = plan_tier.clone();
             }
             entry.state = AccountState::SignedOut;
-            entry.error = Some(message.clone());
+            entry.error = Some(safe_msg.clone());
             entry.status_note = Some("Sign in again to use this account".to_string());
             entry.login_command = resolved_login.clone();
             entry.last_fetch_attempt_epoch = Some(now_epoch);
@@ -626,7 +629,7 @@ fn apply_poll_outcome(
                 state: AccountState::SignedOut,
                 is_stale: false,
                 status_note: Some("Sign in again to use this account".to_string()),
-                error: Some(message),
+                error: Some(safe_msg),
                 login_command: resolved_login,
                 updated_at_epoch: Some(now_epoch),
                 buckets: Vec::new(),
@@ -634,9 +637,10 @@ fn apply_poll_outcome(
             }
         }
         AccountFetchOutcome::Error { message } => {
+            let safe_msg = redact_secrets(&message);
             if let Some(existing) = collector_state.accounts.get_mut(&desc.id) {
                 existing.last_fetch_attempt_epoch = Some(now_epoch);
-                existing.error = Some(message.clone());
+                existing.error = Some(safe_msg.clone());
             }
             AccountReport {
                 id: desc.id.clone(),
@@ -648,7 +652,7 @@ fn apply_poll_outcome(
                 state: AccountState::Error,
                 is_stale: false,
                 status_note: None,
-                error: Some(message),
+                error: Some(safe_msg),
                 login_command: desc.login_command.clone(),
                 updated_at_epoch: Some(now_epoch),
                 buckets: Vec::new(),
@@ -660,10 +664,11 @@ fn apply_poll_outcome(
             label,
             plan_tier,
         } => {
+            let safe_msg = redact_secrets(&message);
             let resolved_label = label.unwrap_or_else(|| desc.label.clone());
             if let Some(existing) = collector_state.accounts.get_mut(&desc.id) {
                 existing.last_fetch_attempt_epoch = Some(now_epoch);
-                existing.error = Some(message.clone());
+                existing.error = Some(safe_msg.clone());
                 existing.label = resolved_label.clone();
                 if plan_tier.is_some() {
                     existing.plan_tier = plan_tier.clone();
@@ -679,7 +684,7 @@ fn apply_poll_outcome(
                 state: AccountState::Error,
                 is_stale: false,
                 status_note: None,
-                error: Some(message),
+                error: Some(safe_msg),
                 login_command: desc.login_command.clone(),
                 updated_at_epoch: Some(now_epoch),
                 buckets: Vec::new(),

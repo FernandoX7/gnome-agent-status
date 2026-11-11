@@ -113,7 +113,7 @@ fn query_single_agent(agent: &AgentConfig, timeout: Duration) -> AgentStatusResu
             reset_info: None,
             detail: None,
             warning: None,
-            error: Some(format!("{:#}", err)),
+            error: Some(crate::http::redact_secrets(&format!("{:#}", err))),
             duration_ms,
         },
     }

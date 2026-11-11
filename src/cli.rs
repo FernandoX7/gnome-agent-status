@@ -309,9 +309,9 @@ pub fn execute_cli(cli: &Cli, runtime: &CliRuntime<'_>) -> Result<Option<String>
                     if !output.status.success() {
                         return Err(anyhow!(
                             "switch_command '{}' exited with status {:?}: {}",
-                            cmd,
+                            crate::http::redact_secrets(cmd),
                             output.status.code(),
-                            output.combined_text().trim()
+                            crate::http::redact_secrets(output.combined_text().trim())
                         ));
                     }
                 }
@@ -380,7 +380,7 @@ fn run_collect(
     };
 
     for warning in cfg.unknown_provider_warnings() {
-        eprintln!("Warning: {warning}");
+        eprintln!("Warning: {}", crate::http::redact_secrets(&warning));
     }
 
     let mut ctx = runtime

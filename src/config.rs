@@ -1,18 +1,15 @@
 //! Configuration loader, v1/v2 compatibility mapper, read-only profile discovery,
 //! and comment-preserving TOML round-trip helpers for `config` CLI subcommands.
 
+use crate::cache::atomic_write_0600;
 use crate::model::CANONICAL_PROVIDER_IDS;
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::env;
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use toml_edit::{ArrayOfTables, DocumentMut, Item, Table, Value};
-
-#[cfg(unix)]
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -666,58 +663,9 @@ fn load_or_init_toml_doc(path: &Path) -> Result<DocumentMut> {
 }
 
 fn write_toml_doc_atomically(target: &Path, doc: &DocumentMut) -> Result<()> {
-    if let Some(parent) = target.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("Failed to create directory {}", parent.display()))?;
-    }
-
-    let existing_mode = fs::metadata(target).ok().map(|m| {
-        #[cfg(unix)]
-        {
-            m.permissions().mode() & 0o777
-        }
-        #[cfg(not(unix))]
-        {
-            let _ = m;
-            0o600u32
-        }
-    });
-
-    let tmp_name = format!(
-        ".{}.tmp.{}.{}",
-        target
-            .file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or("config.toml"),
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0)
-    );
-    let tmp_path = target.with_file_name(tmp_name);
-
     let serialized = doc.to_string();
-    {
-        let mut opts = fs::OpenOptions::new();
-        opts.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            opts.mode(existing_mode.unwrap_or(0o600));
-        }
-        let mut file = opts
-            .open(&tmp_path)
-            .with_context(|| format!("Failed to create temp config {}", tmp_path.display()))?;
-        file.write_all(serialized.as_bytes())?;
-        file.sync_all()?;
-    }
-
-    fs::rename(&tmp_path, target).with_context(|| {
-        let _ = fs::remove_file(&tmp_path);
-        format!("Failed to replace config file {}", target.display())
-    })?;
-
-    Ok(())
+    atomic_write_0600(target, serialized.as_bytes())
+        .with_context(|| format!("Failed to write config file {}", target.display()))
 }
 
 pub fn home_dir() -> Option<PathBuf> {
@@ -1311,5 +1259,45 @@ enabled = true
         if let Some(home) = home_dir() {
             assert_eq!(expanded, home.join(".claude-work"));
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_config_write_rejects_symlink_target_and_enforces_0600() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+
+        let root = std::env::temp_dir().join(format!(
+            "gas-config-symlink-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let cfg_dir = root.join("gnome-agent-status");
+        let cfg_path = cfg_dir.join("config.toml");
+
+        let _ = Config::update_settings(Some(&cfg_path), Some(true), Some(20))
+            .expect("initial config write");
+        assert_eq!(
+            fs::symlink_metadata(&cfg_dir).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        assert_eq!(
+            fs::symlink_metadata(&cfg_path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+
+        let victim = root.join("victim.toml");
+        fs::write(&victim, "untouched = true\n").unwrap();
+        fs::remove_file(&cfg_path).unwrap();
+        symlink(&victim, &cfg_path).unwrap();
+
+        let err = Config::update_settings(Some(&cfg_path), Some(false), Some(10))
+            .expect_err("symlinked config.toml must be rejected");
+        assert!(format!("{err:#}").contains("symbolic link"));
+        assert_eq!(fs::read_to_string(&victim).unwrap(), "untouched = true\n");
+
+        let _ = fs::remove_dir_all(&root);
     }
 }

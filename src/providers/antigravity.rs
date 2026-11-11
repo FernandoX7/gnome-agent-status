@@ -356,6 +356,7 @@ fn read_switcher_slot_email(path: &Path) -> Option<String> {
 fn current_euid() -> Option<u32> {
     #[cfg(unix)]
     {
+        // SAFETY: `libc::geteuid()` is a thread-safe POSIX syscall with no pointer arguments or preconditions.
         Some(unsafe { libc::geteuid() })
     }
     #[cfg(not(unix))]

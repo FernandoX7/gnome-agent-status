@@ -516,26 +516,71 @@ fn query_cursor_vscdb_via_temp_copy(
     db_path: &Path,
     wal_path: &Path,
 ) -> std::result::Result<Vec<(String, Vec<u8>)>, CursorAuthError> {
-    let nonce = std::time::SystemTime::now()
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static CURSOR_TMP_NONCE: AtomicU64 = AtomicU64::new(0);
+
+    let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    let tmp_db = std::env::temp_dir().join(format!(
-        ".gas-cursor-vscdb-{}-{}.sqlite",
-        std::process::id(),
-        nonce
+    let seq = CURSOR_TMP_NONCE.fetch_add(1, Ordering::Relaxed);
+    let tmp_dir = std::env::temp_dir().join(format!(
+        ".gas-cursor-vscdb-{}-{seq}-{nanos}",
+        std::process::id()
     ));
-    let tmp_wal = PathBuf::from(format!("{}-wal", tmp_db.display()));
-    let tmp_shm = PathBuf::from(format!("{}-shm", tmp_db.display()));
 
-    copy_file_0600(db_path, &tmp_db).map_err(|e| {
-        CursorAuthError::Failed(format!("Failed to copy {}: {e}", db_path.display()))
-    })?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
+        let mut builder = fs::DirBuilder::new();
+        builder.recursive(false).mode(0o700);
+        builder.create(&tmp_dir).map_err(|e| {
+            CursorAuthError::Failed(format!(
+                "Failed to create isolated 0700 temp directory {}: {e}",
+                tmp_dir.display()
+            ))
+        })?;
+        let meta = fs::symlink_metadata(&tmp_dir).map_err(|e| {
+            let _ = fs::remove_dir_all(&tmp_dir);
+            CursorAuthError::Failed(format!("Failed to inspect {}: {e}", tmp_dir.display()))
+        })?;
+        // SAFETY: `libc::geteuid()` is a pure POSIX syscall with no pointer arguments.
+        let euid = unsafe { libc::geteuid() };
+        if meta.file_type().is_symlink() || !meta.file_type().is_dir() || meta.uid() != euid {
+            let _ = fs::remove_dir_all(&tmp_dir);
+            return Err(CursorAuthError::Failed(format!(
+                "Refusing unsafe temp directory {}",
+                tmp_dir.display()
+            )));
+        }
+        let _ = fs::set_permissions(&tmp_dir, fs::Permissions::from_mode(0o700));
+    }
+    #[cfg(not(unix))]
+    {
+        fs::create_dir(&tmp_dir).map_err(|e| {
+            CursorAuthError::Failed(format!(
+                "Failed to create temp directory {}: {e}",
+                tmp_dir.display()
+            ))
+        })?;
+    }
+
+    let tmp_db = tmp_dir.join("state.vscdb");
+    let tmp_wal = tmp_dir.join("state.vscdb-wal");
+    let tmp_shm = tmp_dir.join("state.vscdb-shm");
+
+    if let Err(e) = copy_file_0600(db_path, &tmp_db) {
+        let _ = fs::remove_dir_all(&tmp_dir);
+        return Err(CursorAuthError::Failed(format!(
+            "Failed to copy {}: {e}",
+            db_path.display()
+        )));
+    }
     if wal_path.is_file() {
         let _ = copy_file_0600(wal_path, &tmp_wal);
     }
 
-    // Open with RW|NO_MUTEX ONLY on our isolated private temp copy when `-wal` is present so SQLite
+    // Open with RW|NO_MUTEX ONLY on our isolated `0700` private temp copy when `-wal` is present so SQLite
     // can replay `-wal` frames without needing a pre-existing `-shm` file; otherwise RO|NO_MUTEX.
     let flags = if tmp_wal.is_file() {
         OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX
@@ -548,6 +593,7 @@ fn query_cursor_vscdb_via_temp_copy(
     let _ = fs::remove_file(&tmp_db);
     let _ = fs::remove_file(&tmp_wal);
     let _ = fs::remove_file(&tmp_shm);
+    let _ = fs::remove_dir(&tmp_dir);
 
     res.map_err(|e| {
         CursorAuthError::Failed(format!(
@@ -558,13 +604,21 @@ fn query_cursor_vscdb_via_temp_copy(
 }
 
 fn copy_file_0600(src: &Path, dst: &Path) -> std::io::Result<()> {
+    if let Ok(meta) = fs::symlink_metadata(dst) {
+        if meta.file_type().is_symlink() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Refusing to write through symbolic link",
+            ));
+        }
+    }
     let bytes = fs::read(src)?;
     let mut opts = fs::OpenOptions::new();
     opts.write(true).create_new(true);
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        opts.mode(0o600);
+        opts.mode(0o600).custom_flags(libc::O_NOFOLLOW);
     }
     use std::io::Write;
     let mut file = opts.open(dst)?;

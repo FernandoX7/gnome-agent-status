@@ -386,6 +386,7 @@ impl StatusReport {
     }
 
     pub fn config_error(err_msg: String, now_epoch: i64) -> Self {
+        let safe_err = crate::http::redact_secrets(&err_msg);
         Self {
             schema_version: SCHEMA_VERSION,
             label: "Agent Status: Config Error".to_string(),
@@ -406,7 +407,7 @@ impl StatusReport {
                 reset_info: None,
                 detail: None,
                 warning: None,
-                error: Some(err_msg),
+                error: Some(safe_err),
                 duration_ms: 0,
             }],
         }

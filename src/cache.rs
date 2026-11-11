@@ -2,23 +2,27 @@
 //! advisory `flock` locking, HTTP 429 exponential backoff, and passive time-decay math.
 
 use crate::config::home_dir;
+use crate::http::redact_secrets;
 use crate::model::{
     canonical_provider_info, AccountReport, AccountState, CreditSummary, ProviderReport,
     StatusReport, UsageBucket, CANONICAL_PROVIDER_IDS, SCHEMA_VERSION,
 };
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::env;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 #[cfg(unix)]
 use std::os::unix::{
-    fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt},
+    fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt},
     io::AsRawFd,
 };
+
+static TEMP_WRITE_NONCE: AtomicU64 = AtomicU64::new(0);
 
 /// Minimum interval (seconds) honored even when `collect --force` is requested.
 pub const MANUAL_FORCE_DEBOUNCE_SECS: i64 = 30;
@@ -92,8 +96,8 @@ impl CachedAccountState {
             plan_tier: self.plan_tier.clone(),
             state: self.state,
             is_stale,
-            status_note: self.status_note.clone(),
-            error: self.error.clone(),
+            status_note: self.status_note.as_deref().map(redact_secrets),
+            error: self.error.as_deref().map(redact_secrets),
             login_command: self.login_command.clone(),
             updated_at_epoch: self.last_success_epoch.or(self.last_fetch_attempt_epoch),
             buckets,
@@ -236,23 +240,41 @@ pub struct FileLockGuard {
 impl Drop for FileLockGuard {
     fn drop(&mut self) {
         #[cfg(unix)]
+        // SAFETY: `self.file` owns a valid open file descriptor until `FileLockGuard` completes dropping;
+        // `flock(fd, LOCK_UN)` only releases our advisory lock on that descriptor.
         unsafe {
             let _ = libc::flock(self.file.as_raw_fd(), libc::LOCK_UN);
         }
     }
 }
 
-/// Acquires an exclusive advisory `flock` on `lock_path` (creating it with mode `0600`).
+/// Rejects `path` if `lstat` (`symlink_metadata`) reports a symbolic link.
+pub fn reject_if_symlink(path: &Path) -> Result<()> {
+    if let Ok(meta) = fs::symlink_metadata(path) {
+        if meta.file_type().is_symlink() {
+            bail!(
+                "Refusing to open or overwrite symbolic link {}",
+                path.display()
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Acquires an exclusive advisory `flock` on `lock_path` (creating it with mode `0600` and `O_NOFOLLOW`).
 pub fn acquire_file_lock(lock_path: &Path) -> Result<FileLockGuard> {
     if let Some(parent) = lock_path.parent() {
-        ensure_dir_0700(parent)?;
+        if !parent.as_os_str().is_empty() {
+            ensure_dir_0700(parent)?;
+        }
     }
+    reject_if_symlink(lock_path)?;
 
     let mut opts = OpenOptions::new();
     opts.read(true).write(true).create(true).truncate(false);
     #[cfg(unix)]
     {
-        opts.mode(0o600);
+        opts.mode(0o600).custom_flags(libc::O_NOFOLLOW);
     }
 
     let file = opts
@@ -261,6 +283,7 @@ pub fn acquire_file_lock(lock_path: &Path) -> Result<FileLockGuard> {
 
     #[cfg(unix)]
     {
+        // SAFETY: `file` is a freshly opened owned `File` whose raw fd remains valid for this call.
         let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) };
         if rc != 0 {
             return Err(std::io::Error::last_os_error())
@@ -271,10 +294,42 @@ pub fn acquire_file_lock(lock_path: &Path) -> Result<FileLockGuard> {
     Ok(FileLockGuard { file })
 }
 
+/// Ensures `dir` exists as a real (non-symlink) directory and enforces `0700` permissions
+/// on user-owned non-sticky directories.
 pub fn ensure_dir_0700(dir: &Path) -> Result<()> {
-    if dir.exists() {
+    if dir.as_os_str().is_empty() {
         return Ok(());
     }
+
+    match fs::symlink_metadata(dir) {
+        Ok(meta) => {
+            if meta.file_type().is_symlink() {
+                bail!("Refusing to use symlinked directory {}", dir.display());
+            }
+            if !meta.file_type().is_dir() {
+                bail!("Path {} exists and is not a directory", dir.display());
+            }
+            #[cfg(unix)]
+            {
+                let mode = meta.permissions().mode() & 0o7777;
+                // SAFETY: `libc::geteuid()` is a pure POSIX syscall with no pointer arguments.
+                let euid = unsafe { libc::geteuid() };
+                // Tighten user-owned directories (excluding shared sticky temp dirs like `/tmp`) to `0700`.
+                if meta.uid() == euid && (mode & 0o1000) == 0 && (mode & 0o777) != 0o700 {
+                    fs::set_permissions(dir, fs::Permissions::from_mode(0o700)).with_context(
+                        || format!("Failed to enforce 0700 permissions on {}", dir.display()),
+                    )?;
+                }
+            }
+            return Ok(());
+        }
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+        Err(err) => {
+            return Err(err)
+                .with_context(|| format!("Failed to inspect directory {}", dir.display()));
+        }
+    }
+
     #[cfg(unix)]
     {
         let mut builder = fs::DirBuilder::new();
@@ -282,6 +337,13 @@ pub fn ensure_dir_0700(dir: &Path) -> Result<()> {
         builder
             .create(dir)
             .with_context(|| format!("Failed to create directory {}", dir.display()))?;
+        let meta = fs::symlink_metadata(dir)
+            .with_context(|| format!("Failed to verify directory {}", dir.display()))?;
+        if meta.file_type().is_symlink() || !meta.file_type().is_dir() {
+            bail!("Directory {} is not a valid real directory", dir.display());
+        }
+        fs::set_permissions(dir, fs::Permissions::from_mode(0o700))
+            .with_context(|| format!("Failed to set 0700 permissions on {}", dir.display()))?;
     }
     #[cfg(not(unix))]
     {
@@ -291,11 +353,15 @@ pub fn ensure_dir_0700(dir: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Writes `bytes` to `target` with strict `0600` permissions via temp-file + atomic `rename()`.
+/// Writes `bytes` to `target` with strict `0600` permissions via `O_NOFOLLOW` + `create_new(true)`
+/// unique temp-file + atomic `rename()`, rejecting symlinked targets or parent directories.
 pub fn atomic_write_0600(target: &Path, bytes: &[u8]) -> Result<()> {
     if let Some(parent) = target.parent() {
-        ensure_dir_0700(parent)?;
+        if !parent.as_os_str().is_empty() {
+            ensure_dir_0700(parent)?;
+        }
     }
+    reject_if_symlink(target)?;
 
     let base_name = target
         .file_name()
@@ -305,14 +371,18 @@ pub fn atomic_write_0600(target: &Path, bytes: &[u8]) -> Result<()> {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    let tmp_path = target.with_file_name(format!(".{base_name}.tmp.{}.{nanos}", std::process::id()));
+    let nonce = TEMP_WRITE_NONCE.fetch_add(1, Ordering::Relaxed);
+    let tmp_path = target.with_file_name(format!(
+        ".{base_name}.tmp.{}.{nonce}.{nanos}",
+        std::process::id()
+    ));
 
     {
         let mut opts = OpenOptions::new();
         opts.write(true).create_new(true);
         #[cfg(unix)]
         {
-            opts.mode(0o600);
+            opts.mode(0o600).custom_flags(libc::O_NOFOLLOW);
         }
         let mut file = opts
             .open(&tmp_path)
@@ -323,6 +393,12 @@ pub fn atomic_write_0600(target: &Path, bytes: &[u8]) -> Result<()> {
         {
             file.set_permissions(fs::Permissions::from_mode(0o600))?;
         }
+    }
+
+    // Re-check right before rename to narrow any window where target was replaced with a symlink.
+    if let Err(err) = reject_if_symlink(target) {
+        let _ = fs::remove_file(&tmp_path);
+        return Err(err);
     }
 
     fs::rename(&tmp_path, target).with_context(|| {
@@ -694,5 +770,70 @@ mod tests {
         assert_eq!(r_decayed.label, "Claude: 0%");
 
         let _ = fs::remove_dir_all(&tmp_dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_atomic_write_and_lock_reject_symlink_attacks_and_enforce_0700_dir() {
+        use std::os::unix::fs::symlink;
+
+        let root = std::env::temp_dir().join(format!(
+            "gas-symlink-sec-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+
+        // 1. Overly-permissive existing cache dir (`0755`) is tightened to `0700`.
+        let cache_dir = root.join("cache");
+        fs::create_dir_all(&cache_dir).unwrap();
+        fs::set_permissions(&cache_dir, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let state_file = cache_dir.join("state.json");
+        atomic_write_0600(&state_file, b"{\"ok\":true}").expect("write real state.json");
+        assert_eq!(
+            fs::symlink_metadata(&cache_dir).unwrap().permissions().mode() & 0o777,
+            0o700,
+            "cache directory must be tightened to 0700"
+        );
+        assert_eq!(
+            fs::symlink_metadata(&state_file).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+
+        // 2. Symlink at target `state.json` -> victim file MUST be rejected without touching victim!
+        let victim = root.join("victim.txt");
+        fs::write(&victim, b"untouched").unwrap();
+        fs::remove_file(&state_file).unwrap();
+        symlink(&victim, &state_file).unwrap();
+
+        let err = atomic_write_0600(&state_file, b"{\"pwned\":true}")
+            .expect_err("symlink target must be rejected");
+        assert!(err.to_string().contains("symbolic link"));
+        assert_eq!(fs::read(&victim).unwrap(), b"untouched");
+
+        // 3. Symlink at `.collector.lock` MUST be rejected (`O_NOFOLLOW` + lstat check).
+        let lock_link = cache_dir.join(".collector.lock");
+        symlink(&victim, &lock_link).unwrap();
+        let lock_err = match acquire_file_lock(&lock_link) {
+            Ok(_) => panic!("symlink lock file must be rejected"),
+            Err(e) => e,
+        };
+        assert!(lock_err.to_string().contains("symbolic link"));
+        assert_eq!(fs::read(&victim).unwrap(), b"untouched");
+
+        // 4. Symlinked parent directory MUST be rejected.
+        let real_elsewhere = root.join("elsewhere");
+        fs::create_dir_all(&real_elsewhere).unwrap();
+        let symlink_dir = root.join("symlink-cache-dir");
+        symlink(&real_elsewhere, &symlink_dir).unwrap();
+        let dir_err = atomic_write_0600(&symlink_dir.join("state.json"), b"{}")
+            .expect_err("symlinked cache dir must be rejected");
+        assert!(dir_err.to_string().contains("symlinked directory"));
+
+        let _ = fs::remove_dir_all(&root);
     }
 }

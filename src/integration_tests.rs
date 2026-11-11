@@ -329,7 +329,7 @@ fn setup_mock_home_and_proc(sandbox: &Path, agy_port: u16) -> (PathBuf, PathBuf,
         claude_def.join(".credentials.json"),
         r#"{
             "claudeAiOauth": {
-                "accessToken": "sk-ant-oat01-tok-personal",
+                "accessToken": "mock-oat01-tok-personal",
                 "expiresAt": 4102444800000,
                 "subscriptionType": "pro"
             }
@@ -348,7 +348,7 @@ fn setup_mock_home_and_proc(sandbox: &Path, agy_port: u16) -> (PathBuf, PathBuf,
         claude_work.join(".credentials.json"),
         r#"{
             "claudeAiOauth": {
-                "accessToken": "sk-ant-oat01-tok-work",
+                "accessToken": "mock-oat01-tok-work",
                 "expiresAt": 4102444800000,
                 "subscriptionType": "max"
             }

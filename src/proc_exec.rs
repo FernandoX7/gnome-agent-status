@@ -98,10 +98,13 @@ fn spawn_isolated(spec: &CommandSpec) -> Result<Child> {
 
     #[cfg(target_os = "linux")]
     {
+        // SAFETY: `libc::getpid()` is an async-signal-safe POSIX syscall with no arguments.
         let expected_ppid = unsafe { libc::getpid() };
         // Ensure child receives SIGKILL immediately from the Linux kernel if the spawning
         // `gnome-agent-status` process/thread dies abruptly (e.g. `Gio.Subprocess.force_exit()`
         // during GNOME Shell screen-lock `disable()`).
+        // SAFETY: The `pre_exec` closure runs between `fork()` and `exec()` and invokes only
+        // async-signal-safe syscalls (`prctl`, `getppid`, `_exit`) with no allocations or locks.
         unsafe {
             cmd.pre_exec(move || {
                 let _ = libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL);
@@ -121,11 +124,15 @@ fn spawn_isolated(spec: &CommandSpec) -> Result<Child> {
 pub fn terminate_process_group(child: &mut Child) {
     #[cfg(unix)]
     {
-        let pid = child.id() as libc::pid_t;
-        if pid > 0 {
-            // Negative PID sends SIGKILL to every process in process group `pid`.
-            unsafe {
-                let _ = libc::kill(-pid, libc::SIGKILL);
+        if let Ok(pid) = libc::pid_t::try_from(child.id()) {
+            // Require `pid > 1` so `-pid` can never become `-1` (which POSIX `kill(-1, sig)`
+            // broadcasts to every user-owned process in the session) or overflow `pid_t`.
+            if pid > 1 {
+                // SAFETY: `spawn_isolated` put `child` into its own process group (`PGID == pid`),
+                // and `pid > 1` guarantees `-pid < -1` targets strictly that child process group.
+                unsafe {
+                    let _ = libc::kill(-pid, libc::SIGKILL);
+                }
             }
         }
     }
@@ -349,6 +356,7 @@ mod tests {
         // Give kernel a brief moment to finalize process table cleanup after SIGKILL.
         let mut dead = false;
         for _ in 0..20 {
+            // SAFETY: `kill(pid, 0)` with signal 0 performs an existence check without sending a signal.
             let rc = unsafe { libc::kill(grandchild_pid, 0) };
             if rc == -1 {
                 dead = true;
@@ -463,6 +471,7 @@ sleep 30
         }
 
         let target_pid = child_pid.expect("child should have written its PID");
+        // SAFETY: `kill(target_pid, 0)` checks process liveness without delivering any signal.
         assert_eq!(unsafe { libc::kill(target_pid, 0) }, 0, "child alive before parent SIGKILL");
 
         // Simulate Gio.Subprocess.force_exit() sending SIGKILL to `gnome-agent-status`.
@@ -471,6 +480,7 @@ sleep 30
 
         let mut reaped = false;
         for _ in 0..40 {
+            // SAFETY: `kill(target_pid, 0)` checks whether `target_pid` has been reaped (`ESRCH`).
             if unsafe { libc::kill(target_pid, 0) } == -1 {
                 reaped = true;
                 break;
