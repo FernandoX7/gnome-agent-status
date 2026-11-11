@@ -10,7 +10,9 @@ import {
 } from '../compat.js';
 import {
     DENSITY_MODES,
+    formatBucketDisplayLabel,
     formatBucketMetric,
+    formatCompactAccountExtraNote,
     formatResetCountdown,
     getActiveAccount,
     groupBucketsForDetailedView,
@@ -33,7 +35,6 @@ class ProviderCardWidget {
         this._getIcon = getIcon;
         this._isMenuOpen = isMenuOpen;
 
-        this._pairRowPool = [];
         this._fullRowPool = [];
 
         this._avatar = new BrandAvatar({
@@ -41,7 +42,7 @@ class ProviderCardWidget {
             compact: false,
         });
 
-        // Header line (Provider Name · Plan Badge + Resets in ...)
+        // Header line (Provider Name · Plan Badge on left, Resets in … pushed flush right)
         this._nameLabel = new St.Label({
             text: '',
             y_align: Clutter.ActorAlign.CENTER,
@@ -53,8 +54,11 @@ class ProviderCardWidget {
             style_class: 'gas-plan-badge',
             visible: false,
         });
+        this._badgeLabel.clutter_text.ellipsize = Pango.EllipsizeMode.END;
         this._detailedResetLabel = new St.Label({
             text: '',
+            x_expand: true,
+            x_align: Clutter.ActorAlign.END,
             y_align: Clutter.ActorAlign.CENTER,
             style_class: 'gas-reset-label',
         });
@@ -68,19 +72,21 @@ class ProviderCardWidget {
         this._titleRow.add_child(this._badgeLabel);
         this._titleRow.add_child(this._detailedResetLabel);
 
-        // Detailed buckets container
+        // Detailed buckets container (one dedicated full-width line per bucket)
         this._detailedBody = createVBox({
             style_class: 'gas-provider-buckets',
-            x_expand: true,
-        });
-        this._pairContainer = createVBox({
-            style_class: 'gas-bucket-group-box',
             x_expand: true,
         });
         this._fullContainer = createVBox({
             style_class: 'gas-bucket-group-box',
             x_expand: true,
         });
+        this._extraInfoLabel = new St.Label({
+            text: '',
+            style_class: 'gas-extra-info-note',
+            visible: false,
+        });
+        this._extraInfoLabel.clutter_text.ellipsize = Pango.EllipsizeMode.END;
         this._statusNoteLabel = new St.Label({
             text: '',
             style_class: 'gas-status-note',
@@ -88,8 +94,8 @@ class ProviderCardWidget {
         });
         this._statusNoteLabel.clutter_text.ellipsize = Pango.EllipsizeMode.END;
 
-        this._detailedBody.add_child(this._pairContainer);
         this._detailedBody.add_child(this._fullContainer);
+        this._detailedBody.add_child(this._extraInfoLabel);
         this._detailedBody.add_child(this._statusNoteLabel);
 
         this._middleCol = createVBox({
@@ -107,7 +113,7 @@ class ProviderCardWidget {
             visible: false,
         });
         this._compactBar = new CapsuleBar({
-            width: 48,
+            width: 56,
             height: 5,
             isMenuOpen,
         });
@@ -153,48 +159,6 @@ class ProviderCardWidget {
         });
     }
 
-    _ensurePairRow(index) {
-        while (this._pairRowPool.length <= index) {
-            const row = createHBox({
-                style_class: 'gas-bucket-pair-row',
-                x_expand: true,
-                y_align: Clutter.ActorAlign.CENTER,
-            });
-            if (row.layout_manager)
-                row.layout_manager.homogeneous = true;
-            const cells = [0, 1].map(() => {
-                const cell = createHBox({
-                    style_class: 'gas-bucket-inline-cell',
-                    x_expand: true,
-                    y_align: Clutter.ActorAlign.CENTER,
-                });
-                const shortLabel = new St.Label({
-                    text: '',
-                    y_align: Clutter.ActorAlign.CENTER,
-                    style_class: 'gas-bucket-short-label',
-                });
-                const bar = new CapsuleBar({
-                    width: 44,
-                    height: 5,
-                    isMenuOpen: this._isMenuOpen,
-                });
-                const pctLabel = new St.Label({
-                    text: '0%',
-                    y_align: Clutter.ActorAlign.CENTER,
-                    style_class: 'gas-bucket-pct',
-                });
-                cell.add_child(shortLabel);
-                cell.add_child(bar.actor);
-                cell.add_child(pctLabel);
-                row.add_child(cell);
-                return {cell, shortLabel, bar, pctLabel};
-            });
-            this._pairContainer.add_child(row);
-            this._pairRowPool.push({row, cells});
-        }
-        return this._pairRowPool[index];
-    }
-
     _ensureFullRow(index) {
         while (this._fullRowPool.length <= index) {
             const row = createHBox({
@@ -212,7 +176,7 @@ class ProviderCardWidget {
             titleLabel.clutter_text.ellipsize = Pango.EllipsizeMode.END;
 
             const bar = new CapsuleBar({
-                width: 44,
+                width: 58,
                 height: 5,
                 isMenuOpen: this._isMenuOpen,
             });
@@ -312,36 +276,16 @@ class ProviderCardWidget {
         const buckets = Array.isArray(activeAcc?.buckets) ? activeAcc.buckets : [];
         const groups = groupBucketsForDetailedView(buckets);
 
-        let pairIdx = 0;
         let fullIdx = 0;
 
         for (const group of groups) {
-            if (group.kind === 'pair') {
-                const slot = this._ensurePairRow(pairIdx++);
-                slot.row.show();
-                for (let c = 0; c < 2; c++) {
-                    const item = group.items[c];
-                    const cellSlot = slot.cells[c];
-                    if (!item) {
-                        cellSlot.cell.hide();
-                        continue;
-                    }
-                    const metric = formatBucketMetric(item, metricMode);
-                    cellSlot.shortLabel.set_text(item.short_label || item.label || 'wk');
-                    cellSlot.bar.update({
-                        fillFraction: metric.fillFraction,
-                        severity: metric.severity,
-                        themeId,
-                    });
-                    cellSlot.pctLabel.set_text(metric.percentText);
-                    applySeverityClass(cellSlot.pctLabel, metric.severity);
-                    cellSlot.cell.show();
-                }
-            } else {
+            const items = group.kind === 'pair' ? group.items : [group.item];
+            for (const item of items) {
+                if (!item)
+                    continue;
                 const slot = this._ensureFullRow(fullIdx++);
-                const item = group.item;
                 const metric = formatBucketMetric(item, metricMode);
-                slot.titleLabel.set_text(item.label || item.short_label || 'Usage');
+                slot.titleLabel.set_text(formatBucketDisplayLabel(item));
                 slot.bar.update({
                     fillFraction: metric.fillFraction,
                     severity: metric.severity,
@@ -353,13 +297,18 @@ class ProviderCardWidget {
             }
         }
 
-        for (let i = pairIdx; i < this._pairRowPool.length; i++)
-            this._pairRowPool[i].row.hide();
         for (let i = fullIdx; i < this._fullRowPool.length; i++)
             this._fullRowPool[i].row.hide();
 
-        this._pairContainer.visible = pairIdx > 0;
         this._fullContainer.visible = fullIdx > 0;
+
+        const extraNote = formatCompactAccountExtraNote(activeAcc, Boolean(badgeText));
+        if (extraNote) {
+            this._extraInfoLabel.set_text(extraNote);
+            this._extraInfoLabel.show();
+        } else {
+            this._extraInfoLabel.hide();
+        }
 
         if (buckets.length === 0) {
             const note = activeAcc?.error ||
@@ -379,14 +328,6 @@ class ProviderCardWidget {
 
     repaintBars() {
         this._compactBar.repaintIfOpen();
-        for (const pairSlot of this._pairRowPool) {
-            if (!pairSlot.row.visible)
-                continue;
-            for (const cell of pairSlot.cells) {
-                if (cell.cell.visible)
-                    cell.bar.repaintIfOpen();
-            }
-        }
         for (const fullSlot of this._fullRowPool) {
             if (fullSlot.row.visible)
                 fullSlot.bar.repaintIfOpen();
@@ -395,10 +336,6 @@ class ProviderCardWidget {
 
     destroy() {
         this._compactBar.destroy();
-        for (const pairSlot of this._pairRowPool) {
-            for (const cell of pairSlot.cells)
-                cell.bar.destroy();
-        }
         for (const fullSlot of this._fullRowPool)
             fullSlot.bar.destroy();
     }
@@ -408,7 +345,7 @@ class ProviderCardWidget {
  * Page 1 (`Usage · all agents`):
  * - Header (`Usage`, `all agents`, `⚙` Quick Options, `↻` Refresh)
  * - `Detailed` | `Compact` segmented toggle
- * - `St.ScrollView` (`max-height: 420px`, `overlay_scrollbars: true`) of reusable provider cards
+ * - `St.ScrollView` (`max-height: 516px`, `overlay_scrollbars: true`) of reusable provider cards
  * - Footer (`Manage Accounts & Preferences…`, `Open Config`)
  */
 export class MainUsagePage {
@@ -467,6 +404,7 @@ export class MainUsagePage {
             accessible_name: 'Quick Options',
             child: new St.Label({
                 text: '⚙',
+                x_align: Clutter.ActorAlign.CENTER,
                 y_align: Clutter.ActorAlign.CENTER,
                 style_class: 'gas-icon-btn-glyph',
             }),
@@ -477,6 +415,7 @@ export class MainUsagePage {
 
         this._refreshGlyph = new St.Label({
             text: '↻',
+            x_align: Clutter.ActorAlign.CENTER,
             y_align: Clutter.ActorAlign.CENTER,
             style_class: 'gas-icon-btn-glyph',
         });

@@ -606,7 +606,7 @@ where
                 let (id, label, short_label) = if is_weekly_single {
                     ("wk", "Weekly", "wk")
                 } else {
-                    ("5h", "Session (5h)", "5h")
+                    ("5h", "5-Hour", "5h")
                 };
                 buckets.push(UsageBucket::new(
                     id,
@@ -758,7 +758,7 @@ where
             let (id, label, short_label) = if is_weekly_single {
                 ("wk", "Weekly", "wk")
             } else {
-                ("5h", "Session (5h)", "5h")
+                ("5h", "5-Hour", "5h")
             };
             buckets.push(UsageBucket::new(
                 id,
@@ -998,7 +998,7 @@ where
                 let (id, label, short_label) = if is_weekly_single {
                     ("wk", "Weekly", "wk")
                 } else {
-                    ("5h", "Session (5h)", "5h")
+                    ("5h", "5-Hour", "5h")
                 };
                 buckets.push(UsageBucket::new(
                     id,

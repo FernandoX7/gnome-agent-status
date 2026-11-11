@@ -9,6 +9,7 @@ import {
     setScrollChild,
 } from '../compat.js';
 import {
+    formatBucketDisplayLabel,
     formatBucketMetric,
     formatCreditsSummary,
     formatRelativeUpdated,
@@ -652,7 +653,7 @@ export class ProviderDetailPage {
             const slot = this._ensureHeroBucketSlot(i);
             const metric = formatBucketMetric(b, metricMode);
 
-            slot.titleLabel.set_text(b.label || b.short_label || 'Usage');
+            slot.titleLabel.set_text(formatBucketDisplayLabel(b));
             slot.bar.update({
                 fillFraction: metric.fillFraction,
                 severity: metric.severity,
@@ -681,7 +682,8 @@ export class ProviderDetailPage {
             this._heroEmptyNote.hide();
         }
 
-        const creditsText = formatCreditsSummary(activeAcc?.credits);
+        const creditsText = formatCreditsSummary(activeAcc?.credits) ||
+            (typeof activeAcc?.extra_info === 'string' ? activeAcc.extra_info.trim() : '');
         if (creditsText) {
             this._heroCreditsLabel.set_text(creditsText);
             this._heroCreditsLabel.show();

@@ -747,7 +747,7 @@ where
     }
     if let Some(ref fh) = parsed.five_hour {
         let is_primary = buckets.is_empty();
-        push_window(&mut buckets, "5h", "Session (5h)", "5h", is_primary, fh);
+        push_window(&mut buckets, "5h", "5-Hour", "5h", is_primary, fh);
     }
     if let Some(ref sonnet) = parsed.seven_day_sonnet {
         push_window(&mut buckets, "sonnet", "Sonnet", "Sonnet", false, sonnet);
@@ -998,7 +998,7 @@ where
             .and_then(|r| reset::normalize_reset(r, now, tz));
         session_bucket = Some(UsageBucket::new(
             "5h",
-            "Session (5h)",
+            "5-Hour",
             "5h",
             BucketLayout::InlinePair,
             wk_bucket.is_none(),
@@ -1220,7 +1220,7 @@ pub fn ingest_claude_statusline(
             let norm = parse_statusline_reset(fh.resets_at.as_ref(), now, &Local);
             new_5h = Some(UsageBucket::new(
                 "5h",
-                "Session (5h)",
+                "5-Hour",
                 "5h",
                 BucketLayout::InlinePair,
                 new_wk.is_none(),

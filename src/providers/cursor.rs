@@ -927,7 +927,7 @@ where
         ),
         UsageBucket::new(
             "31d",
-            "Monthly (31d)",
+            "Monthly",
             "31d",
             BucketLayout::InlinePair,
             true,

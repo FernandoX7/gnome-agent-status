@@ -215,12 +215,12 @@
 /* --- Scroll Views & Slim Scrollbars --- */
 
 .gas-scroll-view {
-    max-height: 420px;
+    max-height: 516px;
 }
 
 .gas-detail-scroll,
 .gas-options-scroll {
-    max-height: 440px;
+    max-height: 500px;
 }
 
 .gas-scroll-view StScrollBar {
@@ -304,7 +304,8 @@
 .gas-reset-label {
     font-size: 11.5px;
     font-weight: 450;
-    padding-left: 3px;
+    padding-left: 6px;
+    text-align: right;
     font-feature-settings: "tnum";
 }
 
@@ -325,7 +326,7 @@
 }
 
 .gas-bucket-full-row {
-    spacing: 7px;
+    spacing: 8px;
 }
 
 .gas-bucket-short-label,
@@ -342,6 +343,7 @@
 }
 
 .gas-bucket-pct-right {
+    min-width: 34px;
     text-align: right;
 }
 
@@ -350,7 +352,7 @@
 }
 
 .gas-compact-pct {
-    min-width: 30px;
+    min-width: 34px;
     text-align: right;
 }
 
@@ -358,6 +360,13 @@
     font-size: 11px;
     min-width: 42px;
     text-align: right;
+    font-feature-settings: "tnum";
+}
+
+.gas-extra-info-note {
+    font-size: 11px;
+    font-weight: 500;
+    padding-top: 1px;
     font-feature-settings: "tnum";
 }
 
@@ -369,6 +378,8 @@
 .gas-chevron {
     font-size: 15px;
     font-weight: 500;
+    min-width: 10px;
+    text-align: right;
     padding-left: 2px;
 }
 
@@ -770,7 +781,8 @@
 .gas-popover.theme-midnight-slate .gas-account-row:focus { background-color: #272a40; border-color: #3b405e; }
 .gas-popover.theme-midnight-slate .gas-hero-card { background-color: #181926; border-color: #2e3044; }
 .gas-popover.theme-midnight-slate .gas-hero-tier-badge { background-color: #2a2e45; color: #b8bed6; }
-.gas-popover.theme-midnight-slate .gas-hero-credits { color: #9aa0ba; }
+.gas-popover.theme-midnight-slate .gas-hero-credits,
+.gas-popover.theme-midnight-slate .gas-extra-info-note { color: #9aa0ba; }
 .gas-popover.theme-midnight-slate .gas-account-row.is-selected { background-color: #363d55; border-color: #495273; color: #eef2ff; }
 .gas-popover.theme-midnight-slate .gas-signin-btn,
 .gas-popover.theme-midnight-slate .gas-theme-chip,
@@ -836,7 +848,8 @@
 .gas-popover.theme-system .gas-account-row:focus { background-color: rgba(255, 255, 255, 0.08); border-color: rgba(255, 255, 255, 0.18); }
 .gas-popover.theme-system .gas-hero-card { background-color: rgba(0, 0, 0, 0.20); border-color: rgba(255, 255, 255, 0.14); }
 .gas-popover.theme-system .gas-hero-tier-badge { background-color: rgba(53, 132, 228, 0.22); color: #99c1f1; }
-.gas-popover.theme-system .gas-hero-credits { color: #99c1f1; }
+.gas-popover.theme-system .gas-hero-credits,
+.gas-popover.theme-system .gas-extra-info-note { color: #99c1f1; }
 .gas-popover.theme-system .gas-account-row.is-selected { background-color: rgba(53, 132, 228, 0.25); border-color: rgba(53, 132, 228, 0.50); color: #ffffff; }
 .gas-popover.theme-system .gas-signin-btn,
 .gas-popover.theme-system .gas-theme-chip,
@@ -901,7 +914,8 @@
 .gas-popover.theme-system.is-light-surface .gas-account-row:focus { background-color: rgba(0, 0, 0, 0.055); border-color: rgba(0, 0, 0, 0.13); }
 .gas-popover.theme-system.is-light-surface .gas-hero-card { background-color: rgba(0, 0, 0, 0.045); border-color: rgba(0, 0, 0, 0.12); }
 .gas-popover.theme-system.is-light-surface .gas-hero-tier-badge { background-color: rgba(26, 95, 180, 0.12); color: #1a5fb4; }
-.gas-popover.theme-system.is-light-surface .gas-hero-credits { color: #1a5fb4; }
+.gas-popover.theme-system.is-light-surface .gas-hero-credits,
+.gas-popover.theme-system.is-light-surface .gas-extra-info-note { color: #1a5fb4; }
 .gas-popover.theme-system.is-light-surface .gas-account-row.is-selected { background-color: rgba(53, 132, 228, 0.14); border-color: rgba(26, 95, 180, 0.45); color: #16181d; }
 .gas-popover.theme-system.is-light-surface .gas-signin-btn,
 .gas-popover.theme-system.is-light-surface .gas-theme-chip,
@@ -968,7 +982,8 @@
 .gas-popover.theme-tokyo-night .gas-account-row:focus { background-color: #24283b; border-color: #3b4261; }
 .gas-popover.theme-tokyo-night .gas-hero-card { background-color: #16161e; border-color: #292e42; }
 .gas-popover.theme-tokyo-night .gas-hero-tier-badge { background-color: #24283b; color: #7aa2f7; }
-.gas-popover.theme-tokyo-night .gas-hero-credits { color: #7aa2f7; }
+.gas-popover.theme-tokyo-night .gas-hero-credits,
+.gas-popover.theme-tokyo-night .gas-extra-info-note { color: #7aa2f7; }
 .gas-popover.theme-tokyo-night .gas-account-row.is-selected { background-color: #292e42; border-color: #7aa2f7; color: #c0caf5; }
 .gas-popover.theme-tokyo-night .gas-signin-btn,
 .gas-popover.theme-tokyo-night .gas-theme-chip,
@@ -1034,7 +1049,8 @@
 .gas-popover.theme-catppuccin .gas-account-row:focus { background-color: #292a3c; border-color: #45475a; }
 .gas-popover.theme-catppuccin .gas-hero-card { background-color: #181825; border-color: #313244; }
 .gas-popover.theme-catppuccin .gas-hero-tier-badge { background-color: #313244; color: #cba6f7; }
-.gas-popover.theme-catppuccin .gas-hero-credits { color: #89b4fa; }
+.gas-popover.theme-catppuccin .gas-hero-credits,
+.gas-popover.theme-catppuccin .gas-extra-info-note { color: #89b4fa; }
 .gas-popover.theme-catppuccin .gas-account-row.is-selected { background-color: #313244; border-color: #89b4fa; color: #cdd6f4; }
 .gas-popover.theme-catppuccin .gas-signin-btn,
 .gas-popover.theme-catppuccin .gas-theme-chip,
@@ -1100,7 +1116,8 @@
 .gas-popover.theme-gruvbox .gas-account-row:focus { background-color: #32302f; border-color: #504945; }
 .gas-popover.theme-gruvbox .gas-hero-card { background-color: #1d2021; border-color: #3c3836; }
 .gas-popover.theme-gruvbox .gas-hero-tier-badge { background-color: #3c3836; color: #fabd2f; }
-.gas-popover.theme-gruvbox .gas-hero-credits { color: #83a598; }
+.gas-popover.theme-gruvbox .gas-hero-credits,
+.gas-popover.theme-gruvbox .gas-extra-info-note { color: #83a598; }
 .gas-popover.theme-gruvbox .gas-account-row.is-selected { background-color: #3c3836; border-color: #83a598; color: #fbf1c7; }
 .gas-popover.theme-gruvbox .gas-signin-btn,
 .gas-popover.theme-gruvbox .gas-theme-chip,
@@ -1166,7 +1183,8 @@
 .gas-popover.theme-rose-pine .gas-account-row:focus { background-color: #26233a; border-color: #403d52; }
 .gas-popover.theme-rose-pine .gas-hero-card { background-color: #191724; border-color: #26233a; }
 .gas-popover.theme-rose-pine .gas-hero-tier-badge { background-color: #26233a; color: #c4a7e7; }
-.gas-popover.theme-rose-pine .gas-hero-credits { color: #9ccfd8; }
+.gas-popover.theme-rose-pine .gas-hero-credits,
+.gas-popover.theme-rose-pine .gas-extra-info-note { color: #9ccfd8; }
 .gas-popover.theme-rose-pine .gas-account-row.is-selected { background-color: #312f46; border-color: #c4a7e7; color: #e0def4; }
 .gas-popover.theme-rose-pine .gas-signin-btn,
 .gas-popover.theme-rose-pine .gas-theme-chip,
@@ -1232,7 +1250,8 @@
 .gas-popover.theme-nord .gas-account-row:focus { background-color: #3b4252; border-color: #4c566a; }
 .gas-popover.theme-nord .gas-hero-card { background-color: #242933; border-color: #3b4252; }
 .gas-popover.theme-nord .gas-hero-tier-badge { background-color: #3b4252; color: #88c0d0; }
-.gas-popover.theme-nord .gas-hero-credits { color: #88c0d0; }
+.gas-popover.theme-nord .gas-hero-credits,
+.gas-popover.theme-nord .gas-extra-info-note { color: #88c0d0; }
 .gas-popover.theme-nord .gas-account-row.is-selected { background-color: #434c5e; border-color: #88c0d0; color: #eceff4; }
 .gas-popover.theme-nord .gas-signin-btn,
 .gas-popover.theme-nord .gas-theme-chip,
@@ -1298,7 +1317,8 @@
 .gas-popover.theme-everforest .gas-account-row:focus { background-color: #343f44; border-color: #4f585e; }
 .gas-popover.theme-everforest .gas-hero-card { background-color: #232a2e; border-color: #3d484d; }
 .gas-popover.theme-everforest .gas-hero-tier-badge { background-color: #343f44; color: #a7c080; }
-.gas-popover.theme-everforest .gas-hero-credits { color: #7fbbb3; }
+.gas-popover.theme-everforest .gas-hero-credits,
+.gas-popover.theme-everforest .gas-extra-info-note { color: #7fbbb3; }
 .gas-popover.theme-everforest .gas-account-row.is-selected { background-color: #3d484d; border-color: #a7c080; color: #d3c6aa; }
 .gas-popover.theme-everforest .gas-signin-btn,
 .gas-popover.theme-everforest .gas-theme-chip,

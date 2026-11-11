@@ -114,9 +114,9 @@ export const THEME_PRESETS = Object.freeze([
         id: 'midnight-slate',
         label: 'Midnight Slate',
         swatchHex: '#1e1f2f',
-        trackRgba: hexToRgba('#171823', 0.96),
-        heroTrackRgba: hexToRgba('#2c2d3c', 1.0),
-        okFillRgba: hexToRgba('#676e7d', 1.0),
+        trackRgba: hexToRgba('#343852', 0.96),
+        heroTrackRgba: hexToRgba('#32364e', 1.0),
+        okFillRgba: hexToRgba('#858ea8', 1.0),
         warnFillRgba: hexToRgba('#e0af68', 1.0),
         critFillRgba: hexToRgba('#ff4443', 1.0),
     }),
@@ -124,9 +124,9 @@ export const THEME_PRESETS = Object.freeze([
         id: 'system',
         label: 'GNOME System',
         swatchHex: '#3584e4',
-        trackRgba: [0.5, 0.52, 0.58, 0.24],
-        heroTrackRgba: [0.5, 0.52, 0.58, 0.30],
-        okFillRgba: hexToRgba('#676e7d', 1.0),
+        trackRgba: [0.50, 0.53, 0.60, 0.34],
+        heroTrackRgba: [0.50, 0.53, 0.60, 0.40],
+        okFillRgba: hexToRgba('#7c8599', 1.0),
         warnFillRgba: hexToRgba('#e0af68', 1.0),
         critFillRgba: hexToRgba('#ff4443', 1.0),
     }),
@@ -134,9 +134,9 @@ export const THEME_PRESETS = Object.freeze([
         id: 'tokyo-night',
         label: 'Tokyo Night',
         swatchHex: '#1a1b26',
-        trackRgba: hexToRgba('#14151e', 0.96),
-        heroTrackRgba: hexToRgba('#24283b', 1.0),
-        okFillRgba: hexToRgba('#676e7d', 1.0),
+        trackRgba: hexToRgba('#313750', 0.96),
+        heroTrackRgba: hexToRgba('#2f354d', 1.0),
+        okFillRgba: hexToRgba('#7e88ad', 1.0),
         warnFillRgba: hexToRgba('#e0af68', 1.0),
         critFillRgba: hexToRgba('#ff4443', 1.0),
     }),
@@ -144,9 +144,9 @@ export const THEME_PRESETS = Object.freeze([
         id: 'catppuccin',
         label: 'Catppuccin Mocha',
         swatchHex: '#1e1e2e',
-        trackRgba: hexToRgba('#14141f', 0.96),
-        heroTrackRgba: hexToRgba('#313244', 1.0),
-        okFillRgba: hexToRgba('#6c7086', 1.0),
+        trackRgba: hexToRgba('#36384d', 0.96),
+        heroTrackRgba: hexToRgba('#35374b', 1.0),
+        okFillRgba: hexToRgba('#878ca6', 1.0),
         warnFillRgba: hexToRgba('#e0af68', 1.0),
         critFillRgba: hexToRgba('#ff4443', 1.0),
     }),
@@ -154,9 +154,9 @@ export const THEME_PRESETS = Object.freeze([
         id: 'gruvbox',
         label: 'Gruvbox Dark',
         swatchHex: '#282828',
-        trackRgba: hexToRgba('#1d2021', 0.96),
-        heroTrackRgba: hexToRgba('#3c3836', 1.0),
-        okFillRgba: hexToRgba('#928374', 1.0),
+        trackRgba: hexToRgba('#45403d', 0.96),
+        heroTrackRgba: hexToRgba('#423d3a', 1.0),
+        okFillRgba: hexToRgba('#a89984', 1.0),
         warnFillRgba: hexToRgba('#d79921', 1.0),
         critFillRgba: hexToRgba('#fb4934', 1.0),
     }),
@@ -164,9 +164,9 @@ export const THEME_PRESETS = Object.freeze([
         id: 'rose-pine',
         label: 'Rosé Pine',
         swatchHex: '#1f1d2e',
-        trackRgba: hexToRgba('#161420', 0.96),
-        heroTrackRgba: hexToRgba('#2a273f', 1.0),
-        okFillRgba: hexToRgba('#6e6a86', 1.0),
+        trackRgba: hexToRgba('#36334c', 0.96),
+        heroTrackRgba: hexToRgba('#333048', 1.0),
+        okFillRgba: hexToRgba('#8883a5', 1.0),
         warnFillRgba: hexToRgba('#f6c177', 1.0),
         critFillRgba: hexToRgba('#eb6f92', 1.0),
     }),
@@ -174,9 +174,9 @@ export const THEME_PRESETS = Object.freeze([
         id: 'nord',
         label: 'Nord',
         swatchHex: '#2e3440',
-        trackRgba: hexToRgba('#222730', 0.96),
-        heroTrackRgba: hexToRgba('#3b4252', 1.0),
-        okFillRgba: hexToRgba('#676e7d', 1.0),
+        trackRgba: hexToRgba('#464f62', 0.96),
+        heroTrackRgba: hexToRgba('#434c5e', 1.0),
+        okFillRgba: hexToRgba('#8895ab', 1.0),
         warnFillRgba: hexToRgba('#ebcb8b', 1.0),
         critFillRgba: hexToRgba('#ff4443', 1.0),
     }),
@@ -184,9 +184,9 @@ export const THEME_PRESETS = Object.freeze([
         id: 'everforest',
         label: 'Everforest Dark',
         swatchHex: '#2d353b',
-        trackRgba: hexToRgba('#21272b', 0.96),
-        heroTrackRgba: hexToRgba('#374145', 1.0),
-        okFillRgba: hexToRgba('#7a8478', 1.0),
+        trackRgba: hexToRgba('#434f56', 0.96),
+        heroTrackRgba: hexToRgba('#3f4b52', 1.0),
+        okFillRgba: hexToRgba('#8f9c90', 1.0),
         warnFillRgba: hexToRgba('#dbbc7f', 1.0),
         critFillRgba: hexToRgba('#e67e80', 1.0),
     }),
@@ -298,40 +298,68 @@ export function normalizeBucketLabel(label) {
 }
 
 /**
- * Groups ordered buckets for the Detailed main popover card:
- * - `layout_hint === 'inline_pair'` consecutive items pair 2-up on one line
- * - `layout_hint === 'full_row'` items take a dedicated full-width line
+ * Formats a bucket's display title so cryptic short codes (`wk`, `5h`, `31d`) always
+ * expand into clear human-readable labels (`Weekly`, `5-Hour`, `Monthly`), while
+ * keeping rich labels (`Fable`, `Sonnet`, `Opus`, `Extra Usage`, `Gemini · Weekly`,
+ * `Claude & GPT · Weekly`, `Cursor Models`, `Other Models`, `Monthly`) intact.
+ *
+ * @param {object|string|null|undefined} bucket
+ * @returns {string}
+ */
+export function formatBucketDisplayLabel(bucket) {
+    const rawInput = typeof bucket === 'string'
+        ? bucket
+        : (bucket?.label || bucket?.short_label || bucket?.id || '');
+    const cleaned = normalizeBucketLabel(rawInput);
+    if (!cleaned)
+        return 'Usage';
+
+    const lower = cleaned.toLowerCase();
+    if (lower === 'wk' || lower === '7d' || lower === 'weekly' || lower === 'weekly (7d)')
+        return 'Weekly';
+    if (
+        lower === '5h' ||
+        lower === '5-hour' ||
+        lower === '5 hour' ||
+        lower === 'five hour' ||
+        lower === 'session' ||
+        lower === 'session (5h)'
+    )
+        return '5-Hour';
+    if (
+        lower === '31d' ||
+        lower === '30d' ||
+        lower === 'monthly' ||
+        lower === 'monthly (31d)' ||
+        lower === 'monthly (30d)'
+    )
+        return 'Monthly';
+    if (lower === 'extra usage' || lower === 'extra')
+        return 'Extra Usage';
+
+    return cleaned
+        .replace(/·\s*5h\b/gi, '· 5-Hour')
+        .replace(/·\s*wk\b/gi, '· Weekly')
+        .replace(/·\s*31d\b/gi, '· Monthly');
+}
+
+/**
+ * Formats ordered buckets for the Detailed main popover card so every bucket
+ * renders on its own dedicated full-width line with zero side-by-side truncation.
  *
  * @param {Array<object>} buckets
- * @returns {Array<{kind: 'pair', items: Array<object>} | {kind: 'full', item: object}>}
+ * @returns {Array<{kind: 'full', item: object}>}
  */
 export function groupBucketsForDetailedView(buckets) {
     if (!Array.isArray(buckets) || buckets.length === 0)
         return [];
 
     const groups = [];
-    let pendingPair = [];
-
-    const flushPair = () => {
-        if (pendingPair.length > 0) {
-            groups.push({kind: 'pair', items: pendingPair});
-            pendingPair = [];
-        }
-    };
-
     for (const bucket of buckets) {
         if (!bucket)
             continue;
-        if (bucket.layout_hint === 'full_row') {
-            flushPair();
-            groups.push({kind: 'full', item: bucket});
-        } else {
-            pendingPair.push(bucket);
-            if (pendingPair.length === 2)
-                flushPair();
-        }
+        groups.push({kind: 'full', item: bucket});
     }
-    flushPair();
     return groups;
 }
 
@@ -413,6 +441,41 @@ export function formatCreditsSummary(credits) {
         return `${label}: $${credits.used_dollars.toFixed(2)} used`;
     if (hasPct)
         return `${label}: ${clampPercent(credits.used_percent)}% used`;
+    return '';
+}
+
+/**
+ * Formats a concise, non-redundant extra-info / credits note for a provider card
+ * when explicit `extra_info` is present, active on-demand spend (`used_dollars > 0`) exists,
+ * or a prepaid balance is available on an account without a plan tier badge.
+ *
+ * @param {object|null|undefined} account
+ * @param {boolean} [hasPlanBadge=false]
+ * @returns {string}
+ */
+export function formatCompactAccountExtraNote(account, hasPlanBadge = false) {
+    if (!account || typeof account !== 'object')
+        return '';
+
+    if (typeof account.extra_info === 'string' && account.extra_info.trim() !== '')
+        return account.extra_info.trim();
+
+    const credits = account.credits;
+    if (!credits || typeof credits !== 'object')
+        return '';
+
+    const label = credits.label || 'Credits';
+    const hasUsed = typeof credits.used_dollars === 'number' && Number.isFinite(credits.used_dollars);
+    const hasLimit = typeof credits.limit_dollars === 'number' && Number.isFinite(credits.limit_dollars);
+    const hasBalance = typeof credits.balance_dollars === 'number' && Number.isFinite(credits.balance_dollars);
+
+    if (hasUsed && credits.used_dollars > 0) {
+        if (hasLimit && credits.limit_dollars > 0)
+            return `${label}: $${credits.used_dollars.toFixed(2)} / $${credits.limit_dollars.toFixed(2)}`;
+        return `${label}: $${credits.used_dollars.toFixed(2)} used`;
+    }
+    if (!hasPlanBadge && hasBalance && credits.balance_dollars > 0)
+        return `${label}: $${credits.balance_dollars.toFixed(2)}`;
     return '';
 }
 
@@ -532,9 +595,9 @@ export function normalizeStatusReport(raw, nowEpoch = Math.floor(Date.now() / 10
                         : Math.max(0, 100 - used);
                 return {
                     ...b,
-                    label: normalizeBucketLabel(b?.label || b?.short_label || 'Usage'),
+                    label: formatBucketDisplayLabel(b),
                     short_label: b?.short_label || 'wk',
-                    layout_hint: b?.layout_hint === 'full_row' ? 'full_row' : 'inline_pair',
+                    layout_hint: 'full_row',
                     used_percent: used,
                     remaining_percent: rem,
                 };
