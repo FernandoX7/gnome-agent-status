@@ -2,6 +2,9 @@
 
 pub mod antigravity;
 pub mod claude;
+pub mod codex;
+pub mod cursor;
+pub mod grok;
 
 use crate::cache::{
     apply_report_time_decay, default_jitter_secs, CacheStore, CachedAccountState, CollectorState,
@@ -151,7 +154,10 @@ impl ProviderRegistry {
         Self {
             providers: vec![
                 Box::new(claude::ClaudeProvider::new()),
+                Box::new(codex::CodexProvider::new()),
+                Box::new(grok::GrokProvider::new()),
                 Box::new(antigravity::AntigravityProvider::new()),
+                Box::new(cursor::CursorProvider::new()),
             ],
         }
     }
