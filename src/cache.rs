@@ -72,6 +72,8 @@ pub struct CachedAccountState {
     pub plan_tier: Option<String>,
     pub state: AccountState,
     pub status_note: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extra_info: Option<String>,
     pub error: Option<String>,
     pub login_command: Option<String>,
     pub last_fetch_attempt_epoch: Option<i64>,
@@ -97,6 +99,7 @@ impl CachedAccountState {
             state: self.state,
             is_stale,
             status_note: self.status_note.as_deref().map(redact_secrets),
+            extra_info: self.extra_info.as_deref().map(redact_secrets),
             error: self.error.as_deref().map(redact_secrets),
             login_command: self.login_command.clone(),
             updated_at_epoch: self.last_success_epoch.or(self.last_fetch_attempt_epoch),
@@ -155,6 +158,7 @@ impl CachedAccountState {
         self.plan_tier = report.plan_tier.clone();
         self.state = report.state;
         self.status_note = report.status_note.clone();
+        self.extra_info = report.extra_info.clone();
         self.error = None;
         self.login_command = report.login_command.clone();
         self.last_fetch_attempt_epoch = Some(now_epoch);
@@ -605,6 +609,7 @@ mod tests {
             plan_tier: Some("Max".to_string()),
             state: AccountState::ActiveOk,
             status_note: None,
+            extra_info: None,
             error: None,
             login_command: None,
             last_fetch_attempt_epoch: Some(1000),
@@ -664,6 +669,7 @@ mod tests {
             state: AccountState::ActiveOk,
             is_stale: false,
             status_note: None,
+            extra_info: None,
             error: None,
             login_command: Some("claude auth login".to_string()),
             updated_at_epoch: Some(1000),
@@ -688,6 +694,7 @@ mod tests {
             state: AccountState::ActiveOk,
             is_stale: false,
             status_note: None,
+            extra_info: None,
             error: None,
             login_command: Some("CLAUDE_CONFIG_DIR=~/.claude-work claude auth login".to_string()),
             updated_at_epoch: Some(1000),

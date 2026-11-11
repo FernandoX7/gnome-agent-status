@@ -9,7 +9,9 @@ use serde::{Deserialize, Serialize};
 pub const SCHEMA_VERSION: u8 = 2;
 
 /// Canonical provider order shown in the UI and default collector output.
-pub const CANONICAL_PROVIDER_IDS: &[&str] = &["claude", "codex", "grok", "agy", "cursor"];
+pub const CANONICAL_PROVIDER_IDS: &[&str] = &[
+    "claude", "codex", "grok", "agy", "cursor", "copilot", "gemini",
+];
 
 /// Overall health and severity state across active providers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -92,6 +94,10 @@ pub struct UsageBucket {
     pub remaining_percent: u8,
     pub resets_at_epoch: Option<i64>,
     pub resets_at_iso: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window_seconds: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extra_info: Option<String>,
 }
 
 impl UsageBucket {
@@ -104,6 +110,9 @@ impl UsageBucket {
         used_percent_f64: f64,
         reset: Option<(i64, String)>,
     ) -> Self {
+        let id = id.into();
+        let label = label.into();
+        let short_label = short_label.into();
         let clamped = if used_percent_f64.is_finite() {
             used_percent_f64.clamp(0.0, 100.0)
         } else {
@@ -115,17 +124,33 @@ impl UsageBucket {
             Some((epoch, iso)) => (Some(epoch), Some(iso)),
             None => (None, None),
         };
+        let window_seconds = infer_window_seconds(&id, &label, &short_label);
         Self {
-            id: id.into(),
-            label: label.into(),
-            short_label: short_label.into(),
+            id,
+            label,
+            short_label,
             layout_hint,
             is_primary,
             used_percent,
             remaining_percent,
             resets_at_epoch,
             resets_at_iso,
+            window_seconds,
+            extra_info: None,
         }
+    }
+
+    pub fn with_window_seconds(mut self, window_seconds: Option<u64>) -> Self {
+        self.window_seconds = window_seconds;
+        self
+    }
+
+    pub fn with_extra_info(mut self, extra_info: impl Into<String>) -> Self {
+        let s = extra_info.into();
+        if !s.trim().is_empty() {
+            self.extra_info = Some(s);
+        }
+        self
     }
 
     /// Constructs a bucket from a remaining fraction (`0.0..=1.0`), normalizing to `% used`.
@@ -156,6 +181,64 @@ impl UsageBucket {
     }
 }
 
+/// Infers standard quota window duration (`18_000` for 5h, `86_400` for 24h/daily,
+/// `604_800` for 7d/weekly, `2_678_400` for 30d/31d/monthly) from canonical bucket identifiers.
+pub fn infer_window_seconds(id: &str, label: &str, short_label: &str) -> Option<u64> {
+    let id_l = id.trim().to_ascii_lowercase();
+    let lbl_l = label.trim().to_ascii_lowercase();
+    let sh_l = short_label.trim().to_ascii_lowercase();
+
+    if id_l == "5h"
+        || id_l.ends_with("-5h")
+        || sh_l == "5h"
+        || sh_l.ends_with(" 5h")
+        || lbl_l.contains("5-hour")
+        || lbl_l.contains("5h")
+        || lbl_l == "session"
+    {
+        return Some(18_000);
+    }
+
+    if id_l == "24h"
+        || id_l == "daily"
+        || id_l.ends_with("-daily")
+        || sh_l == "24h"
+        || sh_l == "1d"
+        || sh_l.ends_with(" 24h")
+        || lbl_l.contains("daily")
+        || lbl_l.contains("24-hour")
+        || lbl_l.contains("24h")
+    {
+        return Some(86_400);
+    }
+
+    if matches!(
+        id_l.as_str(),
+        "30d" | "31d" | "monthly" | "premium" | "cursor-models" | "other-models" | "chat" | "completions"
+    ) || matches!(sh_l.as_str(), "30d" | "31d" | "mo")
+        || lbl_l.contains("monthly")
+        || lbl_l.contains("premium requests")
+    {
+        return Some(2_678_400);
+    }
+
+    if id_l == "wk"
+        || id_l.ends_with("-weekly")
+        || id_l.ends_with("_wk")
+        || matches!(
+            id_l.as_str(),
+            "sonnet" | "opus" | "cowork" | "fable" | "code-review"
+        )
+        || sh_l == "wk"
+        || sh_l.ends_with(" wk")
+        || lbl_l.contains("weekly")
+    {
+        return Some(604_800);
+    }
+
+    None
+}
+
 /// Optional extra usage or prepaid credit pool summary.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CreditSummary {
@@ -178,6 +261,8 @@ pub struct AccountReport {
     pub state: AccountState,
     pub is_stale: bool,
     pub status_note: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extra_info: Option<String>,
     pub error: Option<String>,
     pub login_command: Option<String>,
     pub updated_at_epoch: Option<i64>,
@@ -605,6 +690,18 @@ pub fn canonical_provider_info(
             "https://cursor.com/dashboard",
             300,
         )),
+        "copilot" => Some((
+            "GitHub Copilot",
+            "provider-copilot",
+            "https://github.com/settings/copilot",
+            300,
+        )),
+        "gemini" => Some((
+            "Gemini CLI",
+            "provider-gemini",
+            "https://aistudio.google.com/",
+            300,
+        )),
         _ => None,
     }
 }
@@ -657,6 +754,7 @@ mod tests {
             state: AccountState::ActiveOk,
             is_stale: false,
             status_note: None,
+            extra_info: None,
             error: None,
             login_command: Some("claude auth login".to_string()),
             updated_at_epoch: Some(1794356800),
@@ -750,6 +848,7 @@ mod tests {
             state: AccountState::ActiveOk,
             is_stale: false,
             status_note: None,
+            extra_info: None,
             error: None,
             login_command: None,
             updated_at_epoch: Some(100),
@@ -774,6 +873,7 @@ mod tests {
             state: AccountState::ActiveOk,
             is_stale: false,
             status_note: None,
+            extra_info: None,
             error: None,
             login_command: None,
             updated_at_epoch: Some(100),

@@ -233,6 +233,7 @@ impl UsageProvider for CodexProvider {
                                         state: AccountState::ActiveOk,
                                         is_stale: false,
                                         status_note: None,
+                                        extra_info: None,
                                         error: None,
                                         login_command: account.login_command.clone(),
                                         updated_at_epoch: Some(ctx.now_epoch()),
@@ -279,6 +280,7 @@ impl UsageProvider for CodexProvider {
                     state: AccountState::ActiveOk,
                     is_stale: false,
                     status_note: None,
+                    extra_info: None,
                     error: None,
                     login_command: account.login_command.clone(),
                     updated_at_epoch: Some(ctx.now_epoch()),
@@ -301,6 +303,7 @@ impl UsageProvider for CodexProvider {
                     state: AccountState::ActiveOk,
                     is_stale: true,
                     status_note: Some("From local Codex session log".to_string()),
+                    extra_info: None,
                     error: None,
                     login_command: account.login_command.clone(),
                     updated_at_epoch: Some(ctx.now_epoch()),
@@ -584,15 +587,23 @@ where
         if let Some(ref sec) = rl.secondary_window {
             if let Some(pct) = sec.used_percent {
                 let norm = sec.reset_at.and_then(|ts| reset::normalize_epoch(ts, tz));
-                buckets.push(UsageBucket::new(
-                    "wk",
-                    "Weekly",
-                    "wk",
-                    BucketLayout::InlinePair,
-                    true,
-                    pct,
-                    norm,
-                ));
+                let win = sec
+                    .limit_window_seconds
+                    .and_then(|s| u64::try_from(s).ok())
+                    .filter(|&s| s > 0)
+                    .or(Some(604_800));
+                buckets.push(
+                    UsageBucket::new(
+                        "wk",
+                        "Weekly",
+                        "wk",
+                        BucketLayout::InlinePair,
+                        true,
+                        pct,
+                        norm,
+                    )
+                    .with_window_seconds(win),
+                );
             }
         }
         if let Some(ref pri) = rl.primary_window {
@@ -603,20 +614,28 @@ where
                 // with `secondary_window: null`. Classify >= 5-day windows as `wk` ("Weekly").
                 let is_weekly_single =
                     buckets.is_empty() && pri.limit_window_seconds.is_some_and(|s| s >= 432_000);
-                let (id, label, short_label) = if is_weekly_single {
-                    ("wk", "Weekly", "wk")
+                let (id, label, short_label, default_win) = if is_weekly_single {
+                    ("wk", "Weekly", "wk", 604_800u64)
                 } else {
-                    ("5h", "5-Hour", "5h")
+                    ("5h", "5-Hour", "5h", 18_000u64)
                 };
-                buckets.push(UsageBucket::new(
-                    id,
-                    label,
-                    short_label,
-                    BucketLayout::InlinePair,
-                    is_primary,
-                    pct,
-                    norm,
-                ));
+                let win = pri
+                    .limit_window_seconds
+                    .and_then(|s| u64::try_from(s).ok())
+                    .filter(|&s| s > 0)
+                    .or(Some(default_win));
+                buckets.push(
+                    UsageBucket::new(
+                        id,
+                        label,
+                        short_label,
+                        BucketLayout::InlinePair,
+                        is_primary,
+                        pct,
+                        norm,
+                    )
+                    .with_window_seconds(win),
+                );
             }
         }
     }
@@ -626,15 +645,23 @@ where
             if let Some(pct) = pri.used_percent {
                 if pct > 0.0 {
                     let norm = pri.reset_at.and_then(|ts| reset::normalize_epoch(ts, tz));
-                    buckets.push(UsageBucket::new(
-                        "code-review",
-                        "Code Review",
-                        "Review",
-                        BucketLayout::InlinePair,
-                        false,
-                        pct,
-                        norm,
-                    ));
+                    let win = pri
+                        .limit_window_seconds
+                        .and_then(|s| u64::try_from(s).ok())
+                        .filter(|&s| s > 0)
+                        .or(Some(604_800));
+                    buckets.push(
+                        UsageBucket::new(
+                            "code-review",
+                            "Code Review",
+                            "Review",
+                            BucketLayout::InlinePair,
+                            false,
+                            pct,
+                            norm,
+                        )
+                        .with_window_seconds(win),
+                    );
                 }
             }
         }

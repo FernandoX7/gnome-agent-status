@@ -158,7 +158,11 @@ fn execute_and_parse(agent: &AgentConfig, timeout: Duration) -> Result<crate::pa
                 }
             }
         }
-        AgentType::Codex | AgentType::Grok | AgentType::Cursor => {
+        AgentType::Codex
+        | AgentType::Grok
+        | AgentType::Cursor
+        | AgentType::Copilot
+        | AgentType::Gemini => {
             return Err(anyhow!(
                 "Provider '{}' requires v2 provider collector",
                 agent.agent_type.as_str()
@@ -198,7 +202,11 @@ fn execute_and_parse(agent: &AgentConfig, timeout: Duration) -> Result<crate::pa
             }
             parse_claude_output(&combined)
         }
-        AgentType::Codex | AgentType::Grok | AgentType::Cursor => unreachable!(),
+        AgentType::Codex
+        | AgentType::Grok
+        | AgentType::Cursor
+        | AgentType::Copilot
+        | AgentType::Gemini => unreachable!(),
     }
 }
 

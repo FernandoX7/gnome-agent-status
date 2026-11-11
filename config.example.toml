@@ -15,7 +15,7 @@ separator = " | "
 # -----------------------------------------------------------------------------
 # Per-Provider Settings & Manual Account Locations
 # -----------------------------------------------------------------------------
-# Supported provider IDs: claude, codex, grok, agy, cursor
+# Supported provider IDs: claude, codex, grok, agy, cursor, copilot, gemini
 #
 # Each [[providers.<id>.accounts]] table supports:
 #   id             = "work"                   # Stable slug identifier (required)
@@ -83,6 +83,26 @@ enabled = true
 # id = "custom"
 # label = "Cursor Linux"
 # path = "~/.config/Cursor/User/globalStorage/state.vscdb"
+# poll_mode = "active"
+
+[providers.copilot]
+enabled = true
+
+# Example: GitHub Copilot custom credential file (hosts.json, apps.json, or gh hosts.yml)
+# [[providers.copilot.accounts]]
+# id = "work"
+# label = "Work GitHub Copilot"
+# path = "~/.config/github-copilot/hosts.json"
+# poll_mode = "active"
+
+[providers.gemini]
+enabled = true
+
+# Example: Gemini CLI isolated OAuth credential profile (~/.gemini-work/oauth_creds.json)
+# [[providers.gemini.accounts]]
+# id = "work"
+# label = "Work Gemini CLI"
+# path = "~/.gemini-work/oauth_creds.json"
 # poll_mode = "active"
 
 # -----------------------------------------------------------------------------

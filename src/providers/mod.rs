@@ -3,6 +3,7 @@
 pub mod antigravity;
 pub mod claude;
 pub mod codex;
+pub mod copilot;
 pub mod cursor;
 pub mod grok;
 
@@ -85,8 +86,11 @@ impl FetchContext {
 
 /// Outcome of polling a single account.
 #[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum AccountFetchOutcome {
     Success(AccountReport),
+    /// Silently omit an opportunistic auto-discovered account (e.g. `gh` user without Copilot).
+    Omit,
     RateLimited {
         retry_after_secs: Option<u64>,
     },
@@ -163,6 +167,7 @@ impl ProviderRegistry {
                 Box::new(grok::GrokProvider::new()),
                 Box::new(antigravity::AntigravityProvider::new()),
                 Box::new(cursor::CursorProvider::new()),
+                Box::new(copilot::CopilotProvider::new()),
             ],
         }
     }
@@ -251,6 +256,7 @@ impl ProviderRegistry {
                             state: AccountState::PassiveCached,
                             is_stale: false,
                             status_note: None,
+                            extra_info: None,
                             error: None,
                             login_command: desc.login_command.clone(),
                             updated_at_epoch: None,
@@ -413,14 +419,15 @@ impl ProviderRegistry {
                     }
                     PlannedSlot::Poll { descriptor, .. } => {
                         if let Some(done) = completed_map.remove(&(plan_idx, slot_idx)) {
-                            let resolved = apply_poll_outcome(
+                            if let Some(resolved) = apply_poll_outcome(
                                 &mut collector_state,
                                 &done.descriptor,
                                 done.outcome,
                                 now_epoch,
-                            );
-                            seen_ids.insert(resolved.id.clone());
-                            account_reports.push(resolved);
+                            ) {
+                                seen_ids.insert(resolved.id.clone());
+                                account_reports.push(resolved);
+                            }
                         } else {
                             let err_rep = AccountReport {
                                 id: descriptor.id.clone(),
@@ -432,6 +439,7 @@ impl ProviderRegistry {
                                 state: AccountState::Error,
                                 is_stale: false,
                                 status_note: None,
+                                extra_info: None,
                                 error: Some("Collector worker panicked".to_string()),
                                 login_command: descriptor.login_command.clone(),
                                 updated_at_epoch: Some(now_epoch),
@@ -505,8 +513,12 @@ fn apply_poll_outcome(
     desc: &AccountDescriptor,
     outcome: AccountFetchOutcome,
     now_epoch: i64,
-) -> AccountReport {
+) -> Option<AccountReport> {
     match outcome {
+        AccountFetchOutcome::Omit => {
+            collector_state.accounts.remove(&desc.id);
+            None
+        }
         AccountFetchOutcome::Success(mut report) => {
             if report.updated_at_epoch.is_none() {
                 report.updated_at_epoch = Some(now_epoch);
@@ -518,6 +530,7 @@ fn apply_poll_outcome(
                 report.login_command = desc.login_command.clone();
             }
             report.status_note = report.status_note.as_deref().map(redact_secrets);
+            report.extra_info = report.extra_info.as_deref().map(redact_secrets);
             report.error = report.error.as_deref().map(redact_secrets);
 
             // If identity changed from generic `:default` to `:email`, remove stale generic key.
@@ -537,6 +550,7 @@ fn apply_poll_outcome(
                     plan_tier: report.plan_tier.clone(),
                     state: report.state,
                     status_note: report.status_note.clone(),
+                    extra_info: report.extra_info.clone(),
                     error: None,
                     login_command: report.login_command.clone(),
                     last_fetch_attempt_epoch: Some(now_epoch),
@@ -547,7 +561,7 @@ fn apply_poll_outcome(
                     credits: None,
                 });
             entry.record_success(&report, now_epoch);
-            entry.to_account_report(false, now_epoch)
+            Some(entry.to_account_report(false, now_epoch))
         }
         AccountFetchOutcome::RateLimited { retry_after_secs } => {
             let entry = collector_state
@@ -562,6 +576,7 @@ fn apply_poll_outcome(
                     plan_tier: None,
                     state: AccountState::RateLimited,
                     status_note: None,
+                    extra_info: None,
                     error: None,
                     login_command: desc.login_command.clone(),
                     last_fetch_attempt_epoch: None,
@@ -576,7 +591,7 @@ fn apply_poll_outcome(
             let mut rep = entry.to_account_report(true, now_epoch);
             rep.state = AccountState::RateLimited;
             rep.is_stale = true;
-            rep
+            Some(rep)
         }
         AccountFetchOutcome::SignedOut {
             message,
@@ -599,6 +614,7 @@ fn apply_poll_outcome(
                     plan_tier: plan_tier.clone(),
                     state: AccountState::SignedOut,
                     status_note: None,
+                    extra_info: None,
                     error: Some(safe_msg.clone()),
                     login_command: resolved_login.clone(),
                     last_fetch_attempt_epoch: Some(now_epoch),
@@ -615,11 +631,12 @@ fn apply_poll_outcome(
             entry.state = AccountState::SignedOut;
             entry.error = Some(safe_msg.clone());
             entry.status_note = Some("Sign in again to use this account".to_string());
+            entry.extra_info = None;
             entry.login_command = resolved_login.clone();
             entry.last_fetch_attempt_epoch = Some(now_epoch);
             entry.buckets.clear();
 
-            AccountReport {
+            Some(AccountReport {
                 id: desc.id.clone(),
                 label: resolved_label,
                 source_label: desc.source_label.clone(),
@@ -629,12 +646,13 @@ fn apply_poll_outcome(
                 state: AccountState::SignedOut,
                 is_stale: false,
                 status_note: Some("Sign in again to use this account".to_string()),
+                extra_info: None,
                 error: Some(safe_msg),
                 login_command: resolved_login,
                 updated_at_epoch: Some(now_epoch),
                 buckets: Vec::new(),
                 credits: None,
-            }
+            })
         }
         AccountFetchOutcome::Error { message } => {
             let safe_msg = redact_secrets(&message);
@@ -642,7 +660,7 @@ fn apply_poll_outcome(
                 existing.last_fetch_attempt_epoch = Some(now_epoch);
                 existing.error = Some(safe_msg.clone());
             }
-            AccountReport {
+            Some(AccountReport {
                 id: desc.id.clone(),
                 label: desc.label.clone(),
                 source_label: desc.source_label.clone(),
@@ -652,12 +670,13 @@ fn apply_poll_outcome(
                 state: AccountState::Error,
                 is_stale: false,
                 status_note: None,
+                extra_info: None,
                 error: Some(safe_msg),
                 login_command: desc.login_command.clone(),
                 updated_at_epoch: Some(now_epoch),
                 buckets: Vec::new(),
                 credits: None,
-            }
+            })
         }
         AccountFetchOutcome::ErrorWithMeta {
             message,
@@ -674,7 +693,7 @@ fn apply_poll_outcome(
                     existing.plan_tier = plan_tier.clone();
                 }
             }
-            AccountReport {
+            Some(AccountReport {
                 id: desc.id.clone(),
                 label: resolved_label,
                 source_label: desc.source_label.clone(),
@@ -684,12 +703,13 @@ fn apply_poll_outcome(
                 state: AccountState::Error,
                 is_stale: false,
                 status_note: None,
+                extra_info: None,
                 error: Some(safe_msg),
                 login_command: desc.login_command.clone(),
                 updated_at_epoch: Some(now_epoch),
                 buckets: Vec::new(),
                 credits: None,
-            }
+            })
         }
     }
 }

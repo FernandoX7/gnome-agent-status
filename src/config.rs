@@ -19,6 +19,8 @@ pub enum AgentType {
     Codex,
     Grok,
     Cursor,
+    Copilot,
+    Gemini,
 }
 
 impl AgentType {
@@ -29,11 +31,16 @@ impl AgentType {
             Self::Codex => "codex",
             Self::Grok => "grok",
             Self::Cursor => "cursor",
+            Self::Copilot => "copilot",
+            Self::Gemini => "gemini",
         }
     }
 
     pub fn default_binary_name(&self) -> &'static str {
-        self.as_str()
+        match self {
+            Self::Copilot => "gh",
+            _ => self.as_str(),
+        }
     }
 
     pub fn from_provider_id(id: &str) -> Option<Self> {
@@ -43,6 +50,8 @@ impl AgentType {
             "codex" => Some(Self::Codex),
             "grok" => Some(Self::Grok),
             "cursor" => Some(Self::Cursor),
+            "copilot" => Some(Self::Copilot),
+            "gemini" => Some(Self::Gemini),
             _ => None,
         }
     }
@@ -645,6 +654,12 @@ enabled = true
 
 [providers.cursor]
 enabled = true
+
+[providers.copilot]
+enabled = true
+
+[providers.gemini]
+enabled = true
 "#
     }
 }
@@ -1029,6 +1044,93 @@ pub fn discover_provider_locations(
                 }
             }
         }
+        "copilot" => {
+            let mut candidates = Vec::new();
+            if let Some(xdg) = xdg_config {
+                candidates.push(xdg.join("github-copilot").join("hosts.json"));
+                candidates.push(xdg.join("github-copilot").join("apps.json"));
+            }
+            let def_hosts = home
+                .join(".config")
+                .join("github-copilot")
+                .join("hosts.json");
+            let def_apps = home
+                .join(".config")
+                .join("github-copilot")
+                .join("apps.json");
+            if !candidates.contains(&def_hosts) {
+                candidates.push(def_hosts);
+            }
+            if !candidates.contains(&def_apps) {
+                candidates.push(def_apps);
+            }
+
+            for cp_path in candidates {
+                if cp_path.is_file() {
+                    out.push(DiscoveredLocation {
+                        suggested_id: "default".to_string(),
+                        source_label: abbreviate_home(&cp_path, Some(home)),
+                        path: cp_path,
+                        is_system_default: true,
+                        poll_mode: PollMode::Active,
+                    });
+                    break;
+                }
+            }
+
+            if out.is_empty() {
+                let mut gh_candidates = Vec::new();
+                if let Some(xdg) = xdg_config {
+                    gh_candidates.push(xdg.join("gh").join("hosts.yml"));
+                }
+                let def_gh = home.join(".config").join("gh").join("hosts.yml");
+                if !gh_candidates.contains(&def_gh) {
+                    gh_candidates.push(def_gh);
+                }
+                for gh_path in gh_candidates {
+                    if gh_path.is_file() {
+                        out.push(DiscoveredLocation {
+                            suggested_id: "gh-default".to_string(),
+                            source_label: abbreviate_home(&gh_path, Some(home)),
+                            path: gh_path,
+                            is_system_default: true,
+                            poll_mode: PollMode::Active,
+                        });
+                        break;
+                    }
+                }
+            }
+        }
+        "gemini" => {
+            let default_creds = home.join(".gemini").join("oauth_creds.json");
+            if default_creds.is_file() {
+                out.push(DiscoveredLocation {
+                    suggested_id: "default".to_string(),
+                    source_label: abbreviate_home(&default_creds, Some(home)),
+                    path: default_creds,
+                    is_system_default: true,
+                    poll_mode: PollMode::Active,
+                });
+            }
+            for dir in scan_prefixed_dirs(home, &[".gemini-", ".gemini_"]) {
+                let creds = dir.join("oauth_creds.json");
+                if creds.is_file() {
+                    let suffix = dir
+                        .file_name()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("alt")
+                        .trim_start_matches(".gemini-")
+                        .trim_start_matches(".gemini_");
+                    out.push(DiscoveredLocation {
+                        suggested_id: slugify_id(suffix),
+                        source_label: abbreviate_home(&creds, Some(home)),
+                        path: creds,
+                        is_system_default: false,
+                        poll_mode: PollMode::Active,
+                    });
+                }
+            }
+        }
         _ => {}
     }
 
@@ -1068,9 +1170,11 @@ mod tests {
         assert!(cfg.auto_discover);
         assert_eq!(cfg.separator, " | ");
         assert_eq!(cfg.timeout_seconds, 30);
-        assert_eq!(cfg.providers.len(), 5);
+        assert_eq!(cfg.providers.len(), 7);
         assert!(cfg.providers["claude"].enabled);
         assert!(cfg.providers["cursor"].enabled);
+        assert!(cfg.providers["copilot"].enabled);
+        assert!(cfg.providers["gemini"].enabled);
         assert!(cfg.unknown_provider_warnings().is_empty());
     }
 

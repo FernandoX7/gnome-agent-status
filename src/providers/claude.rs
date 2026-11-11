@@ -270,6 +270,7 @@ impl UsageProvider for ClaudeProvider {
                                     state: AccountState::ActiveOk,
                                     is_stale: false,
                                     status_note: None,
+                                    extra_info: None,
                                     error: None,
                                     login_command: account.login_command.clone(),
                                     updated_at_epoch: Some(ctx.now_epoch()),
@@ -793,15 +794,18 @@ where
         }
         let title = humanize_model_bucket_label(clean_key);
         let is_primary = buckets.is_empty();
-        buckets.push(UsageBucket::new(
-            id,
-            title.clone(),
-            title,
-            BucketLayout::InlinePair,
-            is_primary,
-            util,
-            norm_reset,
-        ));
+        buckets.push(
+            UsageBucket::new(
+                id,
+                title.clone(),
+                title,
+                BucketLayout::InlinePair,
+                is_primary,
+                util,
+                norm_reset,
+            )
+            .with_window_seconds(Some(604_800)),
+        );
     }
 
     // Claude Code 2.1.322+ `limits` array (`weekly_scoped` model limits such as `Fable`)
@@ -825,22 +829,25 @@ where
         let id = slugify_id(raw_model_name);
         if id.is_empty() || buckets.iter().any(|b| b.id == id) {
             continue;
-        }
+        };
         let title = humanize_model_bucket_label(raw_model_name);
         let norm_reset = lim
             .resets_at
             .as_deref()
             .and_then(|r| reset::normalize_reset(r, now, tz));
         let is_primary = buckets.is_empty();
-        buckets.push(UsageBucket::new(
-            id,
-            title.clone(),
-            title,
-            BucketLayout::InlinePair,
-            is_primary,
-            pct,
-            norm_reset,
-        ));
+        buckets.push(
+            UsageBucket::new(
+                id,
+                title.clone(),
+                title,
+                BucketLayout::InlinePair,
+                is_primary,
+                pct,
+                norm_reset,
+            )
+            .with_window_seconds(Some(604_800)),
+        );
     }
 
     let credits = parsed.extra_usage.and_then(|extra| {
@@ -1106,6 +1113,7 @@ fn fetch_via_claude_cli(
                 state,
                 is_stale: false,
                 status_note: parsed.warning,
+                extra_info: None,
                 error: None,
                 login_command: account.login_command.clone(),
                 updated_at_epoch: Some(ctx.now_epoch()),
@@ -1261,6 +1269,7 @@ pub fn ingest_claude_statusline(
                 plan_tier: None,
                 state: AccountState::ActiveOk,
                 status_note: None,
+                extra_info: None,
                 error: None,
                 login_command: Some("claude auth login".to_string()),
                 last_fetch_attempt_epoch: Some(now_epoch),
@@ -1587,6 +1596,7 @@ Extra usage: $14.50 / $100.00
                 plan_tier: Some("Max 20x".to_string()),
                 state: AccountState::PassiveCached,
                 status_note: Some("Updates when Claude runs".to_string()),
+                extra_info: None,
                 error: None,
                 login_command: Some("CLAUDE_CONFIG_DIR=~/.claude-work claude auth login".to_string()),
                 last_fetch_attempt_epoch: Some(1000),

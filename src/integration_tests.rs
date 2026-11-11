@@ -623,6 +623,7 @@ fn test_all_5_providers_cli_workflow_dedup_429_decay_switch_and_hook() {
                 "{}/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
                 server.base_url
             )),
+            ..Default::default()
         },
     };
 

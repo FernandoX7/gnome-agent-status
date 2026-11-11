@@ -37,6 +37,9 @@ pub struct EndpointOverrides {
     pub grok_billing_url: Option<String>,
     pub cursor_usage_url: Option<String>,
     pub agy_rpc_url: Option<String>,
+    pub copilot_user_url: Option<String>,
+    pub gemini_quota_url: Option<String>,
+    pub gemini_load_url: Option<String>,
 }
 
 #[derive(Clone)]

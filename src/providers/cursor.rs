@@ -210,6 +210,7 @@ impl UsageProvider for CursorProvider {
                         state: AccountState::ActiveOk,
                         is_stale: false,
                         status_note: None,
+                        extra_info: None,
                         error: None,
                         login_command: account.login_command.clone(),
                         updated_at_epoch: Some(ctx.now_epoch()),
