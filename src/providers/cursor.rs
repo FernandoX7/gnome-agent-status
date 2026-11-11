@@ -238,12 +238,19 @@ impl UsageProvider for CursorProvider {
 }
 
 trait OutcomeMetaExt {
-    fn with_optional_meta(self, _email: Option<String>, _plan: Option<String>) -> Self;
+    fn with_optional_meta(self, email: Option<String>, plan: Option<String>) -> Self;
 }
 
 impl OutcomeMetaExt for AccountFetchOutcome {
-    fn with_optional_meta(self, _email: Option<String>, _plan: Option<String>) -> Self {
-        self
+    fn with_optional_meta(self, email: Option<String>, plan: Option<String>) -> Self {
+        match self {
+            AccountFetchOutcome::Error { message } => AccountFetchOutcome::ErrorWithMeta {
+                message,
+                label: email,
+                plan_tier: plan,
+            },
+            other => other,
+        }
     }
 }
 

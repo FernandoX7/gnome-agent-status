@@ -533,6 +533,11 @@ impl StatusReport {
     /// Recomputes `summary`, `status`, `label`, and `agents` in-place after mutating
     /// `providers` (e.g., passive time-decay or active account switching).
     pub fn recompute_rollups(&mut self, separator: &str, pinned: Option<&std::collections::BTreeMap<String, String>>) {
+        let prev_durations: std::collections::BTreeMap<String, u64> = self
+            .agents
+            .iter()
+            .map(|a| (a.agent_type.clone(), a.duration_ms))
+            .collect();
         for provider in &mut self.providers {
             let pin = pinned.and_then(|m| m.get(&provider.id).map(String::as_str));
             provider.refresh_rollup(pin);
@@ -541,7 +546,7 @@ impl StatusReport {
             std::mem::take(&mut self.providers),
             separator,
             self.updated_at_epoch,
-            None,
+            Some(&prev_durations),
         );
         self.label = rebuilt.label;
         self.status = rebuilt.status;
@@ -799,5 +804,12 @@ mod tests {
         assert_eq!(p.active_account_id.as_deref(), Some("claude:personal"));
         assert_eq!(p.primary_used_percent, Some(25));
         assert_eq!(p.plan_badge.as_deref(), Some("Pro"));
+
+        let mut durs = std::collections::BTreeMap::new();
+        durs.insert("claude".to_string(), 42u64);
+        let mut rep = StatusReport::from_providers(vec![p], " | ", 100, Some(&durs));
+        assert_eq!(rep.agents[0].duration_ms, 42);
+        rep.recompute_rollups(" | ", None);
+        assert_eq!(rep.agents[0].duration_ms, 42);
     }
 }

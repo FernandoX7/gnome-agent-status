@@ -99,6 +99,11 @@ pub enum AccountFetchOutcome {
     Error {
         message: String,
     },
+    ErrorWithMeta {
+        message: String,
+        label: Option<String>,
+        plan_tier: Option<String>,
+    },
 }
 
 /// Trait implemented by all usage providers (`claude`, `codex`, `grok`, `agy`, `cursor`).
@@ -640,6 +645,37 @@ fn apply_poll_outcome(
                 is_system_default: desc.is_system_default,
                 is_active: false,
                 plan_tier: None,
+                state: AccountState::Error,
+                is_stale: false,
+                status_note: None,
+                error: Some(message),
+                login_command: desc.login_command.clone(),
+                updated_at_epoch: Some(now_epoch),
+                buckets: Vec::new(),
+                credits: None,
+            }
+        }
+        AccountFetchOutcome::ErrorWithMeta {
+            message,
+            label,
+            plan_tier,
+        } => {
+            let resolved_label = label.unwrap_or_else(|| desc.label.clone());
+            if let Some(existing) = collector_state.accounts.get_mut(&desc.id) {
+                existing.last_fetch_attempt_epoch = Some(now_epoch);
+                existing.error = Some(message.clone());
+                existing.label = resolved_label.clone();
+                if plan_tier.is_some() {
+                    existing.plan_tier = plan_tier.clone();
+                }
+            }
+            AccountReport {
+                id: desc.id.clone(),
+                label: resolved_label,
+                source_label: desc.source_label.clone(),
+                is_system_default: desc.is_system_default,
+                is_active: false,
+                plan_tier,
                 state: AccountState::Error,
                 is_stale: false,
                 status_note: None,
