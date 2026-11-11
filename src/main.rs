@@ -1,12 +1,8 @@
-mod config;
-mod parser;
-mod reset;
-mod runner;
-mod text;
-
 use anyhow::{Context, Result};
 use clap::Parser;
-use config::Config;
+use gnome_agent_status::config::Config;
+use gnome_agent_status::model::StatusReport;
+use gnome_agent_status::{runner, text};
 use std::fs;
 use std::path::PathBuf;
 
@@ -14,7 +10,7 @@ use std::path::PathBuf;
 #[command(
     name = "gnome-agent-status",
     version,
-    about = "Queries 7-day usage limits for configured agy and claude agents in parallel and prints JSON for the GNOME Shell extension."
+    about = "Queries usage limits for configured AI coding agents in parallel and prints JSON for the GNOME Shell extension."
 )]
 struct Cli {
     /// Path to configuration file (TOML or JSON).
@@ -67,23 +63,7 @@ fn main() -> Result<()> {
         Ok(c) => c,
         Err(err) => {
             // Even if config fails to parse, emit valid JSON so the GNOME top bar can show the error cleanly
-            let fallback = runner::StatusReport {
-                label: "Agent Status: Config Error".to_string(),
-                status: "error".to_string(),
-                updated_at_epoch: 0,
-                agents: vec![runner::AgentStatusResult {
-                    name: "Config".to_string(),
-                    agent_type: "config".to_string(),
-                    status: "error".to_string(),
-                    used_percent: None,
-                    remaining_percent: None,
-                    reset_info: None,
-                    detail: None,
-                    warning: None,
-                    error: Some(format!("{:#}", err)),
-                    duration_ms: 0,
-                }],
-            };
+            let fallback = StatusReport::config_error(format!("{:#}", err), 0);
             let out = format_report(&fallback, &cli)?;
             println!("{}", out);
             return Ok(());
@@ -97,7 +77,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn format_report(report: &runner::StatusReport, cli: &Cli) -> Result<String> {
+fn format_report(report: &StatusReport, cli: &Cli) -> Result<String> {
     if cli.text {
         Ok(text::format_text(report, cli.color))
     } else if cli.pretty {
@@ -110,6 +90,7 @@ fn format_report(report: &runner::StatusReport, cli: &Cli) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gnome_agent_status::model::{AgentStatusResult, OverallStatus, SummaryStats, SCHEMA_VERSION};
 
     #[test]
     fn test_cli_text_overrides_pretty() {
@@ -118,11 +99,18 @@ mod tests {
         assert!(cli.pretty);
         assert!(cli.color);
 
-        let report = runner::StatusReport {
+        let report = StatusReport {
+            schema_version: SCHEMA_VERSION,
             label: "AGY: 16%".to_string(),
-            status: "ok".to_string(),
+            status: OverallStatus::Ok,
             updated_at_epoch: 0,
-            agents: vec![runner::AgentStatusResult {
+            summary: SummaryStats {
+                max_used_percent: 16,
+                active_provider_count: 1,
+                has_auth_error: false,
+            },
+            providers: Vec::new(),
+            agents: vec![AgentStatusResult {
                 name: "AGY".to_string(),
                 agent_type: "agy".to_string(),
                 status: "ok".to_string(),

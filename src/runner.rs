@@ -1,39 +1,15 @@
 use crate::config::{expand_tilde, resolve_binary, AgentConfig, AgentType, Config};
+use crate::model::{
+    compute_overall_status, AgentStatusResult, OverallStatus, StatusReport, SummaryStats,
+    SCHEMA_VERSION,
+};
 use crate::parser::{parse_agy_output, parse_claude_output};
-use anyhow::{anyhow, Context, Result};
-use serde::{Deserialize, Serialize};
-use std::io::Read;
-use std::process::{Command, Stdio};
+use crate::proc_exec::{run_command, CommandSpec};
+use anyhow::{anyhow, Result};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AgentStatusResult {
-    pub name: String,
-    pub agent_type: String,
-    pub status: String,
-    pub used_percent: Option<u8>,
-    pub remaining_percent: Option<u8>,
-    pub reset_info: Option<String>,
-    pub detail: Option<String>,
-    pub warning: Option<String>,
-    pub error: Option<String>,
-    pub duration_ms: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StatusReport {
-    /// Combined top-bar label (e.g. "AGY: 16% | Claude: 89%")
-    pub label: String,
-    /// Overall status: "ok", "degraded", or "error"
-    pub status: String,
-    /// Unix epoch timestamp (seconds) when report was generated
-    pub updated_at_epoch: u64,
-    /// Individual agent results in configured order
-    pub agents: Vec<AgentStatusResult>,
-}
-
-/// Runs all configured agents in parallel and aggregates their 7-day usage into a `StatusReport`.
+/// Runs all configured agents in parallel and aggregates their usage into a `StatusReport`.
 pub fn collect_status(config: &Config) -> StatusReport {
     let timeout = Duration::from_secs(config.timeout_seconds.max(1));
 
@@ -77,23 +53,35 @@ pub fn collect_status(config: &Config) -> StatusReport {
     };
 
     let ok_count = results.iter().filter(|r| r.status == "ok").count();
-    let overall_status = if results.is_empty() || ok_count == results.len() {
-        "ok"
-    } else if ok_count > 0 {
-        "degraded"
+    let failed_count = results.len().saturating_sub(ok_count);
+    let max_used_percent = results
+        .iter()
+        .filter_map(|r| r.used_percent)
+        .max()
+        .unwrap_or(0);
+
+    let overall_status = if results.is_empty() {
+        OverallStatus::Ok
     } else {
-        "error"
+        compute_overall_status(ok_count, failed_count, max_used_percent)
     };
 
     let updated_at_epoch = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
+        .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
 
     StatusReport {
+        schema_version: SCHEMA_VERSION,
         label,
-        status: overall_status.to_string(),
+        status: overall_status,
         updated_at_epoch,
+        summary: SummaryStats {
+            max_used_percent,
+            active_provider_count: ok_count,
+            has_auth_error: false,
+        },
+        providers: Vec::new(),
         agents: results,
     }
 }
@@ -133,98 +121,59 @@ fn query_single_agent(agent: &AgentConfig, timeout: Duration) -> AgentStatusResu
 
 fn execute_and_parse(agent: &AgentConfig, timeout: Duration) -> Result<crate::parser::ParsedUsage> {
     let bin_path = resolve_binary(agent);
-    let mut cmd = Command::new(&bin_path);
+    let mut spec = CommandSpec::new(bin_path, timeout);
 
     match agent.agent_type {
         AgentType::Agy => {
-            cmd.args(["-p", "/usage", "--output-format", "json"]);
+            spec = spec.args(["-p", "/usage", "--output-format", "json"]);
             if let Some(ref cfg_dir) = agent.path {
                 if !cfg_dir.trim().is_empty() {
                     let expanded = expand_tilde(cfg_dir);
-                    let app_data = if expanded.join("antigravity-cli").is_dir() {
-                        expanded.join("antigravity-cli")
-                    } else {
-                        expanded
-                    };
-                    cmd.env("ANTIGRAVITY_CLI_APP_DATA_DIR", app_data);
+                    if expanded.join("antigravity-cli").is_dir() {
+                        spec = spec.env(
+                            "ANTIGRAVITY_CLI_APP_DATA_DIR",
+                            expanded.join("antigravity-cli").to_string_lossy(),
+                        );
+                    } else if expanded
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .is_some_and(|n| n == "antigravity-cli")
+                    {
+                        spec = spec.env(
+                            "ANTIGRAVITY_CLI_APP_DATA_DIR",
+                            expanded.to_string_lossy(),
+                        );
+                    }
                 }
             }
         }
         AgentType::Claude => {
-            cmd.args(["-p", "/usage"]);
+            spec = spec.args(["-p", "/usage"]);
             if let Some(ref cfg_dir) = agent.path {
                 if !cfg_dir.trim().is_empty() {
-                    cmd.env("CLAUDE_CONFIG_DIR", expand_tilde(cfg_dir));
+                    spec = spec.env(
+                        "CLAUDE_CONFIG_DIR",
+                        expand_tilde(cfg_dir).to_string_lossy(),
+                    );
                 }
             }
         }
     }
 
-    cmd.stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-
-    let mut child = cmd
-        .spawn()
-        .with_context(|| format!("Failed to spawn '{}'", bin_path.display()))?;
-
-    let mut stdout_pipe = child.stdout.take().context("Failed to capture stdout")?;
-    let mut stderr_pipe = child.stderr.take().context("Failed to capture stderr")?;
-
-    let stdout_handle = thread::spawn(move || {
-        let mut buf = String::new();
-        let _ = stdout_pipe.read_to_string(&mut buf);
-        buf
-    });
-
-    let stderr_handle = thread::spawn(move || {
-        let mut buf = String::new();
-        let _ = stderr_pipe.read_to_string(&mut buf);
-        buf
-    });
-
-    let start = Instant::now();
-    let poll_interval = Duration::from_millis(50);
-
-    let status = loop {
-        if let Some(exit_status) = child.try_wait()? {
-            break exit_status;
-        }
-        if start.elapsed() >= timeout {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(anyhow!(
-                "Command '{}' timed out after {}s",
-                bin_path.display(),
-                timeout.as_secs()
-            ));
-        }
-        thread::sleep(poll_interval);
-    };
-
-    let stdout_str = stdout_handle.join().unwrap_or_default();
-    let stderr_str = stderr_handle.join().unwrap_or_default();
-
-    // Combine stdout and stderr for claude since warnings or usage text may appear on either stream
-    let combined = if stderr_str.trim().is_empty() {
-        stdout_str.clone()
-    } else if stdout_str.trim().is_empty() {
-        stderr_str.clone()
-    } else {
-        format!("{}\n{}", stderr_str.trim(), stdout_str.trim())
-    };
+    let output = run_command(&spec)?;
+    let combined = output.combined_text();
 
     match agent.agent_type {
         AgentType::Agy => {
-            if !stdout_str.trim().is_empty() {
-                if let Ok(usage) = parse_agy_output(&stdout_str) {
+            if !output.stdout.trim().is_empty() {
+                if let Ok(usage) = parse_agy_output(&output.stdout) {
                     return Ok(usage);
                 }
             }
-            if !status.success() {
+            if !output.status.success() {
                 return Err(anyhow!(
                     "agy exited with {}: {}",
-                    status,
+                    output.status,
                     combined.lines().next().unwrap_or("unknown error")
                 ));
             }
@@ -234,10 +183,10 @@ fn execute_and_parse(agent: &AgentConfig, timeout: Duration) -> Result<crate::pa
             if let Ok(usage) = parse_claude_output(&combined) {
                 return Ok(usage);
             }
-            if !status.success() {
+            if !output.status.success() {
                 return Err(anyhow!(
                     "claude exited with {}: {}",
-                    status,
+                    output.status,
                     combined.lines().next().unwrap_or("unknown error")
                 ));
             }
@@ -312,7 +261,7 @@ EOF
         let report = collect_status(&cfg);
         let _ = fs::remove_dir_all(&tmp_dir);
 
-        assert_eq!(report.status, "ok");
+        assert_eq!(report.status, OverallStatus::Warning);
         assert_eq!(report.label, "AGY: 16% | Claude: 89%");
         assert_eq!(report.agents.len(), 2);
         assert_eq!(report.agents[0].used_percent, Some(16));

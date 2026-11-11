@@ -1,17 +1,58 @@
-//! Converts the reset times from the agents into one ISO 8601 format.
+//! Converts reset timestamps from provider APIs and CLI output into `(epoch, ISO 8601)`.
 
-use chrono::{DateTime, Datelike, Duration, LocalResult, NaiveDate, NaiveTime, TimeZone, Utc};
+use chrono::{DateTime, Datelike, Duration, Local, LocalResult, NaiveDate, NaiveTime, TimeZone, Utc};
 use chrono_tz::Tz;
 use regex::Regex;
 
 /// The output format: ISO 8601 with the UTC offset, for example `2026-11-07T07:56:12-08:00`.
 const ISO_FORMAT: &str = "%Y-%m-%dT%H:%M:%S%:z";
 
+/// Normalizes a raw reset string into `(unix_epoch_seconds, local_iso_8601)` in `target`.
+pub fn normalize_reset<T: TimeZone>(raw: &str, now: DateTime<Utc>, target: &T) -> Option<(i64, String)>
+where
+    T::Offset: std::fmt::Display,
+{
+    let utc = parse_reset(raw.trim(), now)?;
+    let epoch = utc.timestamp();
+    let iso = utc.with_timezone(target).format(ISO_FORMAT).to_string();
+    Some((epoch, iso))
+}
+
+/// Normalizes a raw reset string using `Utc::now()` and the machine's `Local` time zone.
+pub fn normalize_reset_local(raw: &str) -> Option<(i64, String)> {
+    normalize_reset(raw, Utc::now(), &Local)
+}
+
+/// Normalizes a Unix timestamp (seconds, or milliseconds if `>= 1_000_000_000_000`)
+/// into `(unix_epoch_seconds, iso_8601)` in `target`.
+pub fn normalize_epoch<T: TimeZone>(raw_ts: i64, target: &T) -> Option<(i64, String)>
+where
+    T::Offset: std::fmt::Display,
+{
+    if raw_ts <= 0 {
+        return None;
+    }
+    let epoch_secs = if raw_ts >= 1_000_000_000_000 {
+        raw_ts / 1000
+    } else {
+        raw_ts
+    };
+    let utc = Utc.timestamp_opt(epoch_secs, 0).single()?;
+    let iso = utc.with_timezone(target).format(ISO_FORMAT).to_string();
+    Some((epoch_secs, iso))
+}
+
+/// Normalizes a Unix timestamp (seconds or milliseconds) into `(epoch, local_iso_8601)`.
+pub fn normalize_epoch_local(raw_ts: i64) -> Option<(i64, String)> {
+    normalize_epoch(raw_ts, &Local)
+}
+
 /// Converts a reset time to ISO 8601 in the time zone `target`.
 /// Returns `None` if the text has a format that this function does not know.
 ///
 /// Known formats:
-/// - RFC 3339 from agy, for example `2026-11-07T15:56:12Z`.
+/// - RFC 3339, for example `2026-11-07T15:56:12Z`.
+/// - Unix epoch seconds or milliseconds (`>= 1_000_000_000`).
 /// - Text from claude, for example `resets Nov 10, 7am (America/Los_Angeles)`.
 ///   This text has no year. The function uses the year that puts the date nearest to `now`.
 ///   If the text has no date, the function uses the next occurrence of the time.
@@ -19,20 +60,35 @@ pub fn to_iso<T: TimeZone>(raw: &str, now: DateTime<Utc>, target: &T) -> Option<
 where
     T::Offset: std::fmt::Display,
 {
-    let utc = parse_reset(raw.trim(), now)?;
-    Some(utc.with_timezone(target).format(ISO_FORMAT).to_string())
+    normalize_reset(raw, now, target).map(|(_, iso)| iso)
 }
 
 fn parse_reset(raw: &str, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
+    if raw.is_empty() {
+        return None;
+    }
     if let Ok(dt) = DateTime::parse_from_rfc3339(raw) {
         return Some(dt.with_timezone(&Utc));
+    }
+    // Support plain integer epoch seconds or milliseconds (>= year 2001).
+    if raw.bytes().all(|b| b.is_ascii_digit()) {
+        if let Ok(val) = raw.parse::<i64>() {
+            if val >= 1_000_000_000 {
+                let secs = if val >= 1_000_000_000_000 {
+                    val / 1000
+                } else {
+                    val
+                };
+                return Utc.timestamp_opt(secs, 0).single();
+            }
+        }
     }
     parse_claude_reset(raw, now)
 }
 
 fn parse_claude_reset(raw: &str, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
     let re = Regex::new(
-        r"(?i)^(?:resets\s+)?(?:(?P<mon>[a-z]{3})[a-z]*\.?\s+(?P<day>\d{1,2})(?:,|\s+at)?\s+)?(?P<hour>\d{1,2})(?::(?P<min>\d{2}))?\s*(?P<ampm>am|pm)(?:\s*\((?P<tz>[^)]+)\))?$",
+        r"(?i)^(?:resets(?:\s+at|\s+on)?\s+)?(?:(?P<mon>[a-z]{3})[a-z]*\.?\s+(?P<day>\d{1,2})(?:,|\s+at)?\s+)?(?P<hour>\d{1,2})(?::(?P<min>\d{2}))?\s*(?P<ampm>am|pm)(?:\s*\((?P<tz>[^)]+)\))?$",
     )
     .expect("valid claude reset regex");
     let caps = re.captures(raw)?;
@@ -110,11 +166,35 @@ mod tests {
     }
 
     #[test]
-    fn test_rfc3339_to_local_offset() {
+    fn test_rfc3339_to_local_offset_and_epoch() {
+        let (epoch, iso) =
+            normalize_reset("2026-11-07T15:56:12Z", now(), &pst()).expect("normalize rfc3339");
+        assert_eq!(iso, "2026-11-07T07:56:12-08:00");
         assert_eq!(
-            to_iso("2026-11-07T15:56:12Z", now(), &pst()).as_deref(),
-            Some("2026-11-07T07:56:12-08:00")
+            epoch,
+            Utc.with_ymd_and_hms(2026, 11, 7, 15, 56, 12)
+                .unwrap()
+                .timestamp()
         );
+    }
+
+    #[test]
+    fn test_epoch_seconds_and_milliseconds() {
+        let expected_ts = Utc
+            .with_ymd_and_hms(2026, 11, 7, 15, 56, 12)
+            .unwrap()
+            .timestamp();
+        let (e1, iso1) = normalize_epoch(expected_ts, &pst()).expect("secs");
+        let (e2, iso2) = normalize_epoch(expected_ts * 1000 + 450, &pst()).expect("millis");
+        assert_eq!(e1, expected_ts);
+        assert_eq!(e2, expected_ts);
+        assert_eq!(iso1, "2026-11-07T07:56:12-08:00");
+        assert_eq!(iso2, iso1);
+
+        let (e3, iso3) =
+            normalize_reset(&expected_ts.to_string(), now(), &pst()).expect("string epoch");
+        assert_eq!(e3, expected_ts);
+        assert_eq!(iso3, iso1);
     }
 
     #[test]
