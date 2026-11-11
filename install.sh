@@ -17,14 +17,26 @@ echo "==> Initializing config (if not already present)..."
 if "${BIN_DEST}" --init-config 2>/dev/null; then
     echo "    Config ready at ${HOME}/.config/gnome-agent-status/config.toml"
 else
-    echo "    Note: ${HOME}/.config is not writable in this environment; using the built-in default config (or run ./install.sh on host to write ~/.config/gnome-agent-status/config.toml)."
+    echo "    Note: ${HOME}/.config is not writable in this environment; using built-in defaults (or run ./install.sh on host to write ~/.config/gnome-agent-status/config.toml)."
 fi
 
 echo "==> Installing GNOME Shell extension to ${EXT_DEST}..."
-mkdir -p "${EXT_DEST}"
+rm -rf "${EXT_DEST}/popover" "${EXT_DEST}/icons" "${EXT_DEST}/schemas"
+mkdir -p "${EXT_DEST}/popover" "${EXT_DEST}/icons" "${EXT_DEST}/schemas"
+
 cp -f "${SCRIPT_DIR}/extension/metadata.json" "${EXT_DEST}/metadata.json"
-cp -f "${SCRIPT_DIR}/extension/extension.js" "${EXT_DEST}/extension.js"
 cp -f "${SCRIPT_DIR}/extension/stylesheet.css" "${EXT_DEST}/stylesheet.css"
+cp -f "${SCRIPT_DIR}"/extension/*.js "${EXT_DEST}/"
+cp -f "${SCRIPT_DIR}"/extension/popover/*.js "${EXT_DEST}/popover/"
+cp -f "${SCRIPT_DIR}"/extension/icons/*.svg "${EXT_DEST}/icons/"
+cp -f "${SCRIPT_DIR}"/extension/schemas/*.gschema.xml "${EXT_DEST}/schemas/"
+
+if command -v glib-compile-schemas >/dev/null 2>&1; then
+    echo "==> Compiling GSettings schemas..."
+    glib-compile-schemas "${EXT_DEST}/schemas"
+else
+    echo "    Warning: glib-compile-schemas not found; install glib2 development tools so extension preferences and GSettings can load."
+fi
 
 if command -v gnome-extensions >/dev/null 2>&1; then
     echo "==> Enabling extension ${EXT_UUID}..."
