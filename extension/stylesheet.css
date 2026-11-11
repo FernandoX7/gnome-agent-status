@@ -16,23 +16,28 @@
 
 .gas-panel-box.font-monospace,
 .gas-popover.font-monospace {
-    font-family: "JetBrainsMono Nerd Font", "JetBrains Mono", "CaskaydiaMono Nerd Font", "Source Code Pro", monospace;
+    font-family: monospace;
 }
 
 .gas-panel-icon-wrap {
     spacing: 4px;
 }
 
+#panel .panel-button .gas-panel-icon,
 .gas-panel-icon {
     icon-size: 16px;
+    padding: 0;
+    margin: 0;
 }
 
+#panel .panel-button .gas-panel-icon.is-warning,
 .gas-panel-icon.is-warning {
-    color: #e0af68;
+    color: #e0af68 !important;
 }
 
+#panel .panel-button .gas-panel-icon.is-critical,
 .gas-panel-icon.is-critical {
-    color: #ff4443;
+    color: #ff4443 !important;
 }
 
 .gas-panel-dot {
@@ -80,15 +85,64 @@
     color: #ff5a5f;
 }
 
-/* --- Popover Host & Fixed-Width Container --- */
+/* Light top-bar panel adaptation (Classic mode / light Shell themes) */
+#panel .panel-button .gas-panel-box.on-light-panel .gas-panel-icon.is-warning,
+.gas-panel-box.on-light-panel .gas-panel-icon.is-warning {
+    color: #b06500 !important;
+}
 
+#panel .panel-button .gas-panel-box.on-light-panel .gas-panel-icon.is-critical,
+.gas-panel-box.on-light-panel .gas-panel-icon.is-critical {
+    color: #c92a2a !important;
+}
+
+.gas-panel-box.on-light-panel .gas-panel-dot.is-warning {
+    background-color: #b06500;
+}
+
+.gas-panel-box.on-light-panel .gas-panel-dot.is-critical {
+    background-color: #c92a2a;
+}
+
+.gas-panel-box.on-light-panel .gas-panel-pill-label.is-warning,
+.gas-panel-box.on-light-panel .gas-panel-full-text.is-warning {
+    color: #b06500;
+}
+
+.gas-panel-box.on-light-panel .gas-panel-pill-label.is-critical,
+.gas-panel-box.on-light-panel .gas-panel-full-text.is-critical {
+    color: #c92a2a;
+}
+
+.gas-panel-box.on-light-panel .gas-panel-pill-icon {
+    background-color: #252836;
+    border-radius: 99px;
+    padding: 2px;
+}
+
+/* --- Popover Host & Fixed-Width Container (350px content + 2x1px border = 352px) --- */
+
+.popup-menu-content.gas-popup-menu-box,
 .gas-popup-menu-box {
     padding: 0;
+    border-width: 0;
+    border-color: transparent;
+    border-radius: 14px;
+}
+
+.popup-menu-content.gas-popup-menu-box.gas-host-midnight-slate,
+.popup-menu-content.gas-popup-menu-box.gas-host-tokyo-night,
+.popup-menu-content.gas-popup-menu-box.gas-host-catppuccin,
+.popup-menu-content.gas-popup-menu-box.gas-host-gruvbox,
+.popup-menu-content.gas-popup-menu-box.gas-host-rose-pine,
+.popup-menu-content.gas-popup-menu-box.gas-host-nord,
+.popup-menu-content.gas-popup-menu-box.gas-host-everforest {
+    background-color: transparent;
 }
 
 .gas-popover {
-    min-width: 352px;
-    max-width: 352px;
+    min-width: 350px;
+    max-width: 350px;
     border-radius: 14px;
     padding: 0;
     font-feature-settings: "tnum";
@@ -139,10 +193,6 @@
     text-align: center;
 }
 
-.gas-icon-btn.is-loading {
-    opacity: 0.58;
-}
-
 .gas-segmented-track {
     padding: 2px;
     border-radius: 8px;
@@ -175,16 +225,20 @@
 
 .gas-scroll-view StScrollBar {
     padding: 2px;
+    min-width: 6px;
 }
 
-.gas-scroll-view StScrollBar StBin#trough {
+.gas-scroll-view StScrollBar StBin#trough,
+.gas-scroll-view StScrollBar > .trough {
     background-color: transparent;
     border-radius: 99px;
 }
 
-.gas-scroll-view StScrollBar StButton#vhandle {
+.gas-scroll-view StScrollBar StButton#vhandle,
+.gas-scroll-view StScrollBar > .vhandle {
     min-width: 4px;
     border-radius: 99px;
+    border: 0;
 }
 
 /* --- Main Page Provider Cards --- */
@@ -697,7 +751,7 @@
 .gas-popover.theme-midnight-slate .gas-account-passive-note,
 .gas-popover.theme-midnight-slate .gas-account-source,
 .gas-popover.theme-midnight-slate .gas-signed-out-hint,
-.gas-popover.theme-midnight-slate .gas-section-header { color: #747a96; }
+.gas-popover.theme-midnight-slate .gas-section-header { color: #8288a6; }
 .gas-popover.theme-midnight-slate .gas-segmented-track { background-color: #171825; border-color: #353952; }
 .gas-popover.theme-midnight-slate .gas-segmented-btn { color: #9aa0ba; }
 .gas-popover.theme-midnight-slate .gas-segmented-btn:hover,
@@ -734,14 +788,16 @@
 .gas-popover.theme-midnight-slate .gas-bucket-pct.is-critical,
 .gas-popover.theme-midnight-slate .gas-account-minibar-pct.is-critical { color: #ff5a5f; }
 .gas-popover.theme-midnight-slate .gas-error-banner { background-color: rgba(255, 68, 67, 0.14); color: #ff8084; border: 1px solid rgba(255, 68, 67, 0.32); }
-.gas-popover.theme-midnight-slate .gas-scroll-view StScrollBar StButton#vhandle { background-color: #3a3d52; }
+.gas-popover.theme-midnight-slate .gas-scroll-view StScrollBar StButton#vhandle,
+.gas-popover.theme-midnight-slate .gas-scroll-view StScrollBar > .vhandle { background-color: #3a3d52; }
 
-/* 2. GNOME System (`system` — Adapts cleanly to Light & Dark Shell styles) */
+/* 2. GNOME System (`system` — Adapts cleanly to Dark & Light Shell styles) */
 .gas-popover.theme-system {
     background-color: transparent;
     border: 1px solid rgba(128, 128, 128, 0.22);
+    color: #f2f2f4;
 }
-.gas-popover.theme-system .gas-divider { background-color: rgba(128, 128, 128, 0.20); }
+.gas-popover.theme-system .gas-divider { background-color: rgba(128, 128, 128, 0.22); }
 .gas-popover.theme-system .gas-header-subtitle,
 .gas-popover.theme-system .gas-plan-badge,
 .gas-popover.theme-system .gas-reset-label,
@@ -755,18 +811,19 @@
 .gas-popover.theme-system .gas-account-minibar-tag,
 .gas-popover.theme-system .gas-account-minibar-reset,
 .gas-popover.theme-system .gas-option-section-title,
-.gas-popover.theme-system .gas-chevron { opacity: 0.72; }
+.gas-popover.theme-system .gas-chevron { color: #a6aab4; }
 .gas-popover.theme-system .gas-status-note,
 .gas-popover.theme-system .gas-empty-detail,
 .gas-popover.theme-system .gas-account-passive-note,
 .gas-popover.theme-system .gas-account-source,
 .gas-popover.theme-system .gas-signed-out-hint,
-.gas-popover.theme-system .gas-section-header { opacity: 0.58; }
-.gas-popover.theme-system .gas-segmented-track { background-color: rgba(128, 128, 128, 0.14); border-color: rgba(128, 128, 128, 0.24); }
+.gas-popover.theme-system .gas-section-header { color: #9196a1; }
+.gas-popover.theme-system .gas-segmented-track { background-color: rgba(255, 255, 255, 0.06); border-color: rgba(255, 255, 255, 0.14); }
+.gas-popover.theme-system .gas-segmented-btn { color: #b4b8c2; }
 .gas-popover.theme-system .gas-segmented-btn:hover,
-.gas-popover.theme-system .gas-segmented-btn:focus { background-color: rgba(128, 128, 128, 0.16); }
-.gas-popover.theme-system .gas-segmented-btn.is-active { background-color: rgba(53, 132, 228, 0.28); border-color: rgba(53, 132, 228, 0.45); }
-.gas-popover.theme-system .gas-avatar-ring { background-color: rgba(128, 128, 128, 0.18); border-color: rgba(128, 128, 128, 0.30); }
+.gas-popover.theme-system .gas-segmented-btn:focus { background-color: rgba(255, 255, 255, 0.10); color: #ffffff; }
+.gas-popover.theme-system .gas-segmented-btn.is-active { background-color: rgba(53, 132, 228, 0.30); border-color: rgba(53, 132, 228, 0.50); color: #ffffff; }
+.gas-popover.theme-system .gas-avatar-ring { background-color: rgba(255, 255, 255, 0.09); border-color: rgba(255, 255, 255, 0.22); }
 .gas-popover.theme-system .gas-provider-card:hover,
 .gas-popover.theme-system .gas-provider-card:focus,
 .gas-popover.theme-system .gas-footer-btn:hover,
@@ -776,27 +833,95 @@
 .gas-popover.theme-system .gas-back-btn:hover,
 .gas-popover.theme-system .gas-back-btn:focus,
 .gas-popover.theme-system .gas-account-row:hover,
-.gas-popover.theme-system .gas-account-row:focus { background-color: rgba(128, 128, 128, 0.14); border-color: rgba(128, 128, 128, 0.25); }
-.gas-popover.theme-system .gas-hero-card { background-color: rgba(128, 128, 128, 0.12); border-color: rgba(128, 128, 128, 0.24); }
-.gas-popover.theme-system .gas-hero-tier-badge { background-color: rgba(128, 128, 128, 0.20); }
-.gas-popover.theme-system .gas-account-row.is-selected { background-color: rgba(53, 132, 228, 0.25); border-color: rgba(53, 132, 228, 0.45); }
+.gas-popover.theme-system .gas-account-row:focus { background-color: rgba(255, 255, 255, 0.08); border-color: rgba(255, 255, 255, 0.18); }
+.gas-popover.theme-system .gas-hero-card { background-color: rgba(0, 0, 0, 0.20); border-color: rgba(255, 255, 255, 0.14); }
+.gas-popover.theme-system .gas-hero-tier-badge { background-color: rgba(53, 132, 228, 0.22); color: #99c1f1; }
+.gas-popover.theme-system .gas-hero-credits { color: #99c1f1; }
+.gas-popover.theme-system .gas-account-row.is-selected { background-color: rgba(53, 132, 228, 0.25); border-color: rgba(53, 132, 228, 0.50); color: #ffffff; }
 .gas-popover.theme-system .gas-signin-btn,
 .gas-popover.theme-system .gas-theme-chip,
-.gas-popover.theme-system .gas-toggle-pill { background-color: rgba(128, 128, 128, 0.15); border-color: rgba(128, 128, 128, 0.28); }
+.gas-popover.theme-system .gas-toggle-pill { background-color: rgba(255, 255, 255, 0.08); border-color: rgba(255, 255, 255, 0.18); color: #eef0f5; }
 .gas-popover.theme-system .gas-signin-btn:hover,
 .gas-popover.theme-system .gas-signin-btn:focus,
 .gas-popover.theme-system .gas-theme-chip:hover,
 .gas-popover.theme-system .gas-theme-chip:focus,
 .gas-popover.theme-system .gas-toggle-pill:hover,
-.gas-popover.theme-system .gas-toggle-pill:focus { background-color: rgba(128, 128, 128, 0.24); }
+.gas-popover.theme-system .gas-toggle-pill:focus { background-color: rgba(255, 255, 255, 0.14); border-color: rgba(255, 255, 255, 0.28); }
 .gas-popover.theme-system .gas-theme-chip.is-active,
-.gas-popover.theme-system .gas-toggle-pill.is-active { background-color: rgba(53, 132, 228, 0.28); border-color: #3584e4; }
+.gas-popover.theme-system .gas-toggle-pill.is-active { background-color: rgba(53, 132, 228, 0.30); border-color: #62a0ea; color: #ffffff; }
 .gas-popover.theme-system .gas-bucket-pct.is-warning,
 .gas-popover.theme-system .gas-account-minibar-pct.is-warning { color: #e0af68; }
 .gas-popover.theme-system .gas-bucket-pct.is-critical,
-.gas-popover.theme-system .gas-account-minibar-pct.is-critical { color: #ff4443; }
-.gas-popover.theme-system .gas-error-banner { background-color: rgba(255, 68, 67, 0.15); color: #ff5a5f; border: 1px solid rgba(255, 68, 67, 0.35); }
-.gas-popover.theme-system .gas-scroll-view StScrollBar StButton#vhandle { background-color: rgba(128, 128, 128, 0.42); }
+.gas-popover.theme-system .gas-account-minibar-pct.is-critical { color: #ff5a5f; }
+.gas-popover.theme-system .gas-error-banner { background-color: rgba(255, 68, 67, 0.15); color: #ff8084; border: 1px solid rgba(255, 68, 67, 0.35); }
+.gas-popover.theme-system .gas-scroll-view StScrollBar StButton#vhandle,
+.gas-popover.theme-system .gas-scroll-view StScrollBar > .vhandle { background-color: rgba(255, 255, 255, 0.32); }
+
+/* 2b. GNOME System on Light Host Surfaces (`prefer-light` / Yaru Light / Classic) */
+.gas-popover.theme-system.is-light-surface {
+    border: 1px solid rgba(0, 0, 0, 0.13);
+    color: #1e2026;
+}
+.gas-popover.theme-system.is-light-surface .gas-divider { background-color: rgba(0, 0, 0, 0.10); }
+.gas-popover.theme-system.is-light-surface .gas-header-subtitle,
+.gas-popover.theme-system.is-light-surface .gas-plan-badge,
+.gas-popover.theme-system.is-light-surface .gas-reset-label,
+.gas-popover.theme-system.is-light-surface .gas-bucket-short-label,
+.gas-popover.theme-system.is-light-surface .gas-bucket-full-label,
+.gas-popover.theme-system.is-light-surface .gas-compact-reset,
+.gas-popover.theme-system.is-light-surface .gas-updated-label,
+.gas-popover.theme-system.is-light-surface .gas-hero-caption-left,
+.gas-popover.theme-system.is-light-surface .gas-hero-caption-right,
+.gas-popover.theme-system.is-light-surface .gas-col-header-label,
+.gas-popover.theme-system.is-light-surface .gas-account-minibar-tag,
+.gas-popover.theme-system.is-light-surface .gas-account-minibar-reset,
+.gas-popover.theme-system.is-light-surface .gas-option-section-title,
+.gas-popover.theme-system.is-light-surface .gas-chevron { color: #555b66; }
+.gas-popover.theme-system.is-light-surface .gas-status-note,
+.gas-popover.theme-system.is-light-surface .gas-empty-detail,
+.gas-popover.theme-system.is-light-surface .gas-account-passive-note,
+.gas-popover.theme-system.is-light-surface .gas-account-source,
+.gas-popover.theme-system.is-light-surface .gas-signed-out-hint,
+.gas-popover.theme-system.is-light-surface .gas-section-header { color: #636a78; }
+.gas-popover.theme-system.is-light-surface .gas-segmented-track { background-color: rgba(0, 0, 0, 0.06); border-color: rgba(0, 0, 0, 0.12); }
+.gas-popover.theme-system.is-light-surface .gas-segmented-btn { color: #4f5561; }
+.gas-popover.theme-system.is-light-surface .gas-segmented-btn:hover,
+.gas-popover.theme-system.is-light-surface .gas-segmented-btn:focus { background-color: rgba(0, 0, 0, 0.07); color: #1e2026; }
+.gas-popover.theme-system.is-light-surface .gas-segmented-btn.is-active { background-color: #ffffff; border-color: rgba(0, 0, 0, 0.16); color: #1a5fb4; }
+.gas-popover.theme-system.is-light-surface .gas-avatar-ring { background-color: #252836; border-color: rgba(0, 0, 0, 0.22); }
+.gas-popover.theme-system.is-light-surface .gas-provider-card:hover,
+.gas-popover.theme-system.is-light-surface .gas-provider-card:focus,
+.gas-popover.theme-system.is-light-surface .gas-footer-btn:hover,
+.gas-popover.theme-system.is-light-surface .gas-footer-btn:focus,
+.gas-popover.theme-system.is-light-surface .gas-icon-btn:hover,
+.gas-popover.theme-system.is-light-surface .gas-icon-btn:focus,
+.gas-popover.theme-system.is-light-surface .gas-back-btn:hover,
+.gas-popover.theme-system.is-light-surface .gas-back-btn:focus,
+.gas-popover.theme-system.is-light-surface .gas-account-row:hover,
+.gas-popover.theme-system.is-light-surface .gas-account-row:focus { background-color: rgba(0, 0, 0, 0.055); border-color: rgba(0, 0, 0, 0.13); }
+.gas-popover.theme-system.is-light-surface .gas-hero-card { background-color: rgba(0, 0, 0, 0.045); border-color: rgba(0, 0, 0, 0.12); }
+.gas-popover.theme-system.is-light-surface .gas-hero-tier-badge { background-color: rgba(26, 95, 180, 0.12); color: #1a5fb4; }
+.gas-popover.theme-system.is-light-surface .gas-hero-credits { color: #1a5fb4; }
+.gas-popover.theme-system.is-light-surface .gas-account-row.is-selected { background-color: rgba(53, 132, 228, 0.14); border-color: rgba(26, 95, 180, 0.45); color: #16181d; }
+.gas-popover.theme-system.is-light-surface .gas-signin-btn,
+.gas-popover.theme-system.is-light-surface .gas-theme-chip,
+.gas-popover.theme-system.is-light-surface .gas-toggle-pill { background-color: rgba(0, 0, 0, 0.055); border-color: rgba(0, 0, 0, 0.16); color: #1e2026; }
+.gas-popover.theme-system.is-light-surface .gas-signin-btn:hover,
+.gas-popover.theme-system.is-light-surface .gas-signin-btn:focus,
+.gas-popover.theme-system.is-light-surface .gas-theme-chip:hover,
+.gas-popover.theme-system.is-light-surface .gas-theme-chip:focus,
+.gas-popover.theme-system.is-light-surface .gas-toggle-pill:hover,
+.gas-popover.theme-system.is-light-surface .gas-toggle-pill:focus { background-color: rgba(0, 0, 0, 0.10); border-color: rgba(0, 0, 0, 0.24); }
+.gas-popover.theme-system.is-light-surface .gas-theme-chip.is-active,
+.gas-popover.theme-system.is-light-surface .gas-toggle-pill.is-active { background-color: rgba(53, 132, 228, 0.16); border-color: #1c71d8; color: #15539e; }
+.gas-popover.theme-system.is-light-surface .gas-theme-swatch { border-color: rgba(0, 0, 0, 0.25); }
+.gas-popover.theme-system.is-light-surface .gas-bucket-pct.is-warning,
+.gas-popover.theme-system.is-light-surface .gas-account-minibar-pct.is-warning { color: #b06500; }
+.gas-popover.theme-system.is-light-surface .gas-bucket-pct.is-critical,
+.gas-popover.theme-system.is-light-surface .gas-account-minibar-pct.is-critical { color: #c92a2a; }
+.gas-popover.theme-system.is-light-surface .gas-error-banner { background-color: rgba(201, 42, 42, 0.10); color: #b02020; border: 1px solid rgba(201, 42, 42, 0.30); }
+.gas-popover.theme-system.is-light-surface .gas-scroll-view StScrollBar StButton#vhandle,
+.gas-popover.theme-system.is-light-surface .gas-scroll-view StScrollBar > .vhandle { background-color: rgba(0, 0, 0, 0.32); }
 
 /* 3. Tokyo Night (`tokyo-night` — `#1a1b26`) */
 .gas-popover.theme-tokyo-night {
@@ -818,15 +943,15 @@
 .gas-popover.theme-tokyo-night .gas-account-minibar-tag,
 .gas-popover.theme-tokyo-night .gas-account-minibar-reset,
 .gas-popover.theme-tokyo-night .gas-option-section-title,
-.gas-popover.theme-tokyo-night .gas-chevron { color: #787c99; }
+.gas-popover.theme-tokyo-night .gas-chevron { color: #8990b3; }
 .gas-popover.theme-tokyo-night .gas-status-note,
 .gas-popover.theme-tokyo-night .gas-empty-detail,
 .gas-popover.theme-tokyo-night .gas-account-passive-note,
 .gas-popover.theme-tokyo-night .gas-account-source,
 .gas-popover.theme-tokyo-night .gas-signed-out-hint,
-.gas-popover.theme-tokyo-night .gas-section-header { color: #565f89; }
+.gas-popover.theme-tokyo-night .gas-section-header { color: #7880a6; }
 .gas-popover.theme-tokyo-night .gas-segmented-track { background-color: #16161e; border-color: #2f3549; }
-.gas-popover.theme-tokyo-night .gas-segmented-btn { color: #787c99; }
+.gas-popover.theme-tokyo-night .gas-segmented-btn { color: #8990b3; }
 .gas-popover.theme-tokyo-night .gas-segmented-btn:hover,
 .gas-popover.theme-tokyo-night .gas-segmented-btn:focus { background-color: #24283b; color: #c0caf5; }
 .gas-popover.theme-tokyo-night .gas-segmented-btn.is-active { background-color: #292e42; border-color: #3b4261; color: #7aa2f7; }
@@ -861,7 +986,8 @@
 .gas-popover.theme-tokyo-night .gas-bucket-pct.is-critical,
 .gas-popover.theme-tokyo-night .gas-account-minibar-pct.is-critical { color: #f7768e; }
 .gas-popover.theme-tokyo-night .gas-error-banner { background-color: rgba(247, 118, 142, 0.14); color: #f7768e; border: 1px solid rgba(247, 118, 142, 0.35); }
-.gas-popover.theme-tokyo-night .gas-scroll-view StScrollBar StButton#vhandle { background-color: #414868; }
+.gas-popover.theme-tokyo-night .gas-scroll-view StScrollBar StButton#vhandle,
+.gas-popover.theme-tokyo-night .gas-scroll-view StScrollBar > .vhandle { background-color: #414868; }
 
 /* 4. Catppuccin Mocha (`catppuccin` — `#1e1e2e`) */
 .gas-popover.theme-catppuccin {
@@ -889,7 +1015,7 @@
 .gas-popover.theme-catppuccin .gas-account-passive-note,
 .gas-popover.theme-catppuccin .gas-account-source,
 .gas-popover.theme-catppuccin .gas-signed-out-hint,
-.gas-popover.theme-catppuccin .gas-section-header { color: #6c7086; }
+.gas-popover.theme-catppuccin .gas-section-header { color: #7f849c; }
 .gas-popover.theme-catppuccin .gas-segmented-track { background-color: #181825; border-color: #313244; }
 .gas-popover.theme-catppuccin .gas-segmented-btn { color: #9399b2; }
 .gas-popover.theme-catppuccin .gas-segmented-btn:hover,
@@ -926,7 +1052,8 @@
 .gas-popover.theme-catppuccin .gas-bucket-pct.is-critical,
 .gas-popover.theme-catppuccin .gas-account-minibar-pct.is-critical { color: #f38ba8; }
 .gas-popover.theme-catppuccin .gas-error-banner { background-color: rgba(243, 139, 168, 0.14); color: #f38ba8; border: 1px solid rgba(243, 139, 168, 0.35); }
-.gas-popover.theme-catppuccin .gas-scroll-view StScrollBar StButton#vhandle { background-color: #585b70; }
+.gas-popover.theme-catppuccin .gas-scroll-view StScrollBar StButton#vhandle,
+.gas-popover.theme-catppuccin .gas-scroll-view StScrollBar > .vhandle { background-color: #585b70; }
 
 /* 5. Gruvbox Dark (`gruvbox` — `#282828`) */
 .gas-popover.theme-gruvbox {
@@ -991,7 +1118,8 @@
 .gas-popover.theme-gruvbox .gas-bucket-pct.is-critical,
 .gas-popover.theme-gruvbox .gas-account-minibar-pct.is-critical { color: #fb4934; }
 .gas-popover.theme-gruvbox .gas-error-banner { background-color: rgba(251, 73, 52, 0.14); color: #fb4934; border: 1px solid rgba(251, 73, 52, 0.35); }
-.gas-popover.theme-gruvbox .gas-scroll-view StScrollBar StButton#vhandle { background-color: #665c54; }
+.gas-popover.theme-gruvbox .gas-scroll-view StScrollBar StButton#vhandle,
+.gas-popover.theme-gruvbox .gas-scroll-view StScrollBar > .vhandle { background-color: #665c54; }
 
 /* 6. Rosé Pine (`rose-pine` — `#1f1d2e`) */
 .gas-popover.theme-rose-pine {
@@ -1019,7 +1147,7 @@
 .gas-popover.theme-rose-pine .gas-account-passive-note,
 .gas-popover.theme-rose-pine .gas-account-source,
 .gas-popover.theme-rose-pine .gas-signed-out-hint,
-.gas-popover.theme-rose-pine .gas-section-header { color: #6e6a86; }
+.gas-popover.theme-rose-pine .gas-section-header { color: #817c9c; }
 .gas-popover.theme-rose-pine .gas-segmented-track { background-color: #191724; border-color: #26233a; }
 .gas-popover.theme-rose-pine .gas-segmented-btn { color: #908caa; }
 .gas-popover.theme-rose-pine .gas-segmented-btn:hover,
@@ -1056,7 +1184,8 @@
 .gas-popover.theme-rose-pine .gas-bucket-pct.is-critical,
 .gas-popover.theme-rose-pine .gas-account-minibar-pct.is-critical { color: #eb6f92; }
 .gas-popover.theme-rose-pine .gas-error-banner { background-color: rgba(235, 111, 146, 0.14); color: #eb6f92; border: 1px solid rgba(235, 111, 146, 0.35); }
-.gas-popover.theme-rose-pine .gas-scroll-view StScrollBar StButton#vhandle { background-color: #524f67; }
+.gas-popover.theme-rose-pine .gas-scroll-view StScrollBar StButton#vhandle,
+.gas-popover.theme-rose-pine .gas-scroll-view StScrollBar > .vhandle { background-color: #524f67; }
 
 /* 7. Nord (`nord` — `#2e3440`) */
 .gas-popover.theme-nord {
@@ -1121,7 +1250,8 @@
 .gas-popover.theme-nord .gas-bucket-pct.is-critical,
 .gas-popover.theme-nord .gas-account-minibar-pct.is-critical { color: #ff6b74; }
 .gas-popover.theme-nord .gas-error-banner { background-color: rgba(191, 97, 106, 0.18); color: #ff8088; border: 1px solid rgba(191, 97, 106, 0.40); }
-.gas-popover.theme-nord .gas-scroll-view StScrollBar StButton#vhandle { background-color: #4c566a; }
+.gas-popover.theme-nord .gas-scroll-view StScrollBar StButton#vhandle,
+.gas-popover.theme-nord .gas-scroll-view StScrollBar > .vhandle { background-color: #4c566a; }
 
 /* 8. Everforest Dark (`everforest` — `#2d353b`) */
 .gas-popover.theme-everforest {
@@ -1186,4 +1316,5 @@
 .gas-popover.theme-everforest .gas-bucket-pct.is-critical,
 .gas-popover.theme-everforest .gas-account-minibar-pct.is-critical { color: #e67e80; }
 .gas-popover.theme-everforest .gas-error-banner { background-color: rgba(230, 126, 128, 0.16); color: #e67e80; border: 1px solid rgba(230, 126, 128, 0.35); }
-.gas-popover.theme-everforest .gas-scroll-view StScrollBar StButton#vhandle { background-color: #56635f; }
+.gas-popover.theme-everforest .gas-scroll-view StScrollBar StButton#vhandle,
+.gas-popover.theme-everforest .gas-scroll-view StScrollBar > .vhandle { background-color: #56635f; }
