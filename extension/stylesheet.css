@@ -335,6 +335,10 @@
     font-weight: 450;
 }
 
+.gas-popover.font-monospace .gas-bucket-full-label {
+    font-size: 10.5px;
+}
+
 .gas-bucket-pct {
     font-size: 11.5px;
     font-weight: 600;

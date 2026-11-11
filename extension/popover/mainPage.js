@@ -176,7 +176,7 @@ class ProviderCardWidget {
             titleLabel.clutter_text.ellipsize = Pango.EllipsizeMode.END;
 
             const bar = new CapsuleBar({
-                width: 58,
+                width: 56,
                 height: 5,
                 isMenuOpen: this._isMenuOpen,
             });
