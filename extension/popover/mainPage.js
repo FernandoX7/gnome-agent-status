@@ -353,6 +353,7 @@ export class MainUsagePage {
         settings,
         getIcon,
         isMenuOpen,
+        tooltips = null,
         onRefresh,
         onOpenOptions,
         onSelectProvider,
@@ -362,7 +363,9 @@ export class MainUsagePage {
         this._settings = settings;
         this._getIcon = getIcon;
         this._isMenuOpen = isMenuOpen;
+        this._tooltips = tooltips;
         this._onSelectProvider = onSelectProvider;
+        this._isLoading = false;
 
         this._cardMap = new Map();
 
@@ -412,6 +415,7 @@ export class MainUsagePage {
         connectInteractiveButton(this._optionsBtn, () => {
             onOpenOptions();
         });
+        this._tooltips?.attach(this._optionsBtn, 'Quick Options');
 
         this._refreshGlyph = new St.Label({
             text: '↻',
@@ -429,6 +433,10 @@ export class MainUsagePage {
         connectInteractiveButton(this._refreshBtn, () => {
             onRefresh();
         });
+        this._tooltips?.attach(
+            this._refreshBtn,
+            () => (this._isLoading ? 'Refreshing…' : 'Refresh Usage')
+        );
 
         topBarRow.add_child(titleLabel);
         topBarRow.add_child(this._subtitleLabel);
@@ -521,15 +529,19 @@ export class MainUsagePage {
     }
 
     setLoading(isLoading) {
-        if (isLoading) {
+        this._isLoading = Boolean(isLoading);
+        if (this._isLoading) {
             this._refreshBtn.add_style_class_name('is-loading');
             this._refreshBtn.opacity = 140;
+            this._refreshBtn.accessible_name = 'Refreshing…';
             this._subtitleLabel.set_text('updating…');
         } else {
             this._refreshBtn.remove_style_class_name('is-loading');
             this._refreshBtn.opacity = 255;
+            this._refreshBtn.accessible_name = 'Refresh Usage';
             this._subtitleLabel.set_text('all agents');
         }
+        this._tooltips?.refreshActiveText();
     }
 
     update({visibleProviders, errorMessage, densityMode, metricMode, themeId, nowEpoch}) {

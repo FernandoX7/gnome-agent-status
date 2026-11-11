@@ -231,6 +231,7 @@ export class ProviderDetailPage {
     constructor({
         getIcon,
         isMenuOpen,
+        tooltips = null,
         onBack,
         onSelectAccount,
         onSignIn,
@@ -239,6 +240,7 @@ export class ProviderDetailPage {
     }) {
         this._getIcon = getIcon;
         this._isMenuOpen = isMenuOpen;
+        this._tooltips = tooltips;
         this._onSelectAccount = onSelectAccount;
         this._onSignIn = onSignIn;
         this._onOpenDashboard = onOpenDashboard;
@@ -291,12 +293,13 @@ export class ProviderDetailPage {
             style_class: 'gas-back-btn',
             can_focus: true,
             track_hover: true,
-            accessible_name: 'Back to All Agents',
+            accessible_name: 'Back to All Agents (Esc)',
             child: backInner,
         });
         connectInteractiveButton(this._backBtn, () => {
             onBack();
         });
+        this._tooltips?.attach(this._backBtn, 'Back to All Agents (Esc)');
 
         const headerSpacer = new St.Widget({x_expand: true});
 
@@ -612,6 +615,10 @@ export class ProviderDetailPage {
                 if (slotObj.loginCommand)
                     this._onSignIn(slotObj.loginCommand);
             });
+            this._tooltips?.attach(
+                signInBtn,
+                () => (slotObj.loginCommand ? `Run: ${slotObj.loginCommand}` : 'Sign in via terminal')
+            );
 
             row.add_child(leftCol);
             row.add_child(signInBtn);

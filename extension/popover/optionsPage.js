@@ -29,8 +29,9 @@ import {
  * - `Manage Custom Account Locations…` button calling `openPreferences()`
  */
 export class QuickOptionsPage {
-    constructor({settings, onBack, onOpenPreferences}) {
+    constructor({settings, tooltips = null, onBack, onOpenPreferences}) {
         this._settings = settings;
+        this._tooltips = tooltips;
         this._themeButtons = new Map();
 
         this.actor = createVBox({
@@ -65,13 +66,14 @@ export class QuickOptionsPage {
             style_class: 'gas-back-btn',
             can_focus: true,
             track_hover: true,
-            accessible_name: 'Back to Usage',
+            accessible_name: 'Back to All Agents (Esc)',
             child: backInner,
         });
         this._backBtn = backBtn;
         connectInteractiveButton(backBtn, () => {
             onBack();
         });
+        this._tooltips?.attach(backBtn, 'Back to All Agents (Esc)');
         headerRow.add_child(backBtn);
 
         // Scrollable options body
@@ -166,6 +168,10 @@ export class QuickOptionsPage {
             const current = this._settings.get_boolean('auto-hide-when-empty');
             this._settings.set_boolean('auto-hide-when-empty', !current);
         });
+        this._tooltips?.attach(
+            this._autoHideBtn,
+            'Hide top-bar indicator when no agents are active'
+        );
         autoHideRow.add_child(autoHideTitle);
         autoHideRow.add_child(this._autoHideBtn);
         bodyBox.add_child(autoHideRow);

@@ -18,6 +18,7 @@ import {
 import {ProviderDetailPage} from './detailPage.js';
 import {MainUsagePage} from './mainPage.js';
 import {QuickOptionsPage} from './optionsPage.js';
+import {PopoverTooltipManager} from './widgets.js';
 
 const COUNTDOWN_TICK_SECONDS = 60;
 
@@ -77,10 +78,16 @@ export class PopoverController {
         const isMenuOpen = () => Boolean(this._menu?.isOpen);
         const getIcon = name => this._indicator.getIcon(name);
 
+        this._tooltips = new PopoverTooltipManager({
+            desktopSettings: this._desktopSettings,
+            isMenuOpen,
+        });
+
         this._mainPage = new MainUsagePage({
             settings: this._settings,
             getIcon,
             isMenuOpen,
+            tooltips: this._tooltips,
             onRefresh: () => {
                 void this._backend.collect(true);
             },
@@ -104,6 +111,7 @@ export class PopoverController {
         this._detailPage = new ProviderDetailPage({
             getIcon,
             isMenuOpen,
+            tooltips: this._tooltips,
             onBack: () => {
                 this.navigateTo('main');
             },
@@ -131,6 +139,7 @@ export class PopoverController {
 
         this._optionsPage = new QuickOptionsPage({
             settings: this._settings,
+            tooltips: this._tooltips,
             onBack: () => {
                 this.navigateTo('main');
             },
@@ -297,10 +306,17 @@ export class PopoverController {
             }
         }
 
-        if (themeId === 'system' && this._isLightHostSurface())
+        const isLightSurface = themeId === 'system' && this._isLightHostSurface();
+        if (isLightSurface)
             this._rootBox.add_style_class_name('is-light-surface');
         else
             this._rootBox.remove_style_class_name('is-light-surface');
+
+        this._tooltips?.setTheme({
+            themeId,
+            isLightSurface,
+            isMonospace: isMono,
+        });
     }
 
     _onKeyPress(event) {
@@ -341,6 +357,8 @@ export class PopoverController {
     navigateTo(pageName, {animate = true} = {}) {
         if (this._destroyed || pageName === this._activePageName)
             return;
+
+        this._tooltips?.hide();
 
         const currentFocus = global.stage?.get_key_focus?.();
         const hadFocusInside = Boolean(currentFocus && this._rootBox.contains(currentFocus));
@@ -411,6 +429,7 @@ export class PopoverController {
     }
 
     _onMenuClosed() {
+        this._tooltips?.hide();
         this._stopCountdownTicker();
         if (this._activePageName !== 'main')
             this.navigateTo('main', {animate: false});
@@ -550,6 +569,8 @@ export class PopoverController {
             this._mainPage.destroy();
             this._detailPage.destroy();
         }
+        this._tooltips?.destroy();
+        this._tooltips = null;
         this._desktopSettings = null;
     }
 }
