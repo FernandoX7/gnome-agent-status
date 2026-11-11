@@ -1089,7 +1089,7 @@ fn test_all_7_providers_cli_workflow_dedup_429_decay_switch_and_hook() {
         assert_eq!(prov.primary_remaining_percent, Some(100));
     }
 
-    // Step 7: Verify v2 `--text --color` output on the cached report!
+    // Step 7: Verify v2 `--text --color`, `--waybar`, and `--tmux` on both top-level and `cached`!
     let text_cli = Cli::parse_from([
         "gnome-agent-status",
         "--config",
@@ -1101,7 +1101,7 @@ fn test_all_7_providers_cli_workflow_dedup_429_decay_switch_and_hook() {
     let text_out = execute_cli(
         &text_cli,
         &CliRuntime {
-            cache_store,
+            cache_store: cache_store.clone(),
             fetch_ctx_override: None,
             now: during_lock,
             stdin_data: None,
@@ -1115,6 +1115,82 @@ fn test_all_7_providers_cli_workflow_dedup_429_decay_switch_and_hook() {
     assert!(text_out.contains("GitHub Copilot [Pro]"));
     assert!(text_out.contains("Gemini CLI [Pro]"));
     assert!(text_out.contains("\x1b[31m94%\x1b[0m"));
+
+    // Top-level `gnome-agent-status --waybar` & `gnome-agent-status cached --waybar`
+    for wb_args in [
+        vec![
+            "gnome-agent-status",
+            "--config",
+            config_path.to_str().unwrap(),
+            "--waybar",
+        ],
+        vec![
+            "gnome-agent-status",
+            "--config",
+            config_path.to_str().unwrap(),
+            "cached",
+            "--waybar",
+        ],
+    ] {
+        let wb_cli = Cli::parse_from(wb_args);
+        let wb_out = execute_cli(
+            &wb_cli,
+            &CliRuntime {
+                cache_store: cache_store.clone(),
+                fetch_ctx_override: Some(fetch_ctx.clone()),
+                now: during_lock,
+                stdin_data: None,
+            },
+        )
+        .expect("waybar execution")
+        .expect("waybar stdout");
+        assert!(!wb_out.contains('\n'), "waybar JSON must be single-line");
+        let wb_val: serde_json::Value = serde_json::from_str(&wb_out).expect("parse waybar JSON");
+        assert_eq!(wb_val["class"], "critical");
+        assert_eq!(wb_val["percentage"], 94);
+        let wb_text = wb_val["text"].as_str().unwrap();
+        assert!(wb_text.contains("CC 94%"));
+        assert!(wb_text.contains("CP 14%"));
+        assert!(wb_text.contains("GM 22%"));
+        let wb_tip = wb_val["tooltip"].as_str().unwrap();
+        assert!(wb_tip.contains("GitHub Copilot [Pro]"));
+        assert!(wb_tip.contains("42 / 300 premium requests used"));
+        assert!(wb_tip.contains("Gemini CLI [Pro]"));
+    }
+
+    // Top-level `gnome-agent-status --tmux` & `gnome-agent-status cached --tmux`
+    for tmux_args in [
+        vec![
+            "gnome-agent-status",
+            "--config",
+            config_path.to_str().unwrap(),
+            "--tmux",
+        ],
+        vec![
+            "gnome-agent-status",
+            "--config",
+            config_path.to_str().unwrap(),
+            "cached",
+            "--tmux",
+        ],
+    ] {
+        let tmux_cli = Cli::parse_from(tmux_args);
+        let tmux_out = execute_cli(
+            &tmux_cli,
+            &CliRuntime {
+                cache_store: cache_store.clone(),
+                fetch_ctx_override: Some(fetch_ctx.clone()),
+                now: during_lock,
+                stdin_data: None,
+            },
+        )
+        .expect("tmux execution")
+        .expect("tmux stdout");
+        assert!(!tmux_out.contains('\n'), "tmux output must be single-line");
+        assert!(tmux_out.contains("#[fg=red,bold]CC 94%#[default]"));
+        assert!(tmux_out.contains("#[fg=green]CP 14%#[default]"));
+        assert!(tmux_out.contains("#[fg=green]GM 22%#[default]"));
+    }
 
     let _ = fs::remove_dir_all(&sandbox);
 }

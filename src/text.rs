@@ -1,8 +1,9 @@
 use chrono::{DateTime, Local, TimeZone, Utc};
+use serde::{Deserialize, Serialize};
 
 use crate::model::{
-    AccountReport, AccountState, AgentStatusResult, CreditSummary, ProviderReport, StatusReport,
-    UsageBucket,
+    AccountReport, AccountState, AgentStatusResult, CreditSummary, OverallStatus, ProviderReport,
+    StatusReport, UsageBucket,
 };
 use crate::reset;
 
@@ -22,6 +23,209 @@ struct RowData {
     message: String,
     used_percent: Option<u8>,
     is_error: bool,
+}
+
+/// Compact JSON payload emitted by `--waybar` for Waybar `return-type: "json"` custom modules.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WaybarOutput {
+    pub text: String,
+    pub tooltip: String,
+    pub class: String,
+    pub percentage: u8,
+}
+
+/// Formats `report` as single-line compact Waybar custom-module JSON
+/// (`{"text":"...","tooltip":"...","class":"normal|warning|critical|error","percentage":<u8>}`).
+pub fn format_waybar(report: &StatusReport) -> anyhow::Result<String> {
+    format_waybar_in(report, Utc::now(), &Local)
+}
+
+fn format_waybar_in<T: TimeZone>(
+    report: &StatusReport,
+    now: DateTime<Utc>,
+    tz: &T,
+) -> anyhow::Result<String>
+where
+    T::Offset: std::fmt::Display,
+{
+    let class = waybar_class(report.status).to_string();
+    let percentage = report.summary.max_used_percent.min(100);
+    let text = build_waybar_text(report);
+    let tooltip = build_waybar_tooltip(report, now, tz);
+
+    let payload = WaybarOutput {
+        text,
+        tooltip,
+        class,
+        percentage,
+    };
+    Ok(serde_json::to_string(&payload)?)
+}
+
+fn waybar_class(status: OverallStatus) -> &'static str {
+    match status {
+        OverallStatus::Ok => "normal",
+        OverallStatus::Warning | OverallStatus::Degraded => "warning",
+        OverallStatus::Critical => "critical",
+        OverallStatus::Error => "error",
+    }
+}
+
+fn provider_short_tag(provider_id: &str, display_name: &str, single_provider: bool) -> String {
+    if single_provider {
+        return collapse_line(display_name);
+    }
+    match provider_id {
+        "claude" => "CC".to_string(),
+        "codex" => "CX".to_string(),
+        "grok" => "GK".to_string(),
+        "agy" => "AG".to_string(),
+        "cursor" => "CU".to_string(),
+        "copilot" => "CP".to_string(),
+        "gemini" => "GM".to_string(),
+        _ => {
+            let clean = collapse_line(display_name);
+            clean
+                .chars()
+                .filter(|c| c.is_alphanumeric())
+                .take(2)
+                .collect::<String>()
+                .to_uppercase()
+        }
+    }
+}
+
+fn build_waybar_text(report: &StatusReport) -> String {
+    if !report.providers.is_empty() {
+        let single = report.providers.len() == 1;
+        let pills: Vec<String> = report
+            .providers
+            .iter()
+            .map(|p| {
+                let tag = provider_short_tag(&p.id, &p.display_name, single);
+                let active = p.active_account();
+                match p.primary_used_percent {
+                    Some(pct) => format!("{tag} {pct}%"),
+                    None => match active.map(|a| a.state) {
+                        Some(AccountState::SignedOut | AccountState::Error) => format!("{tag} !"),
+                        _ => format!("{tag} --"),
+                    },
+                }
+            })
+            .collect();
+        return collapse_line(&pills.join(" · "));
+    }
+
+    if !report.agents.is_empty() {
+        if report.agents.len() == 1 && report.agents[0].agent_type == "config" {
+            return "AI ERR".to_string();
+        }
+        let pills: Vec<String> = report
+            .agents
+            .iter()
+            .map(|a| {
+                let name = collapse_line(&a.name);
+                match a.used_percent {
+                    Some(pct) => format!("{name} {pct}%"),
+                    None if a.status == "error" || a.error.is_some() => format!("{name} !"),
+                    None => format!("{name} --"),
+                }
+            })
+            .collect();
+        return collapse_line(&pills.join(" · "));
+    }
+
+    "AI --".to_string()
+}
+
+fn build_waybar_tooltip<T: TimeZone>(report: &StatusReport, now: DateTime<Utc>, tz: &T) -> String
+where
+    T::Offset: std::fmt::Display,
+{
+    let mut tooltip = format_text_in(report, false, now, tz);
+    let mut extras: Vec<String> = Vec::new();
+    for prov in &report.providers {
+        if let Some(acct) = prov.active_account() {
+            let note = acct.extra_info.as_deref().or_else(|| {
+                acct.buckets
+                    .iter()
+                    .find_map(|b| b.extra_info.as_deref())
+            });
+            if let Some(info) = note.map(collapse_line).filter(|s| !s.is_empty()) {
+                extras.push(format!("{}: {info}", collapse_line(&prov.display_name)));
+            }
+        }
+    }
+    if !extras.is_empty() {
+        tooltip.push_str("\n\n");
+        tooltip.push_str(&extras.join("\n"));
+    }
+    tooltip
+}
+
+/// Formats `report` as a single-line `#[fg=...]` status string suitable for `tmux` `status-right`.
+pub fn format_tmux(report: &StatusReport) -> String {
+    if !report.providers.is_empty() {
+        let single = report.providers.len() == 1;
+        let segments: Vec<String> = report
+            .providers
+            .iter()
+            .map(|p| {
+                let raw_tag = provider_short_tag(&p.id, &p.display_name, single);
+                let tag = escape_tmux_text(&raw_tag);
+                let active = p.active_account();
+                let is_hard_error = active.is_some_and(|a| {
+                    matches!(a.state, AccountState::SignedOut | AccountState::Error)
+                        || a.error.is_some()
+                });
+                let is_stale_or_rl = active.is_some_and(|a| {
+                    a.is_stale || matches!(a.state, AccountState::RateLimited)
+                });
+
+                match p.primary_used_percent {
+                    Some(pct) if pct >= 90 => format!("#[fg=red,bold]{tag} {pct}%#[default]"),
+                    Some(pct) if pct >= 80 || is_stale_or_rl => {
+                        format!("#[fg=yellow]{tag} {pct}%#[default]")
+                    }
+                    Some(pct) => format!("#[fg=green]{tag} {pct}%#[default]"),
+                    None if is_hard_error => format!("#[fg=red,bold]{tag} !#[default]"),
+                    None => format!("#[fg=brightblack]{tag} --#[default]"),
+                }
+            })
+            .collect();
+        return segments.join(" #[fg=brightblack]|#[default] ");
+    }
+
+    if !report.agents.is_empty() {
+        if report.agents.len() == 1 && report.agents[0].agent_type == "config" {
+            return "#[fg=red,bold]AI ERR#[default]".to_string();
+        }
+        let segments: Vec<String> = report
+            .agents
+            .iter()
+            .map(|a| {
+                let tag = escape_tmux_text(&collapse_line(&a.name));
+                let is_err = a.status == "error" || a.error.is_some();
+                match a.used_percent {
+                    Some(pct) if pct >= 90 => format!("#[fg=red,bold]{tag} {pct}%#[default]"),
+                    Some(pct) if pct >= 80 || a.warning.is_some() => {
+                        format!("#[fg=yellow]{tag} {pct}%#[default]")
+                    }
+                    Some(pct) => format!("#[fg=green]{tag} {pct}%#[default]"),
+                    None if is_err => format!("#[fg=red,bold]{tag} !#[default]"),
+                    None => format!("#[fg=brightblack]{tag} --#[default]"),
+                }
+            })
+            .collect();
+        return segments.join(" #[fg=brightblack]|#[default] ");
+    }
+
+    "#[fg=brightblack]AI --#[default]".to_string()
+}
+
+/// Escapes `#` as `##` and strips newlines so user-defined labels cannot inject `tmux` `#(...)` formats.
+fn escape_tmux_text(input: &str) -> String {
+    collapse_line(input).replace('#', "##")
 }
 
 /// Formats a status report as aligned plain-text lines.
@@ -669,5 +873,211 @@ mod tests {
         assert!(plain.contains("Sign in required (grok login)"));
         assert!(colored.contains("\x1b[31m89%\x1b[0m"));
         assert!(colored.contains("\x1b[31m --\x1b[0m"));
+    }
+
+    #[test]
+    fn test_waybar_json_classes_tooltip_and_single_line_contract() {
+        let now = Utc.with_ymd_and_hms(2026, 11, 6, 16, 0, 0).unwrap();
+        let pst = FixedOffset::west_opt(8 * 3600).unwrap();
+
+        // Empty report -> `normal`, `0%`, `"AI --"`
+        let empty = sample_report(vec![]);
+        let empty_json = format_waybar_in(&empty, now, &pst).unwrap();
+        assert!(!empty_json.contains('\n'));
+        let parsed_empty: WaybarOutput = serde_json::from_str(&empty_json).unwrap();
+        assert_eq!(parsed_empty.text, "AI --");
+        assert_eq!(parsed_empty.class, "normal");
+        assert_eq!(parsed_empty.percentage, 0);
+        assert_eq!(parsed_empty.tooltip, "No agents configured");
+
+        // Multi-provider report with Copilot `extra_info` & `89%` warning
+        let copilot_bucket = UsageBucket::new(
+            "premium",
+            "Premium Requests",
+            "31d",
+            BucketLayout::FullRow,
+            true,
+            14.0,
+            Some((1_796_083_200, "2026-12-01T00:00:00Z".to_string())),
+        )
+        .with_window_seconds(Some(2_678_400))
+        .with_extra_info("42 / 300 premium requests used");
+
+        let copilot_acct = AccountReport {
+            id: "copilot:octodev".to_string(),
+            label: "octodev".to_string(),
+            source_label: Some("~/.config/github-copilot/hosts.json".to_string()),
+            is_system_default: true,
+            is_active: true,
+            plan_tier: Some("Pro".to_string()),
+            state: AccountState::ActiveOk,
+            is_stale: false,
+            status_note: None,
+            extra_info: Some("42 / 300 premium requests used".to_string()),
+            error: None,
+            login_command: Some("gh auth login".to_string()),
+            updated_at_epoch: Some(1_794_356_800),
+            buckets: vec![copilot_bucket],
+            credits: None,
+        };
+
+        let claude_acct = AccountReport {
+            id: "claude:default".to_string(),
+            label: "dev@claude.ai".to_string(),
+            source_label: Some("~/.claude".to_string()),
+            is_system_default: true,
+            is_active: true,
+            plan_tier: Some("Max".to_string()),
+            state: AccountState::ActiveOk,
+            is_stale: false,
+            status_note: None,
+            extra_info: None,
+            error: None,
+            login_command: Some("claude auth login".to_string()),
+            updated_at_epoch: Some(1_794_356_800),
+            buckets: vec![UsageBucket::new(
+                "wk",
+                "Weekly",
+                "wk",
+                BucketLayout::InlinePair,
+                true,
+                89.0,
+                None,
+            )],
+            credits: None,
+        };
+
+        let mut report = StatusReport::from_providers(
+            vec![
+                ProviderReport::from_accounts(
+                    "claude",
+                    "Claude",
+                    "provider-claude",
+                    None,
+                    vec![claude_acct],
+                    None,
+                ),
+                ProviderReport::from_accounts(
+                    "copilot",
+                    "GitHub Copilot",
+                    "provider-copilot",
+                    None,
+                    vec![copilot_acct],
+                    None,
+                ),
+            ],
+            " | ",
+            1_794_356_800,
+            None,
+        );
+
+        let wb_warn = format_waybar_in(&report, now, &pst).unwrap();
+        assert!(!wb_warn.contains('\n'), "Waybar stdout payload must be single-line JSON");
+        let parsed_warn: WaybarOutput = serde_json::from_str(&wb_warn).unwrap();
+        assert_eq!(parsed_warn.text, "CC 89% · CP 14%");
+        assert_eq!(parsed_warn.class, "warning");
+        assert_eq!(parsed_warn.percentage, 89);
+        assert!(parsed_warn.tooltip.contains("Claude [Max]"));
+        assert!(parsed_warn.tooltip.contains("GitHub Copilot [Pro]"));
+        assert!(parsed_warn
+            .tooltip
+            .contains("GitHub Copilot: 42 / 300 premium requests used"));
+
+        // Critical & Error classes
+        report.status = OverallStatus::Critical;
+        report.summary.max_used_percent = 96;
+        let parsed_crit: WaybarOutput =
+            serde_json::from_str(&format_waybar_in(&report, now, &pst).unwrap()).unwrap();
+        assert_eq!(parsed_crit.class, "critical");
+        assert_eq!(parsed_crit.percentage, 96);
+
+        let cfg_err = StatusReport::config_error("Invalid TOML".to_string(), 1_794_356_800);
+        let parsed_err: WaybarOutput =
+            serde_json::from_str(&format_waybar_in(&cfg_err, now, &pst).unwrap()).unwrap();
+        assert_eq!(parsed_err.class, "error");
+        assert_eq!(parsed_err.text, "AI ERR");
+    }
+
+    #[test]
+    fn test_tmux_status_colors_single_line_and_format_injection_escape() {
+        let empty = sample_report(vec![]);
+        assert_eq!(format_tmux(&empty), "#[fg=brightblack]AI --#[default]");
+
+        let cfg_err = StatusReport::config_error("Bad config".to_string(), 0);
+        assert_eq!(format_tmux(&cfg_err), "#[fg=red,bold]AI ERR#[default]");
+
+        // Multi-provider severity colors: <80 green, 80..89 yellow, >=90 red,bold, SignedOut red,bold !
+        let mk_prov = |id: &str, name: &str, pct: Option<f64>, state: AccountState| {
+            let buckets = pct
+                .map(|p| {
+                    vec![UsageBucket::new(
+                        "wk",
+                        "Weekly",
+                        "wk",
+                        BucketLayout::InlinePair,
+                        true,
+                        p,
+                        None,
+                    )]
+                })
+                .unwrap_or_default();
+            ProviderReport::from_accounts(
+                id,
+                name,
+                "icon",
+                None,
+                vec![AccountReport {
+                    id: format!("{id}:default"),
+                    label: name.to_string(),
+                    source_label: None,
+                    is_system_default: true,
+                    is_active: true,
+                    plan_tier: None,
+                    state,
+                    is_stale: false,
+                    status_note: None,
+                    extra_info: None,
+                    error: None,
+                    login_command: None,
+                    updated_at_epoch: None,
+                    buckets,
+                    credits: None,
+                }],
+                None,
+            )
+        };
+
+        let multi = StatusReport::from_providers(
+            vec![
+                mk_prov("claude", "Claude", Some(24.0), AccountState::ActiveOk),
+                mk_prov("copilot", "GitHub Copilot", Some(85.0), AccountState::ActiveOk),
+                mk_prov("gemini", "Gemini CLI", Some(93.0), AccountState::ActiveOk),
+                mk_prov("grok", "Grok", None, AccountState::SignedOut),
+            ],
+            " | ",
+            0,
+            None,
+        );
+        let tmux_out = format_tmux(&multi);
+        assert!(!tmux_out.contains('\n'));
+        assert_eq!(
+            tmux_out,
+            "#[fg=green]CC 24%#[default] #[fg=brightblack]|#[default] #[fg=yellow]CP 85%#[default] #[fg=brightblack]|#[default] #[fg=red,bold]GM 93%#[default] #[fg=brightblack]|#[default] #[fg=red,bold]GK !#[default]"
+        );
+
+        // Single-provider display_name containing `#(whoami)` must escape `#` -> `##`
+        let injection = StatusReport::from_providers(
+            vec![mk_prov(
+                "claude",
+                "Claude #(whoami)",
+                Some(12.0),
+                AccountState::ActiveOk,
+            )],
+            " | ",
+            0,
+            None,
+        );
+        let escaped = format_tmux(&injection);
+        assert_eq!(escaped, "#[fg=green]Claude ##(whoami) 12%#[default]");
     }
 }

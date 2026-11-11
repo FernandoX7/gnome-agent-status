@@ -85,4 +85,42 @@ mod tests {
         assert!(out.contains("AGY"));
         assert!(out.contains("\x1b[32m16%\x1b[0m"));
     }
+
+    #[test]
+    fn test_cli_waybar_and_tmux_format_dispatch() {
+        let report = StatusReport {
+            schema_version: SCHEMA_VERSION,
+            label: "AGY: 16%".to_string(),
+            status: OverallStatus::Ok,
+            updated_at_epoch: 0,
+            summary: SummaryStats {
+                max_used_percent: 16,
+                active_provider_count: 1,
+                has_auth_error: false,
+            },
+            providers: Vec::new(),
+            agents: vec![AgentStatusResult {
+                name: "AGY".to_string(),
+                agent_type: "agy".to_string(),
+                status: "ok".to_string(),
+                used_percent: Some(16),
+                remaining_percent: Some(84),
+                reset_info: Some("2026-11-07T15:56:12Z".to_string()),
+                detail: None,
+                warning: None,
+                error: None,
+                duration_ms: 5,
+            }],
+        };
+
+        let wb_cli = Cli::parse_from(["gnome-agent-status", "--waybar"]);
+        let wb_out = format_report(&report, &wb_cli).expect("waybar format");
+        assert!(!wb_out.contains('\n'));
+        assert!(wb_out.contains(r#""class":"normal""#));
+        assert!(wb_out.contains(r#""percentage":16"#));
+
+        let tmux_cli = Cli::parse_from(["gnome-agent-status", "cached", "--tmux"]);
+        let tmux_out = format_report(&report, &tmux_cli).expect("tmux format");
+        assert_eq!(tmux_out, "#[fg=green]AGY 16%#[default]");
+    }
 }

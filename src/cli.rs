@@ -13,12 +13,12 @@ use std::time::Duration;
 /// Command-line interface for `gnome-agent-status` v0.2.
 ///
 /// Running without a subcommand remains 100% backwards-compatible with v0.1:
-/// `gnome-agent-status [--config <path>] [--init-config] [--pretty] [--text] [--color]`
+/// `gnome-agent-status [--config <path>] [--init-config] [--pretty] [--text] [--color] [--waybar] [--tmux]`
 #[derive(Debug, Clone, Parser)]
 #[command(
     name = "gnome-agent-status",
     version,
-    about = "Queries usage limits across configured AI coding agents in parallel and outputs JSON or aligned text."
+    about = "Queries usage limits across configured AI coding agents in parallel and outputs JSON, Waybar/tmux status, or aligned text."
 )]
 pub struct Cli {
     /// Path to configuration file (TOML or JSON).
@@ -42,6 +42,14 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub color: bool,
 
+    /// Print single-line Waybar custom-module JSON (`text`, `tooltip`, `class`, `percentage`).
+    #[arg(long, global = true, conflicts_with = "tmux")]
+    pub waybar: bool,
+
+    /// Print single-line `#[fg=...]` formatted status string for `tmux` `status-right`.
+    #[arg(long, global = true, conflicts_with = "waybar")]
+    pub tmux: bool,
+
     #[command(subcommand)]
     pub command: Option<Commands>,
 }
@@ -54,7 +62,7 @@ pub enum Commands {
         #[arg(long)]
         force: bool,
 
-        /// Restrict live refresh to a single canonical provider ID (`claude`, `codex`, `grok`, `agy`, `cursor`).
+        /// Restrict live refresh to a single canonical provider ID (`claude`, `codex`, `grok`, `agy`, `cursor`, `copilot`, `gemini`).
         #[arg(long)]
         provider: Option<String>,
     },
@@ -85,7 +93,7 @@ pub enum Commands {
 pub enum AccountCommand {
     /// Pin `<account_id>` (or `"default"`) as active for `<provider_id>`, run optional `switch_command`, and print updated `StatusReport` v2 JSON.
     Select {
-        /// Canonical provider ID (`claude`, `codex`, `grok`, `agy`, `cursor`).
+        /// Canonical provider ID (`claude`, `codex`, `grok`, `agy`, `cursor`, `copilot`, `gemini`).
         provider_id: String,
 
         /// Account ID (`<provider>:<slug>`, `<slug>`, or `"default"`).
@@ -111,7 +119,7 @@ pub enum ConfigCommand {
 
     /// Create or update a `[[providers.<provider>.accounts]]` entry in `config.toml`.
     UpsertAccount {
-        /// Canonical provider ID (`claude`, `codex`, `grok`, `agy`, `cursor`).
+        /// Canonical provider ID (`claude`, `codex`, `grok`, `agy`, `cursor`, `copilot`, `gemini`).
         #[arg(long)]
         provider: String,
 
@@ -142,7 +150,7 @@ pub enum ConfigCommand {
 
     /// Remove a manual account entry from `config.toml`.
     RemoveAccount {
-        /// Canonical provider ID (`claude`, `codex`, `grok`, `agy`, `cursor`).
+        /// Canonical provider ID (`claude`, `codex`, `grok`, `agy`, `cursor`, `copilot`, `gemini`).
         #[arg(long)]
         provider: String,
 
@@ -185,9 +193,13 @@ impl Default for CliRuntime<'_> {
     }
 }
 
-/// Formats `report` according to `--text`, `--color`, and `--pretty`.
+/// Formats `report` according to `--waybar`, `--tmux`, `--text`, `--color`, and `--pretty`.
 pub fn format_report(report: &StatusReport, cli: &Cli) -> Result<String> {
-    if cli.text {
+    if cli.waybar {
+        text::format_waybar(report)
+    } else if cli.tmux {
+        Ok(text::format_tmux(report))
+    } else if cli.text {
         Ok(text::format_text(report, cli.color))
     } else if cli.pretty {
         Ok(serde_json::to_string_pretty(report)?)
@@ -344,7 +356,7 @@ pub fn execute_cli(cli: &Cli, runtime: &CliRuntime<'_>) -> Result<Option<String>
                 stdin_buf,
                 runtime.now,
             )?;
-            if *json || cli.pretty || cli.text {
+            if *json || cli.pretty || cli.text || cli.waybar || cli.tmux {
                 Ok(Some(format_report(&report, cli)?))
             } else {
                 Ok(None)
@@ -444,6 +456,29 @@ mod tests {
             .expect("parse cached");
         assert!(matches!(cached_cli.command, Some(Commands::Cached)));
         assert!(cached_cli.pretty);
+
+        let top_wb = Cli::try_parse_from(["gnome-agent-status", "--waybar"]).expect("top waybar");
+        assert!(top_wb.waybar);
+        assert!(top_wb.command.is_none());
+
+        let cached_wb = Cli::try_parse_from(["gnome-agent-status", "cached", "--waybar"])
+            .expect("cached waybar");
+        assert!(cached_wb.waybar);
+        assert!(matches!(cached_wb.command, Some(Commands::Cached)));
+
+        let top_tmux = Cli::try_parse_from(["gnome-agent-status", "--tmux"]).expect("top tmux");
+        assert!(top_tmux.tmux);
+        assert!(top_tmux.command.is_none());
+
+        let cached_tmux =
+            Cli::try_parse_from(["gnome-agent-status", "cached", "--tmux"]).expect("cached tmux");
+        assert!(cached_tmux.tmux);
+        assert!(matches!(cached_tmux.command, Some(Commands::Cached)));
+
+        assert!(
+            Cli::try_parse_from(["gnome-agent-status", "--waybar", "--tmux"]).is_err(),
+            "--waybar and --tmux should be mutually exclusive"
+        );
 
         let acct_cli = Cli::try_parse_from([
             "gnome-agent-status",
