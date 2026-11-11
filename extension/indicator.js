@@ -34,9 +34,21 @@ class AgentStatusIndicator extends PanelMenu.Button {
         this._pillPool = [];
         this._settingsSigIds = [];
         this._menuSigIds = [];
+        this._menuActorSigIds = [];
+        this._menuActorDisposed = false;
+        this._contextMenuSigIds = [];
+        this._contextMenuActorSigIds = [];
+        this._contextMenuActorDisposed = false;
         this._selfSigIds = [];
         this._themeContext = null;
         this._themeContextSigId = 0;
+        this._contextMenu = null;
+        this._contextMenuManager = null;
+        this._secondaryClickGesture = null;
+        this._refreshMenuItem = null;
+        this._settingsMenuItem = null;
+        this._quitMenuItem = null;
+        this._quitIdleId = 0;
 
         this._rootBox = createHBox({
             style_class: 'panel-status-menu-box gas-panel-box',
@@ -102,6 +114,8 @@ class AgentStatusIndicator extends PanelMenu.Button {
 
         if (buildFallbackMenu)
             this._buildFallbackMenu();
+        this._setupClickGestures();
+        this._buildContextMenu();
         this._connectSignals();
         this._syncPanelPresentation();
     }
@@ -165,6 +179,150 @@ class AgentStatusIndicator extends PanelMenu.Button {
         this._fallbackItems = {statusItem};
     }
 
+    _setupClickGestures() {
+        // GNOME Shell 49/50 PanelMenu.Button binds `this._clickGesture` with
+        // `required_button = 0` (any button). Restrict it to primary left-click
+        // and add a dedicated secondary right-click gesture for the context menu.
+        if (this._clickGesture && typeof this._clickGesture.set_required_button === 'function')
+            this._clickGesture.set_required_button(Clutter.BUTTON_PRIMARY);
+
+        if (typeof Clutter.ClickGesture === 'function') {
+            this._secondaryClickGesture = new Clutter.ClickGesture({
+                required_button: Clutter.BUTTON_SECONDARY,
+                recognize_on_press: true,
+            });
+            this._secondaryClickGesture.connect('recognize', () => {
+                this._toggleContextMenu();
+            });
+            this.add_action(this._secondaryClickGesture);
+        } else if (!this._clickGesture) {
+            // GNOME Shell 45-48 legacy fallback where Clutter.ClickGesture does not exist.
+            this._selfSigIds.push(
+                this.connect('button-press-event', (_actor, event) => {
+                    if (event.get_button() === Clutter.BUTTON_SECONDARY) {
+                        this._toggleContextMenu();
+                        return Clutter.EVENT_STOP;
+                    }
+                    return Clutter.EVENT_PROPAGATE;
+                })
+            );
+        }
+    }
+
+    _buildContextMenu() {
+        this._contextMenu = new PopupMenu.PopupMenu(this, 0.5, St.Side.TOP);
+        this._contextMenu.actor.add_style_class_name('panel-menu');
+        this._contextMenu.actor.add_style_class_name('gas-context-menu');
+        Main.uiGroup.add_child(this._contextMenu.actor);
+        this._contextMenu.actor.hide();
+
+        this._refreshMenuItem = new PopupMenu.PopupImageMenuItem(
+            'Refresh Usage',
+            'view-refresh-symbolic'
+        );
+        this._refreshMenuItem.connect('activate', () => {
+            if (!this._destroyed)
+                void this._backend?.collect(true);
+        });
+
+        this._settingsMenuItem = new PopupMenu.PopupImageMenuItem(
+            'Settings…',
+            'preferences-system-symbolic'
+        );
+        this._settingsMenuItem.connect('activate', () => {
+            if (!this._destroyed)
+                this.openExtensionPreferences();
+        });
+
+        this._quitMenuItem = new PopupMenu.PopupImageMenuItem(
+            'Quit Agent Status',
+            'application-exit-symbolic'
+        );
+        this._quitMenuItem.connect('activate', () => {
+            if (this._destroyed)
+                return;
+            const uuid = this._extension?.uuid;
+            this._contextMenu?.close(false);
+            this.menu?.close(false);
+            if (!uuid || this._quitIdleId !== 0)
+                return;
+            this._quitIdleId = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+                this._quitIdleId = 0;
+                try {
+                    Main.extensionManager?.disableExtension?.(uuid);
+                } catch (e) {
+                    console.error(`[gnome-agent-status] Failed to disable extension: ${e.message}`);
+                }
+                return GLib.SOURCE_REMOVE;
+            });
+            GLib.Source.set_name_by_id?.(this._quitIdleId, '[gnome-agent-status] quit-extension');
+        });
+
+        this._contextMenu.addMenuItem(this._refreshMenuItem);
+        this._contextMenu.addMenuItem(this._settingsMenuItem);
+        this._contextMenu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        this._contextMenu.addMenuItem(this._quitMenuItem);
+    }
+
+    /**
+     * Registers the secondary right-click context menu with `Main.panel.menuManager`
+     * after `Main.panel.addToStatusArea` has registered `this.menu`, ensuring
+     * panel hover-sliding prefers the primary usage popover while outside clicks
+     * dismiss the context menu natively.
+     *
+     * @param {object} [menuManager]
+     */
+    registerContextMenu(menuManager = Main.panel?.menuManager) {
+        if (this._destroyed || !this._contextMenu || !menuManager)
+            return;
+        if (this._contextMenuManager === menuManager)
+            return;
+        this._contextMenuManager = menuManager;
+        menuManager.addMenu(this._contextMenu);
+    }
+
+    _openContextMenu(animate = true) {
+        if (this._destroyed || !this._contextMenu)
+            return;
+        this.registerContextMenu();
+        if (this.menu?.isOpen)
+            this.menu.close(false);
+        this._contextMenu.open(animate);
+    }
+
+    _toggleContextMenu() {
+        if (this._destroyed || !this._contextMenu)
+            return;
+        this.registerContextMenu();
+        if (this._contextMenu.isOpen) {
+            this._contextMenu.close(true);
+            return;
+        }
+        if (this.menu?.isOpen)
+            this.menu.close(false);
+        this._contextMenu.open(true);
+    }
+
+    _isEventOnIndicator(event, menuActor) {
+        const targetActor = global.stage.get_event_actor?.(event) ?? null;
+        if (menuActor && targetActor && menuActor.contains(targetActor))
+            return false;
+        if (targetActor && this.contains(targetActor))
+            return true;
+        if (!this.mapped)
+            return false;
+        const [ex, ey] = event.get_coords();
+        const [ix, iy] = this.get_transformed_position();
+        const [iw, ih] = this.get_transformed_size();
+        return ex >= ix && ex <= ix + iw && ey >= iy && ey <= iy + ih;
+    }
+
+    vfunc_hide() {
+        super.vfunc_hide();
+        if (this._contextMenu?.isOpen)
+            this._contextMenu.close(false);
+    }
+
     _connectSignals() {
         const watchedKeys = [
             'panel-mode',
@@ -186,10 +344,96 @@ class AgentStatusIndicator extends PanelMenu.Button {
             this.menu.connect('open-state-changed', (_menu, isOpen) => {
                 if (this._destroyed)
                     return;
-                if (!isOpen)
+                if (isOpen) {
+                    if (this._contextMenu?.isOpen)
+                        this._contextMenu.close(false);
+                } else {
+                    if (this._contextMenu?.isOpen)
+                        this.add_style_pseudo_class('active');
                     this._updateAutoHideVisibility();
+                }
             })
         );
+
+        if (this.menu?.actor) {
+            this._menuActorSigIds.push(
+                this.menu.actor.connect('captured-event', (actor, event) => {
+                    if (
+                        !this._destroyed &&
+                        this.menu?.isOpen &&
+                        event.type() === Clutter.EventType.BUTTON_PRESS &&
+                        event.get_button() === Clutter.BUTTON_SECONDARY &&
+                        this._isEventOnIndicator(event, actor)
+                    ) {
+                        this.menu.close(false);
+                        this._openContextMenu(true);
+                        return Clutter.EVENT_STOP;
+                    }
+                    return Clutter.EVENT_PROPAGATE;
+                }),
+                this.menu.actor.connect('destroy', () => {
+                    this._menuActorDisposed = true;
+                    this._menuActorSigIds = [];
+                })
+            );
+        }
+
+        if (this._contextMenu) {
+            this._contextMenuSigIds.push(
+                this._contextMenu.connect('open-state-changed', (_menu, isOpen) => {
+                    if (this._destroyed)
+                        return;
+                    if (isOpen) {
+                        // Temporarily hide `this.menu` as a sourceActor match while the
+                        // secondary context menu is open so PopupMenuManager hover-sliding
+                        // resolves `this._contextMenu` rather than flipping to `this.menu`.
+                        if (this.menu)
+                            this.menu.sourceActor = null;
+                        this.add_style_pseudo_class('active');
+                    } else {
+                        if (this.menu)
+                            this.menu.sourceActor = this;
+                        if (!this.menu?.isOpen)
+                            this.remove_style_pseudo_class('active');
+                        this._updateAutoHideVisibility();
+                    }
+                })
+            );
+        }
+
+        if (this._contextMenu?.actor) {
+            this._contextMenuActorSigIds.push(
+                this._contextMenu.actor.connect('captured-event', (actor, event) => {
+                    if (this._destroyed || !this._contextMenu?.isOpen)
+                        return Clutter.EVENT_PROPAGATE;
+
+                    if (
+                        event.type() === Clutter.EventType.BUTTON_PRESS &&
+                        this._isEventOnIndicator(event, actor)
+                    ) {
+                        const btn = event.get_button();
+                        if (btn === Clutter.BUTTON_PRIMARY) {
+                            this._contextMenu.close(false);
+                            if (this.menu) {
+                                this.menu.sourceActor = this;
+                                this.menu.open(true);
+                            }
+                            return Clutter.EVENT_STOP;
+                        }
+                        if (btn === Clutter.BUTTON_SECONDARY) {
+                            this._contextMenu.close(true);
+                            return Clutter.EVENT_STOP;
+                        }
+                    }
+
+                    return Clutter.EVENT_PROPAGATE;
+                }),
+                this._contextMenu.actor.connect('destroy', () => {
+                    this._contextMenuActorDisposed = true;
+                    this._contextMenuActorSigIds = [];
+                })
+            );
+        }
 
         this._selfSigIds.push(
             this.connect('notify::mapped', () => {
@@ -300,7 +544,12 @@ class AgentStatusIndicator extends PanelMenu.Button {
 
     _updateAutoHideVisibility() {
         const autoHide = this._settings.get_boolean('auto-hide-when-empty');
-        if (!autoHide || !this._hasHydratedOnce || this.menu.isOpen) {
+        if (
+            !autoHide ||
+            !this._hasHydratedOnce ||
+            this.menu?.isOpen ||
+            this._contextMenu?.isOpen
+        ) {
             this.visible = true;
             return;
         }
@@ -451,6 +700,16 @@ class AgentStatusIndicator extends PanelMenu.Button {
             return;
         this._destroyed = true;
 
+        if (this.menu)
+            this.menu.sourceActor = this;
+
+        if (this._quitIdleId !== 0) {
+            try {
+                GLib.Source.remove(this._quitIdleId);
+            } catch (_e) {}
+            this._quitIdleId = 0;
+        }
+
         for (const sigId of this._settingsSigIds)
             this._settings.disconnect(sigId);
         this._settingsSigIds = [];
@@ -461,8 +720,44 @@ class AgentStatusIndicator extends PanelMenu.Button {
                     this.menu.disconnect(sigId);
                 } catch (_e) {}
             }
+            if (this.menu.actor && !this._menuActorDisposed) {
+                for (const sigId of this._menuActorSigIds) {
+                    try {
+                        this.menu.actor.disconnect(sigId);
+                    } catch (_e) {}
+                }
+            }
         }
         this._menuSigIds = [];
+        this._menuActorSigIds = [];
+
+        if (this._contextMenu) {
+            for (const sigId of this._contextMenuSigIds) {
+                try {
+                    this._contextMenu.disconnect(sigId);
+                } catch (_e) {}
+            }
+            if (this._contextMenu.actor && !this._contextMenuActorDisposed) {
+                for (const sigId of this._contextMenuActorSigIds) {
+                    try {
+                        this._contextMenu.actor.disconnect(sigId);
+                    } catch (_e) {}
+                }
+            }
+        }
+        this._contextMenuSigIds = [];
+        this._contextMenuActorSigIds = [];
+
+        if (
+            !fromDestroySignal &&
+            this._secondaryClickGesture &&
+            this._secondaryClickGesture.get_actor?.() === this
+        ) {
+            try {
+                this.remove_action(this._secondaryClickGesture);
+            } catch (_e) {}
+        }
+        this._secondaryClickGesture = null;
 
         if (!fromDestroySignal) {
             for (const sigId of this._selfSigIds) {
@@ -486,11 +781,37 @@ class AgentStatusIndicator extends PanelMenu.Button {
             this._popoverController = null;
         }
 
+        if (this._contextMenu) {
+            if (!this._contextMenuActorDisposed) {
+                try {
+                    this._contextMenu.close(false);
+                } catch (_e) {}
+                if (this._contextMenuManager) {
+                    try {
+                        this._contextMenuManager.removeMenu(this._contextMenu);
+                    } catch (_e) {}
+                }
+                try {
+                    this._contextMenu.destroy();
+                } catch (_e) {}
+            }
+            this._contextMenuManager = null;
+            this._contextMenu = null;
+        }
+        this._refreshMenuItem = null;
+        this._settingsMenuItem = null;
+        this._quitMenuItem = null;
+
         this._iconCache.clear();
         this._pillPool = [];
     }
 
     destroy() {
+        if (this._contextMenu?.isOpen) {
+            try {
+                this._contextMenu.close(false);
+            } catch (_e) {}
+        }
         if (this.menu?.isOpen) {
             try {
                 this.menu.close(false);

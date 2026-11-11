@@ -42,6 +42,7 @@ export default class AgentStatusExtension extends Extension {
         const initialBox = this._getPanelBoxName();
         const initialPos = this._settings.get_int('panel-position');
         Main.panel.addToStatusArea(this.uuid, this._indicator, initialPos, initialBox);
+        this._indicator.registerContextMenu(Main.panel.menuManager);
 
         this._placementSigIds.push(
             this._settings.connect('changed::panel-box', () => this._repositionIndicator()),
