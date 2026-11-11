@@ -21,6 +21,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 50
 
       - name: Setup Node.js 22
         uses: actions/setup-node@v4
@@ -47,7 +49,7 @@ jobs:
           fi
 
   rust-suite:
-    name: Rust Clippy & Test (${{ matrix.os }})
+    name: Rust Clippy, Test & CLI Smoke (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
@@ -71,8 +73,35 @@ jobs:
       - name: Run cargo test
         run: cargo test --locked
 
+      - name: Build CLI binary for smoke tests
+        run: cargo build --locked
+
+      - name: Smoke-test CLI subcommands (doctor, completions, manpage)
+        shell: bash
+        run: |
+          BIN="./target/debug/gnome-agent-status"
+          "${BIN}" --version
+          help_out="$("${BIN}" --help)"
+
+          if "${BIN}" completions bash >/dev/null 2>&1; then
+            for sh_name in bash zsh fish; do
+              comp_out="$("${BIN}" completions "${sh_name}")"
+              [[ -n "${comp_out}" ]]
+            done
+          fi
+
+          if "${BIN}" manpage >/dev/null 2>&1; then
+            man_out="$("${BIN}" manpage)"
+            grep -q '^\.TH ' <<<"${man_out}"
+          fi
+
+          if grep -Eq '(^|[[:space:]])doctor([[:space:]]|$)' <<<"${help_out}"; then
+            doc_out="$("${BIN}" doctor --json || true)"
+            python3 -c 'import json, sys; payload = json.loads(sys.stdin.read()); assert isinstance(payload, dict)' <<<"${doc_out}"
+          fi
+
   security-audit:
-    name: Cargo Security Audit
+    name: Cargo Audit & Deny
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
@@ -89,6 +118,19 @@ jobs:
       - name: Audit Cargo.lock for advisories
         run: cargo audit
 
+      - name: Check for deny.toml
+        id: check-deny
+        run: |
+          if [[ -f deny.toml ]]; then
+            echo "present=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "present=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Run cargo-deny policy check
+        if: steps.check-deny.outputs.present == 'true'
+        uses: EmbarkStudios/cargo-deny-action@v2
+
   package-extension:
     name: Package EGO Extension Bundle
     runs-on: ubuntu-24.04
@@ -96,10 +138,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install schema and archive tools
+      - name: Install schema, gettext, and archive tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libglib2.0-bin zip unzip
+          sudo apt-get install -y --no-install-recommends libglib2.0-bin gettext zip unzip
 
       - name: Build and verify EGO extension zip
         run: ./scripts/pack-extension.sh --out-dir target/extension-dist

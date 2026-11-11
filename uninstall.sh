@@ -8,7 +8,8 @@ usage() {
     cat <<'EOF'
 Usage: ./uninstall.sh [OPTIONS]
 
-Uninstalls the Agent Usage Status GNOME Shell extension and CLI binary.
+Uninstalls the Agent Usage Status GNOME Shell extension, CLI binary, shell
+completions, manual page, and systemd user units.
 
 Options:
   --purge     Also remove ~/.config/gnome-agent-status and ~/.cache/gnome-agent-status
@@ -36,9 +37,15 @@ done
 
 BIN_DEST="${HOME}/.local/bin/gnome-agent-status"
 DATA_HOME="${XDG_DATA_HOME:-${HOME}/.local/share}"
+CONFIG_HOME="${XDG_CONFIG_HOME:-${HOME}/.config}"
 EXT_DEST="${DATA_HOME}/gnome-shell/extensions/${EXT_UUID}"
-CONFIG_DIR="${XDG_CONFIG_HOME:-${HOME}/.config}/gnome-agent-status"
+CONFIG_DIR="${CONFIG_HOME}/gnome-agent-status"
 CACHE_DIR="${XDG_CACHE_HOME:-${HOME}/.cache}/gnome-agent-status"
+SYSTEMD_USER_DIR="${CONFIG_HOME}/systemd/user"
+BASH_COMP="${DATA_HOME}/bash-completion/completions/gnome-agent-status"
+ZSH_COMP="${DATA_HOME}/zsh/site-functions/_gnome-agent-status"
+FISH_COMP="${CONFIG_HOME}/fish/completions/gnome-agent-status.fish"
+MANPAGE="${DATA_HOME}/man/man1/gnome-agent-status.1"
 
 gvariant_str_array_remove() {
     local current="$1"
@@ -99,6 +106,33 @@ remove_extension_gsettings() {
     done
 }
 
+# 1. Stop/disable systemd user timer & service if active or enabled
+if command -v systemctl >/dev/null 2>&1; then
+    if systemctl --user is-active --quiet gnome-agent-status.timer 2>/dev/null || \
+       systemctl --user is-enabled --quiet gnome-agent-status.timer 2>/dev/null; then
+        echo "==> Stopping and disabling gnome-agent-status.timer..."
+        systemctl --user disable --now gnome-agent-status.timer 2>/dev/null || true
+    fi
+    if systemctl --user is-active --quiet gnome-agent-status.service 2>/dev/null; then
+        systemctl --user stop gnome-agent-status.service 2>/dev/null || true
+    fi
+fi
+
+# 2. Remove installed systemd user unit files
+REMOVED_SYSTEMD=0
+for unit in gnome-agent-status.timer gnome-agent-status.service; do
+    unit_path="${SYSTEMD_USER_DIR}/${unit}"
+    if [[ -e "${unit_path}" || -L "${unit_path}" ]]; then
+        echo "==> Removing systemd user unit ${unit_path}..."
+        rm -f "${unit_path}"
+        REMOVED_SYSTEMD=1
+    fi
+done
+if [[ "${REMOVED_SYSTEMD}" -eq 1 ]] && command -v systemctl >/dev/null 2>&1; then
+    systemctl --user daemon-reload 2>/dev/null || true
+fi
+
+# 3. Disable and unregister GNOME Shell extension
 if [[ "${GSETTINGS_BACKEND:-}" != "memory" ]] && command -v gnome-extensions >/dev/null 2>&1; then
     if gnome-extensions info "${EXT_UUID}" >/dev/null 2>&1; then
         echo "==> Disabling extension ${EXT_UUID}..."
@@ -116,6 +150,7 @@ else
     echo "==> Extension directory not present (${EXT_DEST})."
 fi
 
+# 4. Remove CLI binary, shell completions, and manual page
 if [[ -n "${BIN_DEST}" && "${BIN_DEST}" == *"/gnome-agent-status" && -e "${BIN_DEST}" ]]; then
     echo "==> Removing binary ${BIN_DEST}..."
     rm -f "${BIN_DEST}"
@@ -123,6 +158,14 @@ else
     echo "==> Binary not present (${BIN_DEST})."
 fi
 
+for aux_file in "${BASH_COMP}" "${ZSH_COMP}" "${FISH_COMP}" "${MANPAGE}"; do
+    if [[ -e "${aux_file}" || -L "${aux_file}" ]]; then
+        echo "==> Removing ${aux_file}..."
+        rm -f "${aux_file}"
+    fi
+done
+
+# 5. Optional purge of config & cache directories
 if [[ "${PURGE}" -eq 1 ]]; then
     if [[ -n "${CONFIG_DIR}" && "${CONFIG_DIR}" == *"/gnome-agent-status" && -e "${CONFIG_DIR}" ]]; then
         echo "==> Purging configuration directory ${CONFIG_DIR}..."

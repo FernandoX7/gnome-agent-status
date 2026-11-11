@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${REPO_ROOT}"
 
-echo "==> [1/7] Checking GNOME Shell vs Libadwaita Preferences process boundaries..."
+echo "==> [1/8] Checking GNOME Shell vs Libadwaita Preferences process boundaries..."
 node - <<'NODE'
 const fs = require('node:fs');
 const path = require('node:path');
@@ -49,7 +49,7 @@ if (errors.length > 0) {
 }
 NODE
 
-echo "==> [2/7] Checking motion-comfort invariant (zero scale/scale_x/scale_y transforms)..."
+echo "==> [2/8] Checking motion-comfort invariant (zero scale/scale_x/scale_y transforms)..."
 node - <<'NODE'
 const fs = require('node:fs');
 const path = require('node:path');
@@ -80,7 +80,7 @@ if (errors.length > 0) {
 }
 NODE
 
-echo "==> [3/7] Checking GNOME 50 ClickGesture invariant..."
+echo "==> [3/8] Checking GNOME 50 ClickGesture invariant..."
 node - <<'NODE'
 const fs = require('node:fs');
 const path = require('node:path');
@@ -120,7 +120,7 @@ if (errors.length > 0) {
 }
 NODE
 
-echo "==> [4/7] Running node --check across all JavaScript modules..."
+echo "==> [4/8] Running node --check across all JavaScript modules..."
 JS_FILES=(extension/*.js extension/popover/*.js)
 if compgen -G "tests/*.mjs" >/dev/null; then
     JS_FILES+=(tests/*.mjs)
@@ -132,7 +132,7 @@ for js_file in "${JS_FILES[@]}"; do
     node --check "${js_file}"
 done
 
-echo "==> [5/7] Running bash -n across shell scripts..."
+echo "==> [5/8] Running bash -n across shell scripts..."
 SH_FILES=(install.sh uninstall.sh scripts/*.sh)
 if compgen -G "tests/*.sh" >/dev/null; then
     SH_FILES+=(tests/*.sh)
@@ -141,10 +141,10 @@ for sh_file in "${SH_FILES[@]}"; do
     bash -n "${sh_file}"
 done
 
-echo "==> [6/7] Validating GSettings schema with glib-compile-schemas --strict --dry-run..."
+echo "==> [6/8] Validating GSettings schema with glib-compile-schemas --strict --dry-run..."
 glib-compile-schemas --strict --dry-run extension/schemas
 
-echo "==> [7/7] Scanning tracked files for leaked secret tokens..."
+echo "==> [7/8] Scanning tracked files for leaked secret tokens..."
 node - <<'NODE'
 const {execFileSync} = require('node:child_process');
 const fs = require('node:fs');
@@ -155,6 +155,7 @@ const tracked = execFileSync('git', ['ls-files', '-z'], {encoding: 'utf8'})
 
 const tokenPatterns = [
     {name: 'Anthropic key/token', re: /\bsk-ant-[A-Za-z0-9_-]{28,}\b/g},
+    {name: 'OpenRouter API key', re: /\bsk-or-v1-[A-Za-z0-9_-]{24,}\b/g},
     {name: 'GitHub OAuth/user token', re: /\bgh[ou]_[A-Za-z0-9]{30,}\b/g},
     {name: 'GitHub fine-grained PAT', re: /\bgithub_pat_[A-Za-z0-9_]{36,}\b/g},
     {name: 'Google API key', re: /\bAIzaSy[A-Za-z0-9_-]{33}\b/g},
@@ -169,7 +170,11 @@ for (const rel of tracked) {
     if (!fs.existsSync(rel))
         continue;
 
-    const text = fs.readFileSync(rel, 'utf8');
+    const rawBuf = fs.readFileSync(rel);
+    if (rawBuf.includes(0))
+        continue;
+
+    const text = rawBuf.toString('utf8');
     const isRustOrJsTest =
         rel.startsWith('tests/') ||
         rel.endsWith('_tests.rs') ||
@@ -198,6 +203,66 @@ for (const rel of tracked) {
 
 if (findings.length > 0) {
     for (const f of findings) console.error(`SECRET SCAN ERROR: ${f}`);
+    process.exit(1);
+}
+NODE
+
+echo "==> [8/8] Scanning tracked text files and recent git log for disallowed external brand terms..."
+node - <<'NODE'
+const {execFileSync} = require('node:child_process');
+const fs = require('node:fs');
+
+const disallowedTerms = [
+    Buffer.from('6f6d6172636879', 'hex').toString('utf8'),
+    Buffer.from('6f726361', 'hex').toString('utf8'),
+];
+const termMatchers = disallowedTerms.map((term, idx) => ({
+    id: `term#${idx + 1}`,
+    re: new RegExp(term, 'i'),
+}));
+
+const violations = [];
+
+const tracked = execFileSync('git', ['ls-files', '-z'], {encoding: 'utf8'})
+    .split('\0')
+    .filter(Boolean);
+
+for (const rel of tracked) {
+    if (/\.(?:png|jpg|jpeg|gif|webp|ico|woff2?)$/i.test(rel))
+        continue;
+    if (!fs.existsSync(rel))
+        continue;
+
+    const rawBuf = fs.readFileSync(rel);
+    if (rawBuf.includes(0))
+        continue;
+
+    const lines = rawBuf.toString('utf8').split('\n');
+    for (let idx = 0; idx < lines.length; idx++) {
+        const line = lines[idx];
+        for (const {id, re} of termMatchers) {
+            if (re.test(line)) {
+                violations.push(`${rel}:${idx + 1}: disallowed external brand substring (${id})`);
+            }
+        }
+    }
+}
+
+const recentCommitBodies = execFileSync('git', ['log', '-n', '40', '--format=%B'], {
+    encoding: 'utf8',
+});
+const logLines = recentCommitBodies.split('\n');
+for (let idx = 0; idx < logLines.length; idx++) {
+    const line = logLines[idx];
+    for (const {id, re} of termMatchers) {
+        if (re.test(line)) {
+            violations.push(`git log -n 40 (line ${idx + 1}): disallowed external brand substring (${id})`);
+        }
+    }
+}
+
+if (violations.length > 0) {
+    for (const v of violations) console.error(`BRAND GUARDRAIL ERROR: ${v}`);
     process.exit(1);
 }
 NODE
