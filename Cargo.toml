@@ -14,6 +14,8 @@ cbc = { version = "0.2", features = ["alloc"] }
 chrono = "0.4.45"
 chrono-tz = "0.10.4"
 clap = { version = "4.6", features = ["derive"] }
+clap_complete = "4.6"
+clap_mangen = "0.3"
 libc = "0.2"
 pbkdf2 = "0.13"
 regex = "1.13"

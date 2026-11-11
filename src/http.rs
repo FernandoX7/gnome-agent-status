@@ -37,9 +37,13 @@ pub struct EndpointOverrides {
     pub grok_billing_url: Option<String>,
     pub cursor_usage_url: Option<String>,
     pub agy_rpc_url: Option<String>,
+    pub openrouter_key_url: Option<String>,
+    pub openrouter_credits_url: Option<String>,
     pub copilot_user_url: Option<String>,
     pub gemini_quota_url: Option<String>,
     pub gemini_load_url: Option<String>,
+    pub windsurf_rpc_url: Option<String>,
+    pub deepseek_balance_url: Option<String>,
 }
 
 #[derive(Clone)]
@@ -134,6 +138,7 @@ impl HttpClient {
         headers: &[(&str, &str)],
         json_body: &str,
     ) -> Result<HttpResponse> {
+        validate_remote_or_loopback_url(url)?;
         if !is_loopback_url(url) {
             return Err(anyhow!(
                 "Refusing loopback RPC to non-loopback address: {}",
@@ -156,27 +161,100 @@ impl HttpClient {
     }
 }
 
-fn is_loopback_url(url: &str) -> bool {
-    url.starts_with("http://127.0.0.1:")
-        || url.starts_with("https://127.0.0.1:")
-        || url.starts_with("http://[::1]:")
-        || url.starts_with("https://[::1]:")
+fn parse_http_url_host(url: &str) -> Option<(&str, &str)> {
+    let trimmed = url.trim();
+    if trimmed.is_empty() || trimmed.bytes().any(|b| b <= 0x20 || b == 0x7f) {
+        return None;
+    }
+
+    let (scheme, rest) = if let Some(rest) = trimmed.strip_prefix("https://") {
+        ("https", rest)
+    } else {
+        let rest = trimmed.strip_prefix("http://")?;
+        ("http", rest)
+    };
+
+    let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let authority = &rest[..authority_end];
+    if authority.is_empty() || authority.contains('@') {
+        return None;
+    }
+
+    if authority.starts_with('[') {
+        let close = authority.find(']')?;
+        let bracketed_host = &authority[..=close];
+        if bracketed_host.len() <= 2 {
+            return None;
+        }
+        let remainder = &authority[close + 1..];
+        if !remainder.is_empty() {
+            let port_str = remainder.strip_prefix(':')?;
+            if port_str.is_empty()
+                || !port_str.bytes().all(|b| b.is_ascii_digit())
+                || port_str.parse::<u16>().is_err()
+            {
+                return None;
+            }
+        }
+        return Some((scheme, bracketed_host));
+    }
+
+    if authority == "::1" {
+        return Some((scheme, "::1"));
+    }
+    if let Some(port_str) = authority.strip_prefix("::1:") {
+        if !port_str.is_empty()
+            && port_str.bytes().all(|b| b.is_ascii_digit())
+            && port_str.parse::<u16>().is_ok()
+        {
+            return Some((scheme, "::1"));
+        }
+        return None;
+    }
+
+    match authority.split_once(':') {
+        None => Some((scheme, authority)),
+        Some((host, port_str)) => {
+            if host.is_empty()
+                || host.contains(':')
+                || port_str.is_empty()
+                || !port_str.bytes().all(|b| b.is_ascii_digit())
+                || port_str.parse::<u16>().is_err()
+            {
+                return None;
+            }
+            Some((scheme, host))
+        }
+    }
 }
 
-/// Enforces `https://` for all remote requests while permitting `http://127.0.0.1:<port>`
-/// (and `http://[::1]:<port>`) strictly for local loopback / hermetic test endpoints.
+fn is_loopback_host(host: &str) -> bool {
+    matches!(
+        host.to_ascii_lowercase().as_str(),
+        "127.0.0.1" | "localhost" | "::1" | "[::1]"
+    )
+}
+
+pub fn is_loopback_url(url: &str) -> bool {
+    matches!(
+        parse_http_url_host(url),
+        Some(("http" | "https", host)) if is_loopback_host(host)
+    )
+}
+
+/// Enforces `https://` for all remote requests while permitting `http://` strictly when
+/// the target host is `127.0.0.1`, `localhost`, `::1`, or `[::1]` (for local loopback RPC
+/// and hermetic mock-HTTP tests).
 pub fn validate_remote_or_loopback_url(url: &str) -> Result<()> {
     let trimmed = url.trim();
-    if trimmed.starts_with("https://") && trimmed.len() > "https://".len() {
-        return Ok(());
+    match parse_http_url_host(trimmed) {
+        Some(("https", _)) => Ok(()),
+        Some(("http", host)) if is_loopback_host(host) => Ok(()),
+        _ => Err(anyhow!(
+            "Refusing insecure non-HTTPS request to {}",
+            redact_url(trimmed)
+        )),
     }
-    if is_loopback_url(trimmed) {
-        return Ok(());
-    }
-    Err(anyhow!(
-        "Refusing insecure non-HTTPS request to {}",
-        redact_url(trimmed)
-    ))
 }
 
 fn read_http_response(resp: &mut ureq::http::Response<ureq::Body>) -> Result<HttpResponse> {
@@ -228,6 +306,9 @@ pub fn redact_secrets(input: &str) -> String {
         // Construct sensitive prefixes via `concat!` so static repository secret scanners never
         // mistake our redaction regex definitions for hardcoded credentials.
         let p_ant = concat!("sk-", "ant-");
+        let p_or_v1 = concat!("sk-", "or-v1-");
+        let p_or = concat!("sk-", "or-");
+        let p_ws = concat!("sk-", "ws-");
         let p_gho = concat!("gho", "_");
         let p_ghu = concat!("ghu", "_");
         let p_ghp = concat!("ghp", "_");
@@ -250,10 +331,10 @@ pub fn redact_secrets(input: &str) -> String {
                 format!(r"\b{p_eyj}[A-Za-z0-9_-]{{4,}}\.[A-Za-z0-9_-]{{4,}}(?:\.[A-Za-z0-9_-]*)?"),
                 "[REDACTED]",
             ),
-            // 3. Known vendor API/OAuth token prefixes (Anthropic, GitHub, Google, xAI, OpenAI)
+            // 3. Known vendor API/OAuth token prefixes (Anthropic, OpenRouter, Windsurf, GitHub, Google, xAI, OpenAI, DeepSeek)
             (
                 format!(
-                    r"(?:{p_ant}|{p_gho}|{p_ghu}|{p_ghp}|{p_ghs}|{p_ghr}|{p_ghpat})[A-Za-z0-9_-]+"
+                    r"(?:{p_ant}|{p_or_v1}|{p_or}|{p_ws}|{p_gho}|{p_ghu}|{p_ghp}|{p_ghs}|{p_ghr}|{p_ghpat})[A-Za-z0-9_-]+"
                 ),
                 "[REDACTED]",
             ),
@@ -281,7 +362,7 @@ pub fn redact_secrets(input: &str) -> String {
             ),
             // 6. Named credential key/value pairs, CLI flags (`--csrf_token`), and session cookies
             (
-                r#"(?i)(--csrf_token(?:\s+|=)|(?:access_token|refresh_token|oauth_token|id_token|api_key|client_secret|csrf_token|workoscursorsessiontoken|session_token)\s*(?:=|"[\s]*:[\s]*"|:\s*['"]?))([^\s"',;&}\]]+)"#
+                r#"(?i)(--csrf_token(?:\s+|=)|(?:access_token|refresh_token|oauth_token|id_token|[a-z0-9_]*api[_-]?key|client_secret|csrf_token|workoscursorsessiontoken|session_token)\s*(?:=|"[\s]*:[\s]*"|:\s*['"]?))([^\s"',;&}\]]+)"#
                     .to_string(),
                 "${1}[REDACTED]",
             ),
@@ -390,6 +471,70 @@ mod tests {
         let msg = err.to_string();
         assert!(msg.contains("Refusing insecure non-HTTPS request"));
         assert!(!msg.contains("secret1234567890"));
+
+        assert!(client
+            .post_json("http://openrouter.ai/api/v1/key", &[], "{}")
+            .unwrap_err()
+            .to_string()
+            .contains("Refusing insecure non-HTTPS request"));
+        assert!(client
+            .post_form("http://api.deepseek.com/user/balance", &[], "a=1")
+            .unwrap_err()
+            .to_string()
+            .contains("Refusing insecure non-HTTPS request"));
+        assert!(client
+            .post_loopback_json("http://evil.example.com/rpc", &[], "{}")
+            .unwrap_err()
+            .to_string()
+            .contains("Refusing insecure non-HTTPS request"));
+    }
+
+    #[test]
+    fn test_validate_remote_or_loopback_url_strict_host_rules() {
+        // Remote HTTPS allowed
+        for allowed in [
+            "https://openrouter.ai/api/v1/key",
+            "https://api.deepseek.com/user/balance",
+            "https://api.anthropic.com:443/api/oauth/usage",
+            "http://127.0.0.1:41234/rpc",
+            "http://127.0.0.1/health",
+            "http://localhost:8080/api/v1/key",
+            "http://LOCALHOST/test",
+            "http://[::1]:9090/v1/balance",
+            "http://[::1]/v1/balance",
+            "http://::1/v1/balance",
+            "http://::1:9090/v1/balance",
+            "https://127.0.0.1:44443/exa.language_server_pb.LanguageServerService/GetUserStatus",
+        ] {
+            assert!(
+                validate_remote_or_loopback_url(allowed).is_ok(),
+                "expected allowed URL: {allowed}"
+            );
+        }
+
+        // Remote HTTP, host-spoofing tricks, credentials-in-authority, and non-HTTP schemes rejected
+        for rejected in [
+            "http://openrouter.ai/api/v1/key",
+            "http://api.deepseek.com/user/balance",
+            "http://localhost.evil.com/api",
+            "http://127.0.0.1.nip.io:8080/api",
+            "http://127.0.0.1@evil.com/api",
+            "http://localhost@evil.com/api",
+            "https://user:secret@openrouter.ai/api/v1/key",
+            "http://[::1].evil.com/api",
+            "http://127.0.0.2:8080/api",
+            "http://0.0.0.0:8080/api",
+            "ftp://openrouter.ai/api",
+            "file:///etc/passwd",
+            "https://",
+            "http://",
+            "",
+        ] {
+            assert!(
+                validate_remote_or_loopback_url(rejected).is_err(),
+                "expected rejected URL: {rejected}"
+            );
+        }
     }
 
     #[test]
@@ -432,6 +577,13 @@ mod tests {
     #[test]
     fn test_redact_secrets_strips_all_credential_families_and_preserves_prose() {
         let ant_tok = format!("{}oat01-supersecret999", concat!("sk-", "ant-"));
+        let or_v1_tok = format!(
+            "{}88aa99bbccddeeff0011223344556677",
+            concat!("sk-", "or-v1-")
+        );
+        let or_short_tok = format!("{}shortkey1", concat!("sk-", "or-v1-"));
+        let ws_tok = format!("{}01-windsurfSecretToken987654", concat!("sk-", "ws-"));
+        let ds_tok = format!("{}0123456789abcdef0123456789abcdef", concat!("s", "k-"));
         let gho_tok = format!("{}R8xSecretGitHubOAuth123", concat!("gho", "_"));
         let ghu_tok = format!("{}UserSecretGitHub456", concat!("ghu", "_"));
         let pat_tok = format!("{}11AABBCC_9988776655", concat!("github_", "pat_"));
@@ -440,23 +592,34 @@ mod tests {
         let ya29_tok = format!("{}a0AfH6SMBxGoogleAccessSecret99", concat!("ya29", "."));
 
         let noisy_dump = format!(
-            "Upstream 401: Authorization: Bearer {ant_tok}, gh={gho_tok}, u={ghu_tok}, \
+            "Upstream 401: Authorization: Bearer {ant_tok}, or={or_v1_tok}, ors={or_short_tok}, \
+             ws={ws_tok}, ds={ds_tok}, gh={gho_tok}, u={ghu_tok}, \
              pat={pat_tok}, jwt={jwt_tok}, gkey={aiza_tok}, gaccess={ya29_tok}, \
              hdr='token 9988776655abcdef', --csrf_token=csrfSecret777, \
+             openrouter_api_key=myCustomSecret42, \
              refresh_token=\"1//0gRefreshSecretXYZ12345\""
         );
 
         let cleaned = redact_secrets(&noisy_dump);
         for secret in [
             &ant_tok,
+            &or_v1_tok,
+            &or_short_tok,
+            &ws_tok,
+            &ds_tok,
             &gho_tok,
             &ghu_tok,
             &pat_tok,
             &jwt_tok,
             &aiza_tok,
             &ya29_tok,
+            "88aa99bbccddeeff0011223344556677",
+            "shortkey1",
+            "windsurfSecretToken987654",
+            "0123456789abcdef0123456789abcdef",
             "9988776655abcdef",
             "csrfSecret777",
+            "myCustomSecret42",
             "0gRefreshSecretXYZ12345",
         ] {
             assert!(

@@ -754,6 +754,7 @@ fn test_all_7_providers_cli_workflow_dedup_429_decay_switch_and_hook() {
             copilot_user_url: Some(format!("{}/copilot_internal/user", server.base_url)),
             gemini_quota_url: Some(format!("{}/v1internal:retrieveUserQuota", server.base_url)),
             gemini_load_url: Some(format!("{}/v1internal:loadCodeAssist", server.base_url)),
+            ..Default::default()
         },
     };
 
