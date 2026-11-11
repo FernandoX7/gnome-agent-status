@@ -5,7 +5,7 @@ use crate::config::home_dir;
 use crate::http::redact_secrets;
 use crate::model::{
     canonical_provider_info, AccountReport, AccountState, CreditSummary, ProviderReport,
-    StatusReport, UsageBucket, CANONICAL_PROVIDER_IDS, SCHEMA_VERSION,
+    SparklinePoint, StatusReport, UsageBucket, CANONICAL_PROVIDER_IDS, SCHEMA_VERSION,
 };
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -32,6 +32,15 @@ pub const BASE_429_BACKOFF_SECS: u64 = 300;
 
 /// Maximum cap (seconds) for exponential 429 backoff before jitter.
 pub const MAX_429_BACKOFF_SECS: u64 = 3600;
+
+/// Hourly quantization interval (seconds) for the 7-day burn sparkline ring buffer.
+pub const SPARKLINE_BUCKET_SECS: i64 = 3600;
+
+/// Retention window (seconds) for the 7-day burn sparkline ring buffer (`7 * 86400`s).
+pub const SPARKLINE_WINDOW_SECS: i64 = 7 * 86_400;
+
+/// Maximum points retained per account in the 7-day hourly sparkline ring buffer.
+pub const MAX_SPARKLINE_POINTS: usize = 168;
 
 /// Persistent internal collector metadata stored at `$XDG_CACHE_HOME/gnome-agent-status/collector-cache.json`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -82,12 +91,16 @@ pub struct CachedAccountState {
     pub consecutive_429s: u32,
     pub buckets: Vec<UsageBucket>,
     pub credits: Option<CreditSummary>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sparkline: Vec<SparklinePoint>,
 }
 
 impl CachedAccountState {
     pub fn to_account_report(&self, is_stale: bool, now_epoch: i64) -> AccountReport {
         let mut buckets = self.buckets.clone();
         apply_bucket_time_decay(&mut buckets, now_epoch);
+        let mut sparkline = self.sparkline.clone();
+        prune_sparkline(&mut sparkline, now_epoch);
 
         AccountReport {
             id: self.account_id.clone(),
@@ -105,6 +118,7 @@ impl CachedAccountState {
             updated_at_epoch: self.last_success_epoch.or(self.last_fetch_attempt_epoch),
             buckets,
             credits: self.credits.clone(),
+            sparkline,
         }
     }
 
@@ -150,7 +164,8 @@ impl CachedAccountState {
         until
     }
 
-    /// Updates state on successful usage fetch, clearing any 429 backoff counters.
+    /// Updates state on successful usage fetch, clearing any 429 backoff counters
+    /// and recording the current hour's quantized primary-bucket sample in the 7-day sparkline.
     pub fn record_success(&mut self, report: &AccountReport, now_epoch: i64) {
         self.label = report.label.clone();
         self.source_label = report.source_label.clone();
@@ -167,6 +182,117 @@ impl CachedAccountState {
         self.consecutive_429s = 0;
         self.buckets = report.buckets.clone();
         self.credits = report.credits.clone();
+
+        if self.sparkline.is_empty() && !report.sparkline.is_empty() {
+            self.sparkline = report.sparkline.clone();
+        }
+        if let Some(primary) = report.primary_bucket() {
+            let effective_used = if primary
+                .resets_at_epoch
+                .is_some_and(|reset_ts| now_epoch >= reset_ts)
+            {
+                0
+            } else {
+                primary.used_percent
+            };
+            record_sparkline_sample(&mut self.sparkline, now_epoch, effective_used);
+        } else {
+            prune_sparkline(&mut self.sparkline, now_epoch);
+        }
+    }
+}
+
+/// Quantizes `epoch` down to its UTC hour boundary (`(epoch / 3600) * 3600`).
+pub fn quantize_sparkline_hour(epoch: i64) -> i64 {
+    epoch.div_euclid(SPARKLINE_BUCKET_SECS) * SPARKLINE_BUCKET_SECS
+}
+
+/// Prunes sparkline points older than `now_epoch - 7 * 86400`, ensures ascending unique hours,
+/// and caps the ring buffer at `MAX_SPARKLINE_POINTS` (`168`).
+pub fn prune_sparkline(sparkline: &mut Vec<SparklinePoint>, now_epoch: i64) {
+    if sparkline.is_empty() {
+        return;
+    }
+
+    let cutoff = now_epoch.saturating_sub(SPARKLINE_WINDOW_SECS);
+    sparkline.retain(|pt| pt.ts >= cutoff);
+    if sparkline.is_empty() {
+        return;
+    }
+
+    if !sparkline.windows(2).all(|w| w[0].ts < w[1].ts) {
+        sparkline.sort_by_key(|pt| pt.ts);
+        let mut deduped: Vec<SparklinePoint> = Vec::with_capacity(sparkline.len());
+        for pt in sparkline.drain(..) {
+            if let Some(last) = deduped.last_mut() {
+                if last.ts == pt.ts {
+                    last.used = pt.used.min(100);
+                    continue;
+                }
+            }
+            deduped.push(SparklinePoint {
+                ts: pt.ts,
+                used: pt.used.min(100),
+            });
+        }
+        *sparkline = deduped;
+    }
+
+    if sparkline.len() > MAX_SPARKLINE_POINTS {
+        let excess = sparkline.len() - MAX_SPARKLINE_POINTS;
+        sparkline.drain(0..excess);
+    }
+}
+
+/// Updates or appends the current quantized hour sample (`ts_hour = (now_epoch / 3600) * 3600`)
+/// and enforces the 7-day / 168-point ring buffer bounds.
+pub fn record_sparkline_sample(
+    sparkline: &mut Vec<SparklinePoint>,
+    now_epoch: i64,
+    used_percent: u8,
+) {
+    let ts_hour = quantize_sparkline_hour(now_epoch);
+    let clamped_used = used_percent.min(100);
+
+    if let Some(last) = sparkline.last_mut() {
+        if last.ts == ts_hour {
+            last.used = clamped_used;
+            prune_sparkline(sparkline, now_epoch);
+            return;
+        }
+    }
+
+    if let Some(slot) = sparkline.iter_mut().find(|pt| pt.ts == ts_hour) {
+        slot.used = clamped_used;
+    } else {
+        sparkline.push(SparklinePoint {
+            ts: ts_hour,
+            used: clamped_used,
+        });
+    }
+
+    prune_sparkline(sparkline, now_epoch);
+}
+
+fn sync_and_prune_report_sparklines(
+    report: &mut StatusReport,
+    collector_cache: &CollectorState,
+    now_epoch: i64,
+) {
+    for provider in &mut report.providers {
+        for account in &mut provider.accounts {
+            if let Some(cached) = collector_cache.accounts.get(&account.id) {
+                let cached_newer = match (account.sparkline.last(), cached.sparkline.last()) {
+                    (None, Some(_)) => true,
+                    (Some(a), Some(c)) => c.ts >= a.ts && cached.sparkline.len() >= account.sparkline.len(),
+                    _ => false,
+                };
+                if cached_newer {
+                    account.sparkline = cached.sparkline.clone();
+                }
+            }
+            prune_sparkline(&mut account.sparkline, now_epoch);
+        }
     }
 }
 
@@ -476,14 +602,16 @@ impl CacheStore {
         atomic_write_0600(&self.state_path(), &json)
     }
 
-    /// Reads `state.json` (or synthesizes from `collector-cache.json`), applies passive
-    /// time-decay at `now_epoch`, and returns a valid `StatusReport` v2 with zero network I/O.
+    /// Reads `state.json` (or synthesizes from `collector-cache.json`), attaches/prunes
+    /// 7-day sparkline histories, applies passive time-decay at `now_epoch`, and returns
+    /// a valid `StatusReport` v2 with zero network I/O.
     pub fn load_cached_report(&self, separator: &str, now_epoch: i64) -> StatusReport {
         let collector_cache = self.load_collector_cache();
         let state_path = self.state_path();
 
         if let Ok(raw) = fs::read_to_string(&state_path) {
             if let Ok(mut report) = serde_json::from_str::<StatusReport>(&raw) {
+                sync_and_prune_report_sparklines(&mut report, &collector_cache, now_epoch);
                 apply_report_time_decay(
                     &mut report,
                     separator,
@@ -618,6 +746,7 @@ mod tests {
             consecutive_429s: 0,
             buckets: Vec::new(),
             credits: None,
+            sparkline: Vec::new(),
         };
 
         // Within 300s normal TTL -> SkipFresh
@@ -683,6 +812,7 @@ mod tests {
                 Some((2000, "2026-11-10T00:00:00Z".to_string())),
             )],
             credits: None,
+            sparkline: Vec::new(),
         };
         let acct2 = AccountReport {
             id: "claude:work".to_string(),
@@ -708,6 +838,7 @@ mod tests {
                 Some((5000, "2026-11-12T00:00:00Z".to_string())),
             )],
             credits: None,
+            sparkline: Vec::new(),
         };
 
         let provider = ProviderReport::from_accounts(
@@ -842,5 +973,144 @@ mod tests {
         assert!(dir_err.to_string().contains("symlinked directory"));
 
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn test_sparkline_ring_buffer_hourly_quantization_168_cap_and_cached_read() {
+        let base_hour = 1_794_355_200i64; // exact multiple of 3600
+        let mut ring: Vec<SparklinePoint> = Vec::new();
+
+        // Multiple polls inside the same hour update in-place rather than duplicating.
+        record_sparkline_sample(&mut ring, base_hour + 120, 42);
+        record_sparkline_sample(&mut ring, base_hour + 1899, 57);
+        assert_eq!(ring, vec![SparklinePoint { ts: base_hour, used: 57 }]);
+
+        // Push 190 consecutive hourly samples -> oldest points (> 7d / > 168 pts) are pruned.
+        ring.clear();
+        for h in 0..190i64 {
+            let ts = base_hour + h * 3600 + 45;
+            let pct = ((h % 101) as u8).min(100);
+            record_sparkline_sample(&mut ring, ts, pct);
+            assert!(ring.len() <= MAX_SPARKLINE_POINTS);
+        }
+        assert_eq!(ring.len(), MAX_SPARKLINE_POINTS);
+        let newest_hour = base_hour + 189 * 3600;
+        let expected_first_hour = newest_hour - (MAX_SPARKLINE_POINTS as i64 - 1) * 3600;
+        assert_eq!(ring.first().unwrap().ts, expected_first_hour);
+        assert_eq!(ring.last().unwrap().ts, newest_hour);
+
+        // Advancing clock by 6 days keeps only the last 24h + boundary point within 7 * 86400s.
+        let future_now = newest_hour + 6 * 86_400;
+        prune_sparkline(&mut ring, future_now);
+        assert!(ring.iter().all(|pt| pt.ts >= future_now - SPARKLINE_WINDOW_SECS));
+        assert_eq!(ring.len(), 25);
+
+        // Verify `load_cached_report` attaches sparklines from `collector-cache.json` and stays fast!
+        let tmp_dir = std::env::temp_dir().join(format!(
+            "gas-sparkline-cache-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let store = CacheStore::new(tmp_dir.clone());
+
+        let mut full_ring: Vec<SparklinePoint> = Vec::new();
+        for h in 0..168i64 {
+            record_sparkline_sample(&mut full_ring, base_hour + h * 3600, (h % 95) as u8);
+        }
+        let latest_now = base_hour + 167 * 3600 + 600;
+
+        let mut cached_acct = CachedAccountState {
+            provider_id: "claude".to_string(),
+            account_id: "claude:dev@example.com".to_string(),
+            label: "dev@example.com".to_string(),
+            source_label: Some("~/.claude".to_string()),
+            is_system_default: true,
+            plan_tier: Some("Max".to_string()),
+            state: AccountState::ActiveOk,
+            status_note: None,
+            extra_info: None,
+            error: None,
+            login_command: None,
+            last_fetch_attempt_epoch: None,
+            last_success_epoch: None,
+            retry_after_epoch: None,
+            consecutive_429s: 0,
+            buckets: Vec::new(),
+            credits: None,
+            sparkline: full_ring,
+        };
+        let fresh_report = AccountReport {
+            id: "claude:dev@example.com".to_string(),
+            label: "dev@example.com".to_string(),
+            source_label: Some("~/.claude".to_string()),
+            is_system_default: true,
+            is_active: true,
+            plan_tier: Some("Max".to_string()),
+            state: AccountState::ActiveOk,
+            is_stale: false,
+            status_note: None,
+            extra_info: None,
+            error: None,
+            login_command: None,
+            updated_at_epoch: Some(latest_now),
+            buckets: vec![UsageBucket::new(
+                "wk",
+                "Weekly",
+                "wk",
+                BucketLayout::InlinePair,
+                true,
+                84.0,
+                Some((latest_now + 86_400, "2026-11-18T00:00:00Z".to_string())),
+            )],
+            credits: None,
+            sparkline: Vec::new(),
+        };
+        cached_acct.record_success(&fresh_report, latest_now);
+        assert_eq!(cached_acct.sparkline.len(), 168);
+        assert_eq!(cached_acct.sparkline.last().unwrap().used, 84);
+
+        let mut cs = CollectorState::default();
+        cs.accounts
+            .insert(cached_acct.account_id.clone(), cached_acct.clone());
+        store.save_collector_cache(&cs).unwrap();
+
+        // Save a `state.json` whose account originally had an empty `sparkline` to verify merge!
+        let state_without_spark = StatusReport::from_providers(
+            vec![ProviderReport::from_accounts(
+                "claude",
+                "Claude",
+                "provider-claude",
+                None,
+                vec![fresh_report],
+                None,
+            )],
+            " | ",
+            latest_now,
+            None,
+        );
+        store.save_state_report(&state_without_spark).unwrap();
+
+        // Warm once then measure cached read latency
+        let _ = store.load_cached_report(" | ", latest_now);
+        let t0 = std::time::Instant::now();
+        let loaded = store.load_cached_report(" | ", latest_now);
+        let elapsed = t0.elapsed();
+        assert_eq!(loaded.providers[0].accounts[0].sparkline.len(), 168);
+        assert_eq!(
+            loaded.providers[0].accounts[0].sparkline.last().unwrap(),
+            &SparklinePoint {
+                ts: base_hour + 167 * 3600,
+                used: 84,
+            }
+        );
+        assert!(
+            elapsed < std::time::Duration::from_millis(15),
+            "cached sparkline read should be sub-millisecond in practice, got {elapsed:?}"
+        );
+
+        let _ = fs::remove_dir_all(&tmp_dir);
     }
 }

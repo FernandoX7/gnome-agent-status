@@ -276,6 +276,7 @@ impl UsageProvider for ClaudeProvider {
                                     updated_at_epoch: Some(ctx.now_epoch()),
                                     buckets,
                                     credits,
+                                    sparkline: Vec::new(),
                                 });
                             }
                             Err(parse_err) => {
@@ -1119,6 +1120,7 @@ fn fetch_via_claude_cli(
                 updated_at_epoch: Some(ctx.now_epoch()),
                 buckets: parsed.buckets,
                 credits: parsed.credits,
+                sparkline: Vec::new(),
             })
         }
         Err(err) => {
@@ -1278,6 +1280,7 @@ pub fn ingest_claude_statusline(
                 consecutive_429s: 0,
                 buckets: Vec::new(),
                 credits: None,
+                sparkline: Vec::new(),
             }
         });
 
@@ -1309,6 +1312,16 @@ pub fn ingest_claude_statusline(
     merged_buckets.extend(preserved_models);
 
     existing.buckets = merged_buckets;
+    if let Some(primary) = existing
+        .buckets
+        .iter()
+        .find(|b| b.is_primary)
+        .or_else(|| existing.buckets.first())
+    {
+        crate::cache::record_sparkline_sample(&mut existing.sparkline, now_epoch, primary.used_percent);
+    } else {
+        crate::cache::prune_sparkline(&mut existing.sparkline, now_epoch);
+    }
     existing.state = AccountState::ActiveOk;
     existing.error = None;
     existing.status_note = None;
@@ -1611,8 +1624,9 @@ Extra usage: $14.50 / $100.00
                     false,
                     46.0,
                     Some((1794807600, "2026-11-15T14:59:59Z".to_string())),
-                )],
+                ) ],
                 credits: None,
+                sparkline: Vec::new(),
             },
         );
         store.save_collector_cache(&init_cache).unwrap();
@@ -1640,6 +1654,13 @@ Extra usage: $14.50 / $100.00
         assert_eq!(acct.buckets[1].used_percent, 24);
         assert_eq!(acct.buckets[2].id, "fable");
         assert_eq!(acct.buckets[2].used_percent, 46);
+        assert_eq!(
+            acct.sparkline,
+            vec![crate::model::SparklinePoint {
+                ts: crate::cache::quantize_sparkline_hour(now.timestamp()),
+                used: 81
+            }]
+        );
 
         let _ = fs::remove_dir_all(&tmp_dir);
     }

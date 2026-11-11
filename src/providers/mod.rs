@@ -9,8 +9,8 @@ pub mod gemini;
 pub mod grok;
 
 use crate::cache::{
-    apply_report_time_decay, default_jitter_secs, CacheStore, CachedAccountState, CollectorState,
-    PollDecision,
+    apply_report_time_decay, default_jitter_secs, prune_sparkline, CacheStore, CachedAccountState,
+    CollectorState, PollDecision,
 };
 use crate::config::{home_dir, xdg_config_dir, Config, ManualAccountConfig, PollMode};
 use crate::http::{redact_secrets, EndpointOverrides, HttpClient};
@@ -266,6 +266,7 @@ impl ProviderRegistry {
                             updated_at_epoch: None,
                             buckets: Vec::new(),
                             credits: None,
+                            sparkline: Vec::new(),
                         }
                     };
                     report.state = AccountState::PassiveCached;
@@ -449,6 +450,7 @@ impl ProviderRegistry {
                                 updated_at_epoch: Some(now_epoch),
                                 buckets: Vec::new(),
                                 credits: None,
+                                sparkline: Vec::new(),
                             };
                             seen_ids.insert(err_rep.id.clone());
                             account_reports.push(err_rep);
@@ -535,9 +537,15 @@ fn apply_poll_outcome(
             report.extra_info = report.extra_info.as_deref().map(redact_secrets);
             report.error = None;
 
-            if report.id != desc.id {
-                collector_state.accounts.remove(&desc.id);
-            }
+            let migrated_sparkline = if report.id != desc.id {
+                collector_state
+                    .accounts
+                    .remove(&desc.id)
+                    .map(|old| old.sparkline)
+                    .unwrap_or_default()
+            } else {
+                Vec::new()
+            };
 
             let entry = collector_state
                 .accounts
@@ -560,6 +568,7 @@ fn apply_poll_outcome(
                     consecutive_429s: 0,
                     buckets: report.buckets.clone(),
                     credits: report.credits.clone(),
+                    sparkline: migrated_sparkline,
                 });
             entry.label = report.label.clone();
             entry.source_label = report.source_label.clone();
@@ -599,10 +608,16 @@ fn apply_poll_outcome(
             report.extra_info = report.extra_info.as_deref().map(redact_secrets);
             report.error = report.error.as_deref().map(redact_secrets);
 
-            // If identity changed from generic `:default` to `:email`, remove stale generic key.
-            if report.id != desc.id {
-                collector_state.accounts.remove(&desc.id);
-            }
+            // If identity changed from generic `:default` to `:email`, migrate sparkline & remove stale key.
+            let migrated_sparkline = if report.id != desc.id {
+                collector_state
+                    .accounts
+                    .remove(&desc.id)
+                    .map(|old| old.sparkline)
+                    .unwrap_or_default()
+            } else {
+                Vec::new()
+            };
 
             let entry = collector_state
                 .accounts
@@ -625,6 +640,7 @@ fn apply_poll_outcome(
                     consecutive_429s: 0,
                     buckets: Vec::new(),
                     credits: None,
+                    sparkline: migrated_sparkline,
                 });
             entry.record_success(&report, now_epoch);
             Some(entry.to_account_report(false, now_epoch))
@@ -651,6 +667,7 @@ fn apply_poll_outcome(
                     consecutive_429s: 0,
                     buckets: Vec::new(),
                     credits: None,
+                    sparkline: Vec::new(),
                 });
             let jitter = default_jitter_secs(now_epoch);
             entry.record_rate_limited(retry_after_secs, now_epoch, jitter);
@@ -689,6 +706,7 @@ fn apply_poll_outcome(
                     consecutive_429s: 0,
                     buckets: Vec::new(),
                     credits: None,
+                    sparkline: Vec::new(),
                 });
             entry.label = resolved_label.clone();
             if plan_tier.is_some() {
@@ -701,6 +719,8 @@ fn apply_poll_outcome(
             entry.login_command = resolved_login.clone();
             entry.last_fetch_attempt_epoch = Some(now_epoch);
             entry.buckets.clear();
+            prune_sparkline(&mut entry.sparkline, now_epoch);
+            let sparkline = entry.sparkline.clone();
 
             Some(AccountReport {
                 id: desc.id.clone(),
@@ -718,13 +738,17 @@ fn apply_poll_outcome(
                 updated_at_epoch: Some(now_epoch),
                 buckets: Vec::new(),
                 credits: None,
+                sparkline,
             })
         }
         AccountFetchOutcome::Error { message } => {
             let safe_msg = redact_secrets(&message);
+            let mut sparkline = Vec::new();
             if let Some(existing) = collector_state.accounts.get_mut(&desc.id) {
                 existing.last_fetch_attempt_epoch = Some(now_epoch);
                 existing.error = Some(safe_msg.clone());
+                prune_sparkline(&mut existing.sparkline, now_epoch);
+                sparkline = existing.sparkline.clone();
             }
             Some(AccountReport {
                 id: desc.id.clone(),
@@ -742,6 +766,7 @@ fn apply_poll_outcome(
                 updated_at_epoch: Some(now_epoch),
                 buckets: Vec::new(),
                 credits: None,
+                sparkline,
             })
         }
         AccountFetchOutcome::ErrorWithMeta {
@@ -751,6 +776,7 @@ fn apply_poll_outcome(
         } => {
             let safe_msg = redact_secrets(&message);
             let resolved_label = label.unwrap_or_else(|| desc.label.clone());
+            let mut sparkline = Vec::new();
             if let Some(existing) = collector_state.accounts.get_mut(&desc.id) {
                 existing.last_fetch_attempt_epoch = Some(now_epoch);
                 existing.error = Some(safe_msg.clone());
@@ -758,6 +784,8 @@ fn apply_poll_outcome(
                 if plan_tier.is_some() {
                     existing.plan_tier = plan_tier.clone();
                 }
+                prune_sparkline(&mut existing.sparkline, now_epoch);
+                sparkline = existing.sparkline.clone();
             }
             Some(AccountReport {
                 id: desc.id.clone(),
@@ -775,6 +803,7 @@ fn apply_poll_outcome(
                 updated_at_epoch: Some(now_epoch),
                 buckets: Vec::new(),
                 credits: None,
+                sparkline,
             })
         }
     }

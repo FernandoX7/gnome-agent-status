@@ -215,6 +215,7 @@ impl UsageProvider for AntigravityProvider {
                     updated_at_epoch: Some(now_epoch),
                     buckets: cli_buckets,
                     credits: None,
+                    sparkline: Vec::new(),
                 })
             }
             (Some(rpc_info), None) => {
@@ -251,6 +252,7 @@ impl UsageProvider for AntigravityProvider {
                     updated_at_epoch: Some(now_epoch),
                     buckets,
                     credits: None,
+                    sparkline: Vec::new(),
                 })
             }
             (Some(rpc_info), Some(Err(_))) => {
@@ -276,6 +278,7 @@ impl UsageProvider for AntigravityProvider {
                     updated_at_epoch: Some(now_epoch),
                     buckets: rpc_info.fallback_buckets,
                     credits: None,
+                    sparkline: Vec::new(),
                 })
             }
             (None, Some(Ok(cli_buckets))) => AccountFetchOutcome::Success(AccountReport {
@@ -294,6 +297,7 @@ impl UsageProvider for AntigravityProvider {
                 updated_at_epoch: Some(now_epoch),
                 buckets: cli_buckets,
                 credits: None,
+                sparkline: Vec::new(),
             }),
             (None, Some(Err(err))) => {
                 let msg = format!("{:#}", err);

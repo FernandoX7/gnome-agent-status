@@ -232,6 +232,7 @@ impl UsageProvider for CopilotProvider {
                             updated_at_epoch: Some(ctx.now_epoch()),
                             buckets: parsed.buckets,
                             credits: None,
+                            sparkline: Vec::new(),
                         })
                     }
                     Err(err) => AccountFetchOutcome::ErrorWithMeta {

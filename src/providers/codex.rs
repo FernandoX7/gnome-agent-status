@@ -239,6 +239,7 @@ impl UsageProvider for CodexProvider {
                                         updated_at_epoch: Some(ctx.now_epoch()),
                                         buckets: parsed.buckets,
                                         credits: parsed.credits,
+                                        sparkline: Vec::new(),
                                     });
                                 }
                                 Err(err) => {
@@ -286,6 +287,7 @@ impl UsageProvider for CodexProvider {
                     updated_at_epoch: Some(ctx.now_epoch()),
                     buckets: parsed.buckets,
                     credits: parsed.credits,
+                    sparkline: Vec::new(),
                 });
             }
         }
@@ -309,6 +311,7 @@ impl UsageProvider for CodexProvider {
                     updated_at_epoch: Some(ctx.now_epoch()),
                     buckets,
                     credits: None,
+                    sparkline: Vec::new(),
                 });
             }
         }

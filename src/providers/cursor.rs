@@ -216,6 +216,7 @@ impl UsageProvider for CursorProvider {
                         updated_at_epoch: Some(ctx.now_epoch()),
                         buckets: parsed.buckets,
                         credits: parsed.credits,
+                        sparkline: Vec::new(),
                     }),
                     Err(err) => AccountFetchOutcome::Error {
                         message: format!("{:#}", err),

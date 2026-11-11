@@ -798,6 +798,7 @@ mod tests {
                 balance_dollars: Some(45.5),
                 used_percent: Some(9),
             }),
+            sparkline: Vec::new(),
         };
 
         let claude_personal = AccountReport {
@@ -824,6 +825,7 @@ mod tests {
                 None,
             )],
             credits: None,
+            sparkline: Vec::new(),
         };
 
         let grok_signed_out = AccountReport {
@@ -842,6 +844,7 @@ mod tests {
             updated_at_epoch: Some(1_794_356_800),
             buckets: Vec::new(),
             credits: None,
+            sparkline: Vec::new(),
         };
 
         let providers = vec![
@@ -919,6 +922,7 @@ mod tests {
             updated_at_epoch: Some(1_794_356_800),
             buckets: vec![copilot_bucket],
             credits: None,
+            sparkline: Vec::new(),
         };
 
         let claude_acct = AccountReport {
@@ -945,6 +949,7 @@ mod tests {
                 None,
             )],
             credits: None,
+            sparkline: Vec::new(),
         };
 
         let mut report = StatusReport::from_providers(
@@ -1042,6 +1047,7 @@ mod tests {
                     updated_at_epoch: None,
                     buckets,
                     credits: None,
+                    sparkline: Vec::new(),
                 }],
                 None,
             )

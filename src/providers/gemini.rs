@@ -278,6 +278,7 @@ impl UsageProvider for GeminiProvider {
                         updated_at_epoch: Some(now_epoch),
                         buckets,
                         credits: None,
+                        sparkline: Vec::new(),
                     }),
                     Err(err) => AccountFetchOutcome::ErrorWithMeta {
                         message: format!("{err:#}"),
@@ -341,6 +342,7 @@ fn build_passive_gemini_outcome(
         updated_at_epoch: cached.and_then(|c| c.last_success_epoch),
         buckets,
         credits: None,
+        sparkline: cached.map(|c| c.sparkline.clone()).unwrap_or_default(),
     })
 }
 
@@ -1012,6 +1014,7 @@ mod tests {
             )
             .with_window_seconds(Some(86_400))],
             credits: None,
+            sparkline: Vec::new(),
         };
 
         let provider = GeminiProvider::new();

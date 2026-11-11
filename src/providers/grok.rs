@@ -255,6 +255,7 @@ impl UsageProvider for GrokProvider {
                                     updated_at_epoch: Some(ctx.now_epoch()),
                                     buckets,
                                     credits,
+                                    sparkline: Vec::new(),
                                 });
                             }
                             Err(parse_err) => {
@@ -306,6 +307,7 @@ impl UsageProvider for GrokProvider {
                     updated_at_epoch: Some(ctx.now_epoch()),
                     buckets,
                     credits,
+                    sparkline: Vec::new(),
                 });
             }
         }

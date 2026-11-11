@@ -249,6 +249,13 @@ pub struct CreditSummary {
     pub used_percent: Option<u8>,
 }
 
+/// Hourly quantized primary-bucket burn sample (`ts` = hour-aligned Unix epoch, `used` = `0..=100`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SparklinePoint {
+    pub ts: i64,
+    pub used: u8,
+}
+
 /// Normalized status and usage report for a single account under a provider.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AccountReport {
@@ -268,6 +275,8 @@ pub struct AccountReport {
     pub updated_at_epoch: Option<i64>,
     pub buckets: Vec<UsageBucket>,
     pub credits: Option<CreditSummary>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sparkline: Vec<SparklinePoint>,
 }
 
 impl AccountReport {
@@ -785,6 +794,7 @@ mod tests {
                 balance_dollars: None,
                 used_percent: Some(15),
             }),
+            sparkline: Vec::new(),
         };
 
         let provider = ProviderReport::from_accounts(
@@ -815,6 +825,12 @@ mod tests {
         assert_eq!(json["providers"][0]["primary_used_percent"], 89);
         assert_eq!(json["providers"][0]["primary_remaining_percent"], 11);
         assert_eq!(json["providers"][0]["accounts"][0]["state"], "active_ok");
+        assert!(
+            json["providers"][0]["accounts"][0]
+                .get("sparkline")
+                .is_none(),
+            "empty sparkline must be omitted via skip_serializing_if"
+        );
         assert_eq!(
             json["providers"][0]["accounts"][0]["buckets"][0]["layout_hint"],
             "inline_pair"
@@ -822,6 +838,26 @@ mod tests {
         assert_eq!(
             json["providers"][0]["accounts"][0]["credits"]["used_dollars"],
             14.5
+        );
+
+        let mut report_with_spark = report.clone();
+        report_with_spark.providers[0].accounts[0].sparkline = vec![
+            SparklinePoint {
+                ts: 1794351600,
+                used: 74,
+            },
+            SparklinePoint {
+                ts: 1794355200,
+                used: 89,
+            },
+        ];
+        let spark_json: serde_json::Value = serde_json::to_value(&report_with_spark).unwrap();
+        assert_eq!(
+            spark_json["providers"][0]["accounts"][0]["sparkline"],
+            serde_json::json!([
+                {"ts": 1794351600, "used": 74},
+                {"ts": 1794355200, "used": 89}
+            ])
         );
     }
 
@@ -862,6 +898,7 @@ mod tests {
                 None,
             )],
             credits: None,
+            sparkline: Vec::new(),
         };
         let a2 = AccountReport {
             id: "claude:work".to_string(),
@@ -887,6 +924,7 @@ mod tests {
                 None,
             )],
             credits: None,
+            sparkline: Vec::new(),
         };
 
         let mut p = ProviderReport::from_accounts(
