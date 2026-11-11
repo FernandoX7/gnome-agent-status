@@ -1,0 +1,483 @@
+# Translation template for gnome-agent-status GNOME Shell Extension & Preferences.
+# Copyright (C) 2026 gnome-agent-status contributors
+# This file is distributed under the same license as the gnome-agent-status package (Apache-2.0).
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: gnome-agent-status 0.2.0\n"
+"Report-Msgid-Bugs-To: https://github.com/ToxicBakery/gnome-agent-status/issues\n"
+"POT-Creation-Date: 2026-11-11 00:00+0000\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: extension/indicator.js
+msgid "Agent Usage Status"
+msgstr ""
+
+#: extension/indicator.js extension/popover/mainPage.js
+msgid "Refresh Usage"
+msgstr ""
+
+#: extension/indicator.js extension/popover/mainPage.js
+msgid "Copy Usage Summary"
+msgstr ""
+
+#: extension/indicator.js
+msgid "Settings…"
+msgstr ""
+
+#: extension/indicator.js
+msgid "Quit Agent Status"
+msgstr ""
+
+#: extension/indicator.js
+msgid "Loading agent usage…"
+msgstr ""
+
+#: extension/indicator.js
+msgid "Refresh Now"
+msgstr ""
+
+#: extension/indicator.js extension/popover/mainPage.js
+msgid "Open Config"
+msgstr ""
+
+#: extension/indicator.js
+msgid "Agents: …"
+msgstr ""
+
+#: extension/indicator.js
+msgid "Agents: ERR"
+msgstr ""
+
+#: extension/indicator.js
+msgid "Agents: —"
+msgstr ""
+
+#: extension/popover/mainPage.js extension/format.js
+msgid "Usage"
+msgstr ""
+
+#: extension/popover/mainPage.js
+msgid "all agents"
+msgstr ""
+
+#: extension/popover/mainPage.js
+msgid "updating…"
+msgstr ""
+
+#: extension/popover/mainPage.js
+msgid "Refreshing…"
+msgstr ""
+
+#: extension/popover/mainPage.js
+msgid "Copied!"
+msgstr ""
+
+#: extension/popover/mainPage.js extension/popover/optionsPage.js
+msgid "Quick Options"
+msgstr ""
+
+#: extension/format.js extension/popover/mainPage.js
+msgid "Detailed"
+msgstr ""
+
+#: extension/format.js extension/popover/mainPage.js
+msgid "Compact"
+msgstr ""
+
+#: extension/popover/mainPage.js
+msgid "Show more agents"
+msgstr ""
+
+#: extension/popover/mainPage.js
+#, javascript-format
+msgid "Show %d more agents"
+msgstr ""
+
+#: extension/popover/mainPage.js
+msgid "Show fewer"
+msgstr ""
+
+#: extension/popover/mainPage.js
+msgid "No active AI agents detected"
+msgstr ""
+
+#: extension/popover/mainPage.js
+msgid "Signed out — click to sign in"
+msgstr ""
+
+#: extension/popover/mainPage.js extension/popover/detailPage.js
+msgid "Sign in"
+msgstr ""
+
+#: extension/popover/mainPage.js
+msgid "Manage Accounts & Preferences…"
+msgstr ""
+
+#: extension/popover/detailPage.js extension/popover/optionsPage.js
+msgid "Back to All Agents (Esc)"
+msgstr ""
+
+#: extension/popover/detailPage.js extension/format.js
+msgid "Updated just now"
+msgstr ""
+
+#: extension/popover/detailPage.js extension/format.js
+msgid "Not updated yet"
+msgstr ""
+
+#: extension/popover/detailPage.js
+msgid "System default"
+msgstr ""
+
+#: extension/popover/detailPage.js
+msgid "Account"
+msgstr ""
+
+#: extension/popover/detailPage.js
+msgid "Used"
+msgstr ""
+
+#: extension/popover/detailPage.js extension/format.js
+msgid "Left"
+msgstr ""
+
+#: extension/popover/detailPage.js
+msgid "Reset"
+msgstr ""
+
+#: extension/popover/detailPage.js
+msgid "Signed out"
+msgstr ""
+
+#: extension/popover/detailPage.js
+msgid "Sign in again to use this account"
+msgstr ""
+
+#: extension/popover/detailPage.js
+msgid "Sign in via terminal"
+msgstr ""
+
+#: extension/popover/detailPage.js
+msgid "7-Day Trend"
+msgstr ""
+
+#: extension/popover/detailPage.js
+msgid "Usage Dashboard…"
+msgstr ""
+
+#: extension/popover/detailPage.js
+msgid "Manage Accounts…"
+msgstr ""
+
+#: extension/format.js
+msgid "Weekly"
+msgstr ""
+
+#: extension/format.js
+msgid "5-Hour"
+msgstr ""
+
+#: extension/format.js
+msgid "Daily"
+msgstr ""
+
+#: extension/format.js
+msgid "Monthly"
+msgstr ""
+
+#: extension/format.js
+msgid "Premium Requests"
+msgstr ""
+
+#: extension/format.js
+msgid "Extra Usage"
+msgstr ""
+
+#: extension/format.js
+msgid "Resets now"
+msgstr ""
+
+#: extension/popover/optionsPage.js
+msgid "Top Bar Mode"
+msgstr ""
+
+#: extension/format.js
+msgid "Minimal Icon"
+msgstr ""
+
+#: extension/format.js
+msgid "Compact Pills"
+msgstr ""
+
+#: extension/format.js
+msgid "Full Text"
+msgstr ""
+
+#: extension/popover/optionsPage.js extension/prefs.js
+msgid "Popover Layout"
+msgstr ""
+
+#: extension/format.js
+msgid "Compact List"
+msgstr ""
+
+#: extension/format.js
+msgid "Auto 2-Column"
+msgstr ""
+
+#: extension/format.js
+msgid "2-Column Wide"
+msgstr ""
+
+#: extension/popover/optionsPage.js extension/prefs.js
+msgid "Theme Preset"
+msgstr ""
+
+#: extension/popover/themesPage.js extension/popover/optionsPage.js
+msgid "Themes"
+msgstr ""
+
+#: extension/popover/themesPage.js extension/popover/optionsPage.js
+msgid "All 24 Themes"
+msgstr ""
+
+#: extension/popover/themesPage.js
+msgid "Back to Quick Options (Esc)"
+msgstr ""
+
+#: extension/popover/themesPage.js
+msgid "All"
+msgstr ""
+
+#: extension/popover/themesPage.js
+msgid "Dark"
+msgstr ""
+
+#: extension/popover/themesPage.js
+msgid "Light"
+msgstr ""
+
+#: extension/popover/themesPage.js
+msgid "Glass"
+msgstr ""
+
+#: extension/popover/optionsPage.js extension/prefs.js
+msgid "Font Style"
+msgstr ""
+
+#: extension/format.js
+msgid "System Tabular"
+msgstr ""
+
+#: extension/format.js
+msgid "Monospace"
+msgstr ""
+
+#: extension/popover/optionsPage.js extension/prefs.js
+msgid "Quota Metric"
+msgstr ""
+
+#: extension/format.js
+msgid "% Used"
+msgstr ""
+
+#: extension/format.js
+msgid "% Remaining"
+msgstr ""
+
+#: extension/popover/optionsPage.js extension/prefs.js
+msgid "Auto-Hide When Empty"
+msgstr ""
+
+#: extension/popover/optionsPage.js
+msgid "Hide top-bar indicator when no agents are active"
+msgstr ""
+
+#: extension/popover/optionsPage.js
+msgid "On"
+msgstr ""
+
+#: extension/popover/optionsPage.js
+msgid "Off"
+msgstr ""
+
+#: extension/popover/optionsPage.js
+msgid "Manage Custom Account Locations…"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Appearance & Top Bar"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Top Bar Indicator"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Panel Mode"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Panel Box Alignment"
+msgstr ""
+
+#: extension/format.js
+msgid "Center"
+msgstr ""
+
+#: extension/format.js
+msgid "Right"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Panel Position Index"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Popover Theme & Layout"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Default Popover Density"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Compact Single Column (Top 5 + More)"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Auto 2-Column Wide (6+ Agents)"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Always 2-Column Wide"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Global Toggle Shortcut"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Set Shortcut…"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Disabled"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Clear"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Refresh & Visibility"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Collection Cadence & Binary"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Background Refresh Interval (seconds)"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Auto-Discover Local Accounts"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Collector Timeout (seconds)"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Browse…"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Desktop Notifications"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Warning Threshold (80%)"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Critical Threshold (90%)"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Quota Reset Notification"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Visible Agents & Display Order"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Provider Display Order"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Reset to Default Top 5"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Reset Order"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Visible Providers"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Accounts & Manual Locations"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Configured Manual Account Locations"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Open config.toml"
+msgstr ""
+
+#: extension/prefs.js
+msgid "No manual accounts configured"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Add or Update Manual Account"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Provider"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Polling Mode"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Active Polling"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Passive Cache Only"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Save to config.toml"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Save Account"
+msgstr ""

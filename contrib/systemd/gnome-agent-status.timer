@@ -1,0 +1,13 @@
+[Unit]
+Description=Periodic AI coding agent usage quota collection (Waybar, Hyprland, Sway, tmux)
+Documentation=https://github.com/ToxicBakery/gnome-agent-status
+
+[Timer]
+OnStartupSec=30s
+OnUnitActiveSec=5m
+RandomizedDelaySec=15s
+Persistent=true
+Unit=gnome-agent-status.service
+
+[Install]
+WantedBy=timers.target
