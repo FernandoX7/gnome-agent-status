@@ -5,6 +5,7 @@ pub mod claude;
 pub mod codex;
 pub mod copilot;
 pub mod cursor;
+pub mod gemini;
 pub mod grok;
 
 use crate::cache::{
@@ -89,6 +90,8 @@ impl FetchContext {
 #[allow(clippy::large_enum_variant)]
 pub enum AccountFetchOutcome {
     Success(AccountReport),
+    /// Passive cached fallback (e.g. expired Gemini CLI `oauth_creds.json` awaiting next CLI run).
+    Passive(AccountReport),
     /// Silently omit an opportunistic auto-discovered account (e.g. `gh` user without Copilot).
     Omit,
     RateLimited {
@@ -110,7 +113,7 @@ pub enum AccountFetchOutcome {
     },
 }
 
-/// Trait implemented by all usage providers (`claude`, `codex`, `grok`, `agy`, `cursor`).
+/// Trait implemented by all usage providers (`claude`, `codex`, `grok`, `agy`, `cursor`, `copilot`, `gemini`).
 pub trait UsageProvider: Send + Sync {
     fn meta(&self) -> ProviderMeta;
 
@@ -168,6 +171,7 @@ impl ProviderRegistry {
                 Box::new(antigravity::AntigravityProvider::new()),
                 Box::new(cursor::CursorProvider::new()),
                 Box::new(copilot::CopilotProvider::new()),
+                Box::new(gemini::GeminiProvider::new()),
             ],
         }
     }
@@ -518,6 +522,68 @@ fn apply_poll_outcome(
         AccountFetchOutcome::Omit => {
             collector_state.accounts.remove(&desc.id);
             None
+        }
+        AccountFetchOutcome::Passive(mut report) => {
+            if report.source_label.is_none() {
+                report.source_label = desc.source_label.clone();
+            }
+            if report.login_command.is_none() {
+                report.login_command = desc.login_command.clone();
+            }
+            report.state = AccountState::PassiveCached;
+            report.status_note = report.status_note.as_deref().map(redact_secrets);
+            report.extra_info = report.extra_info.as_deref().map(redact_secrets);
+            report.error = None;
+
+            if report.id != desc.id {
+                collector_state.accounts.remove(&desc.id);
+            }
+
+            let entry = collector_state
+                .accounts
+                .entry(report.id.clone())
+                .or_insert_with(|| CachedAccountState {
+                    provider_id: desc.provider_id.clone(),
+                    account_id: report.id.clone(),
+                    label: report.label.clone(),
+                    source_label: report.source_label.clone(),
+                    is_system_default: report.is_system_default,
+                    plan_tier: report.plan_tier.clone(),
+                    state: AccountState::PassiveCached,
+                    status_note: report.status_note.clone(),
+                    extra_info: report.extra_info.clone(),
+                    error: None,
+                    login_command: report.login_command.clone(),
+                    last_fetch_attempt_epoch: Some(now_epoch),
+                    last_success_epoch: None,
+                    retry_after_epoch: None,
+                    consecutive_429s: 0,
+                    buckets: report.buckets.clone(),
+                    credits: report.credits.clone(),
+                });
+            entry.label = report.label.clone();
+            entry.source_label = report.source_label.clone();
+            entry.is_system_default = report.is_system_default;
+            if report.plan_tier.is_some() {
+                entry.plan_tier = report.plan_tier.clone();
+            }
+            entry.state = AccountState::PassiveCached;
+            entry.status_note = report.status_note.clone();
+            entry.extra_info = report.extra_info.clone();
+            entry.error = None;
+            entry.login_command = report.login_command.clone();
+            entry.last_fetch_attempt_epoch = Some(now_epoch);
+            if !report.buckets.is_empty() {
+                entry.buckets = report.buckets.clone();
+            }
+            if report.credits.is_some() {
+                entry.credits = report.credits.clone();
+            }
+
+            let mut out = entry.to_account_report(!entry.buckets.is_empty(), now_epoch);
+            out.state = AccountState::PassiveCached;
+            out.updated_at_epoch = entry.last_success_epoch;
+            Some(out)
         }
         AccountFetchOutcome::Success(mut report) => {
             if report.updated_at_epoch.is_none() {

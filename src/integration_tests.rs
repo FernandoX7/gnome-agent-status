@@ -47,7 +47,10 @@ struct MockApiServer {
     grok_hits: Arc<AtomicUsize>,
     agy_hits: Arc<AtomicUsize>,
     cursor_hits: Arc<AtomicUsize>,
+    copilot_hits: Arc<AtomicUsize>,
+    gemini_hits: Arc<AtomicUsize>,
     rate_limit_claude: Arc<AtomicBool>,
+    copilot_unsubscribed: Arc<AtomicBool>,
     handle: Option<thread::JoinHandle<()>>,
 }
 
@@ -66,7 +69,10 @@ impl MockApiServer {
         let grok_hits = Arc::new(AtomicUsize::new(0));
         let agy_hits = Arc::new(AtomicUsize::new(0));
         let cursor_hits = Arc::new(AtomicUsize::new(0));
+        let copilot_hits = Arc::new(AtomicUsize::new(0));
+        let gemini_hits = Arc::new(AtomicUsize::new(0));
         let rate_limit_claude = Arc::new(AtomicBool::new(false));
+        let copilot_unsubscribed = Arc::new(AtomicBool::new(false));
 
         let stop_bg = Arc::clone(&stop);
         let c_hits = Arc::clone(&claude_hits);
@@ -74,7 +80,10 @@ impl MockApiServer {
         let g_hits = Arc::clone(&grok_hits);
         let a_hits = Arc::clone(&agy_hits);
         let u_hits = Arc::clone(&cursor_hits);
+        let p_hits = Arc::clone(&copilot_hits);
+        let m_hits = Arc::clone(&gemini_hits);
         let rl_claude = Arc::clone(&rate_limit_claude);
+        let cp_unsub = Arc::clone(&copilot_unsubscribed);
 
         let handle = thread::spawn(move || {
             while !stop_bg.load(Ordering::Relaxed) {
@@ -84,12 +93,17 @@ impl MockApiServer {
                         let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
                         handle_mock_http(
                             stream,
-                            &c_hits,
-                            &x_hits,
-                            &g_hits,
-                            &a_hits,
-                            &u_hits,
-                            &rl_claude,
+                            &MockHitCounters {
+                                claude: &c_hits,
+                                codex: &x_hits,
+                                grok: &g_hits,
+                                agy: &a_hits,
+                                cursor: &u_hits,
+                                copilot: &p_hits,
+                                gemini: &m_hits,
+                                rate_limit_claude: &rl_claude,
+                                copilot_unsubscribed: &cp_unsub,
+                            },
                         );
                     }
                     Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
@@ -108,10 +122,25 @@ impl MockApiServer {
             grok_hits,
             agy_hits,
             cursor_hits,
+            copilot_hits,
+            gemini_hits,
             rate_limit_claude,
+            copilot_unsubscribed,
             handle: Some(handle),
         }
     }
+}
+
+struct MockHitCounters<'a> {
+    claude: &'a AtomicUsize,
+    codex: &'a AtomicUsize,
+    grok: &'a AtomicUsize,
+    agy: &'a AtomicUsize,
+    cursor: &'a AtomicUsize,
+    copilot: &'a AtomicUsize,
+    gemini: &'a AtomicUsize,
+    rate_limit_claude: &'a AtomicBool,
+    copilot_unsubscribed: &'a AtomicBool,
 }
 
 impl Drop for MockApiServer {
@@ -123,15 +152,7 @@ impl Drop for MockApiServer {
     }
 }
 
-fn handle_mock_http(
-    mut stream: TcpStream,
-    claude_hits: &AtomicUsize,
-    codex_hits: &AtomicUsize,
-    grok_hits: &AtomicUsize,
-    agy_hits: &AtomicUsize,
-    cursor_hits: &AtomicUsize,
-    rate_limit_claude: &AtomicBool,
-) {
+fn handle_mock_http(mut stream: TcpStream, counters: &MockHitCounters<'_>) {
     let mut reader = BufReader::new(match stream.try_clone() {
         Ok(s) => s,
         Err(_) => return,
@@ -178,7 +199,7 @@ fn handle_mock_http(
     };
 
     let (status_line, extra_hdrs, body) = if path.starts_with("/api/oauth/usage") {
-        claude_hits.fetch_add(1, Ordering::SeqCst);
+        counters.claude.fetch_add(1, Ordering::SeqCst);
 
         // Enforce required Anthropic OAuth headers (`claude-code/<ver>` UA + `anthropic-beta`)!
         let ua_ok = get_hdr("user-agent").is_some_and(|ua| ua.starts_with("claude-code/"));
@@ -190,7 +211,7 @@ fn handle_mock_http(
                 r#"{"error":{"type":"rate_limit_error","message":"missing required oauth headers"}}"#
                     .to_string(),
             )
-        } else if rate_limit_claude.load(Ordering::SeqCst) {
+        } else if counters.rate_limit_claude.load(Ordering::SeqCst) {
             // Simulate Anthropic's misleading `Retry-After: 0` edge rate-limit trap
             (
                 "HTTP/1.1 429 Too Many Requests",
@@ -215,7 +236,7 @@ fn handle_mock_http(
             )
         }
     } else if path.starts_with("/backend-api/wham/usage") {
-        codex_hits.fetch_add(1, Ordering::SeqCst);
+        counters.codex.fetch_add(1, Ordering::SeqCst);
         let acct_hdr = get_hdr("chatgpt-account-id").unwrap_or_default();
         if acct_hdr != "acct_team_77" {
             (
@@ -240,7 +261,7 @@ fn handle_mock_http(
             )
         }
     } else if path.starts_with("/v1/billing") {
-        grok_hits.fetch_add(1, Ordering::SeqCst);
+        counters.grok.fetch_add(1, Ordering::SeqCst);
         // Omit `creditUsagePercent` intentionally to exercise protobuf default-zero omission (`0%`)!
         (
             "HTTP/1.1 200 OK",
@@ -258,7 +279,7 @@ fn handle_mock_http(
             .to_string(),
         )
     } else if path.contains("GetUserStatus") {
-        agy_hits.fetch_add(1, Ordering::SeqCst);
+        counters.agy.fetch_add(1, Ordering::SeqCst);
         let csrf = get_hdr("x-codeium-csrf-token").unwrap_or_default();
         if csrf != "csrf-e2e-token" {
             (
@@ -286,7 +307,7 @@ fn handle_mock_http(
             )
         }
     } else if path.contains("GetCurrentPeriodUsage") {
-        cursor_hits.fetch_add(1, Ordering::SeqCst);
+        counters.cursor.fetch_add(1, Ordering::SeqCst);
         (
             "HTTP/1.1 200 OK",
             "",
@@ -303,6 +324,82 @@ fn handle_mock_http(
             }"#
             .to_string(),
         )
+    } else if path.starts_with("/copilot_internal/user") {
+        counters.copilot.fetch_add(1, Ordering::SeqCst);
+        let auth_ok = get_hdr("authorization").is_some_and(|a| a.starts_with("token "));
+        let editor_ok = get_hdr("editor-version").is_some_and(|e| e.starts_with("vscode/"));
+        let ua_ok = get_hdr("user-agent").is_some_and(|u| u.starts_with("GitHubCopilotChat/"));
+        if !auth_ok || !editor_ok || !ua_ok {
+            (
+                "HTTP/1.1 401 Unauthorized",
+                "",
+                r#"{"message":"Bad credentials"}"#.to_string(),
+            )
+        } else if counters.copilot_unsubscribed.load(Ordering::SeqCst) {
+            (
+                "HTTP/1.1 404 Not Found",
+                "",
+                r#"{"message":"Not Found","documentation_url":"https://docs.github.com/rest"}"#
+                    .to_string(),
+            )
+        } else {
+            (
+                "HTTP/1.1 200 OK",
+                "",
+                r#"{
+                    "login": "octodev",
+                    "copilot_plan": "individual",
+                    "quota_reset_date_utc": "2026-12-01T00:00:00Z",
+                    "quota_snapshots": {
+                        "premium_interactions": {
+                            "entitlement": 300,
+                            "remaining": 258,
+                            "percent_remaining": 86.0,
+                            "unlimited": false
+                        },
+                        "chat": {
+                            "entitlement": 0,
+                            "remaining": 0,
+                            "percent_remaining": 100.0,
+                            "unlimited": true
+                        }
+                    }
+                }"#
+                .to_string(),
+            )
+        }
+    } else if path.contains("loadCodeAssist") {
+        (
+            "HTTP/1.1 200 OK",
+            "",
+            r#"{
+                "cloudaicompanionProject": "gem-proj-e2e",
+                "paidTier": {"id": "pro-tier", "name": "Gemini Code Assist Pro"}
+            }"#
+            .to_string(),
+        )
+    } else if path.contains("retrieveUserQuota") {
+        counters.gemini.fetch_add(1, Ordering::SeqCst);
+        let auth_ok = get_hdr("authorization").is_some_and(|a| a.starts_with("Bearer "));
+        if !auth_ok {
+            (
+                "HTTP/1.1 401 Unauthorized",
+                "",
+                r#"{"error":{"code":401,"message":"UNAUTHENTICATED"}}"#.to_string(),
+            )
+        } else {
+            (
+                "HTTP/1.1 200 OK",
+                "",
+                r#"{
+                    "buckets": [
+                        {"modelId": "gemini-2.5-pro", "tokenType": "REQUESTS", "remainingFraction": 0.78, "resetTime": "2026-11-11T08:00:00Z"},
+                        {"modelId": "gemini-2.5-flash", "tokenType": "REQUESTS", "remainingFraction": 0.91, "resetTime": "2026-11-11T08:00:00Z"}
+                    ]
+                }"#
+                .to_string(),
+            )
+        }
     } else {
         ("HTTP/1.1 404 Not Found", "", "{}".to_string())
     };
@@ -471,11 +568,42 @@ EOF
     )
     .unwrap();
 
+    // 6. GitHub Copilot: `~/.config/github-copilot/hosts.json`
+    let copilot_dir = xdg_cfg.join("github-copilot");
+    fs::create_dir_all(&copilot_dir).unwrap();
+    fs::write(
+        copilot_dir.join("hosts.json"),
+        r#"{"github.com":{"user":"octodev","oauth_token":"mock-ghu-copilot-e2e"}}"#,
+    )
+    .unwrap();
+
+    // 7. Gemini CLI: `~/.gemini/oauth_creds.json` + `google_accounts.json`
+    let gemini_dir = home.join(".gemini");
+    fs::create_dir_all(&gemini_dir).unwrap();
+    let gemini_id_jwt = make_jwt(r#"{"email":"gem@cli.dev","sub":"gem-123"}"#);
+    fs::write(
+        gemini_dir.join("oauth_creds.json"),
+        format!(
+            r#"{{
+                "access_token": "mock-ya29-gemini-e2e",
+                "refresh_token": "mock-1//refresh-e2e",
+                "expiry_date": 4102444800000,
+                "id_token": "{gemini_id_jwt}"
+            }}"#
+        ),
+    )
+    .unwrap();
+    fs::write(
+        gemini_dir.join("google_accounts.json"),
+        r#"{"active":"gem@cli.dev","old":[]}"#,
+    )
+    .unwrap();
+
     (home, xdg_cfg, proc_root, mock_agy_bin)
 }
 
 #[test]
-fn test_all_5_providers_cli_workflow_dedup_429_decay_switch_and_hook() {
+fn test_all_7_providers_cli_workflow_dedup_429_decay_switch_and_hook() {
     let sandbox = unique_sandbox("full-suite");
     let server = MockApiServer::start();
     let port: u16 = server
@@ -623,7 +751,9 @@ fn test_all_5_providers_cli_workflow_dedup_429_decay_switch_and_hook() {
                 "{}/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
                 server.base_url
             )),
-            ..Default::default()
+            copilot_user_url: Some(format!("{}/copilot_internal/user", server.base_url)),
+            gemini_quota_url: Some(format!("{}/v1internal:retrieveUserQuota", server.base_url)),
+            gemini_load_url: Some(format!("{}/v1internal:loadCodeAssist", server.base_url)),
         },
     };
 
@@ -649,16 +779,37 @@ fn test_all_5_providers_cli_workflow_dedup_429_decay_switch_and_hook() {
     let report: StatusReport = serde_json::from_str(&collect_out).expect("parse StatusReport v2");
     assert_eq!(report.schema_version, 2);
 
-    // Canonical 5-provider ordering + all 5 mock endpoints hit
+    // Canonical 7-provider ordering + all 7 mock endpoints hit
     let ids: Vec<&str> = report.providers.iter().map(|p| p.id.as_str()).collect();
-    assert_eq!(ids, vec!["claude", "codex", "grok", "agy", "cursor"]);
+    assert_eq!(
+        ids,
+        vec![
+            "claude", "codex", "grok", "agy", "cursor", "copilot", "gemini"
+        ]
+    );
     assert_eq!(server.claude_hits.load(Ordering::SeqCst), 2);
     assert_eq!(server.codex_hits.load(Ordering::SeqCst), 1);
     assert_eq!(server.grok_hits.load(Ordering::SeqCst), 1);
     assert_eq!(server.agy_hits.load(Ordering::SeqCst), 1);
     assert_eq!(server.cursor_hits.load(Ordering::SeqCst), 1);
+    assert_eq!(server.copilot_hits.load(Ordering::SeqCst), 1);
+    assert_eq!(server.gemini_hits.load(Ordering::SeqCst), 1);
 
-    // Verify 0600 permissions on state.json and collector-cache.json
+    // Verify every bucket across all 7 providers populates `window_seconds` for burn-rate pacing!
+    for prov in &report.providers {
+        for acct in &prov.accounts {
+            for bucket in &acct.buckets {
+                assert!(
+                    bucket.window_seconds.is_some(),
+                    "bucket {}:{} missing window_seconds",
+                    prov.id,
+                    bucket.id
+                );
+            }
+        }
+    }
+
+    // Verify 0600 permissions AND zero raw tokens/JWTs in state.json & collector-cache.json!
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -674,6 +825,23 @@ fn test_all_5_providers_cli_workflow_dedup_429_decay_switch_and_hook() {
             & 0o777;
         assert_eq!(state_mode, 0o600);
         assert_eq!(cache_mode, 0o600);
+    }
+    for path in [cache_store.state_path(), cache_store.collector_cache_path()] {
+        let content = fs::read_to_string(&path).unwrap();
+        for secret_needle in [
+            "mock-oat01",
+            "mock-ghu",
+            "mock-ya29",
+            "mock-1//",
+            "csrf-e2e-token",
+            "eyJhbGci",
+        ] {
+            assert!(
+                !content.contains(secret_needle),
+                "Persisted cache file {} leaked credential fragment {secret_needle}",
+                path.display()
+            );
+        }
     }
 
     // Verify Grok deduplication (`~/.grok` + `~/.grok-swap` merged into 1 account!) & omitted-zero `0%`
@@ -710,6 +878,37 @@ fn test_all_5_providers_cli_workflow_dedup_429_decay_switch_and_hook() {
         .map(|b| b.id.as_str())
         .collect();
     assert_eq!(cursor_ids, vec!["cursor-models", "other-models", "31d"]);
+
+    // Verify GitHub Copilot (`Pro`, 14% used, `42 / 300 premium requests used`, 31d window)
+    let copilot = report
+        .providers
+        .iter()
+        .find(|p| p.id == "copilot")
+        .unwrap();
+    assert_eq!(copilot.display_name, "GitHub Copilot");
+    assert_eq!(copilot.icon_name, "provider-copilot");
+    assert_eq!(copilot.plan_badge.as_deref(), Some("Pro"));
+    assert_eq!(copilot.primary_used_percent, Some(14));
+    assert_eq!(copilot.accounts[0].label, "octodev");
+    assert_eq!(
+        copilot.accounts[0].buckets[0].extra_info.as_deref(),
+        Some("42 / 300 premium requests used")
+    );
+    assert_eq!(
+        copilot.accounts[0].buckets[0].window_seconds,
+        Some(2_678_400)
+    );
+
+    // Verify Gemini CLI (`Pro`, 22% Pro / 9% Flash, 24h window)
+    let gemini = report.providers.iter().find(|p| p.id == "gemini").unwrap();
+    assert_eq!(gemini.display_name, "Gemini CLI");
+    assert_eq!(gemini.icon_name, "provider-gemini");
+    assert_eq!(gemini.plan_badge.as_deref(), Some("Pro"));
+    assert_eq!(gemini.primary_used_percent, Some(22));
+    assert_eq!(gemini.accounts[0].label, "gem@cli.dev");
+    assert_eq!(gemini.accounts[0].buckets.len(), 2);
+    assert_eq!(gemini.accounts[0].buckets[0].label, "Gemini Pro · Daily");
+    assert_eq!(gemini.accounts[0].buckets[0].window_seconds, Some(86_400));
 
     // Verify Claude starts on system default (`personal@home.io`, 24%), then `account select claude work`
     // runs `switch_command` and flips active rollup to `claude:work` (`89%`, `Max`, `OverallStatus::Warning`)!
@@ -913,7 +1112,151 @@ fn test_all_5_providers_cli_workflow_dedup_429_decay_switch_and_hook() {
     assert!(text_out.contains("Claude [Max] (Work Claude)"));
     assert!(text_out.contains("Antigravity [Ultra]"));
     assert!(text_out.contains("Cursor [Ultra]"));
+    assert!(text_out.contains("GitHub Copilot [Pro]"));
+    assert!(text_out.contains("Gemini CLI [Pro]"));
     assert!(text_out.contains("\x1b[31m94%\x1b[0m"));
+
+    let _ = fs::remove_dir_all(&sandbox);
+}
+
+#[test]
+fn test_copilot_gh_404_noise_free_omission_and_gemini_passive_expiry_e2e() {
+    let sandbox = unique_sandbox("noise-free-and-passive");
+    let server = MockApiServer::start();
+    server.copilot_unsubscribed.store(true, Ordering::SeqCst);
+
+    let home = sandbox.join("home");
+    let xdg_cfg = home.join(".config");
+    let proc_root = sandbox.join("proc");
+    fs::create_dir_all(xdg_cfg.join("gh")).unwrap();
+    fs::create_dir_all(&proc_root).unwrap();
+
+    // Seed `~/.config/gh/hosts.yml` (git-only user without Copilot) + `~/.gemini/antigravity` ONLY
+    fs::write(
+        xdg_cfg.join("gh").join("hosts.yml"),
+        "github.com:\n    user: gitonly\n    oauth_token: mock-gho-gitonly\n",
+    )
+    .unwrap();
+    fs::create_dir_all(home.join(".gemini").join("antigravity")).unwrap();
+
+    let config_path = sandbox.join("config.toml");
+    fs::write(
+        &config_path,
+        "auto_discover = true\n\n[providers.agy]\nenabled = false\n",
+    )
+    .unwrap();
+    let cache_store = CacheStore::new(sandbox.join("cache"));
+    let t0 = Utc.with_ymd_and_hms(2026, 11, 10, 18, 0, 0).unwrap();
+
+    let fetch_ctx = FetchContext {
+        http: HttpClient::new(Duration::from_secs(5)),
+        timeout: Duration::from_secs(5),
+        now: t0,
+        home_dir: Some(home.clone()),
+        xdg_config_dir: Some(xdg_cfg.clone()),
+        proc_root: proc_root.clone(),
+        endpoints: EndpointOverrides {
+            copilot_user_url: Some(format!("{}/copilot_internal/user", server.base_url)),
+            gemini_quota_url: Some(format!("{}/v1internal:retrieveUserQuota", server.base_url)),
+            gemini_load_url: Some(format!("{}/v1internal:loadCodeAssist", server.base_url)),
+            ..Default::default()
+        },
+    };
+
+    let collect_cli = Cli::parse_from([
+        "gnome-agent-status",
+        "--config",
+        config_path.to_str().unwrap(),
+        "collect",
+    ]);
+
+    // 1. Both unsubscribed `gh` Copilot AND `~/.gemini/antigravity`-only Gemini must produce ZERO false error cards!
+    let out_empty = execute_cli(
+        &collect_cli,
+        &CliRuntime {
+            cache_store: cache_store.clone(),
+            fetch_ctx_override: Some(fetch_ctx.clone()),
+            now: t0,
+            stdin_data: None,
+        },
+    )
+    .expect("collect empty")
+    .expect("stdout");
+    let rep_empty: StatusReport = serde_json::from_str(&out_empty).unwrap();
+    assert!(
+        rep_empty.providers.is_empty(),
+        "expected zero false error cards for git-only gh user + antigravity dir, got {:?}",
+        rep_empty.providers
+    );
+    assert_eq!(server.copilot_hits.load(Ordering::SeqCst), 1);
+    assert_eq!(server.gemini_hits.load(Ordering::SeqCst), 0);
+
+    // 2. Now write valid `~/.gemini/oauth_creds.json` -> `collect` fetches active 22% quota
+    let creds_path = home.join(".gemini").join("oauth_creds.json");
+    let expiry_ms = (t0.timestamp() + 3600) * 1000;
+    let valid_creds = format!(
+        r#"{{"access_token":"mock-ya29-valid","refresh_token":"mock-1//ref","expiry_date":{expiry_ms}}}"#
+    );
+    fs::write(&creds_path, &valid_creds).unwrap();
+
+    let out_active = execute_cli(
+        &collect_cli,
+        &CliRuntime {
+            cache_store: cache_store.clone(),
+            fetch_ctx_override: Some(fetch_ctx.clone()),
+            now: t0,
+            stdin_data: None,
+        },
+    )
+    .expect("collect active gemini")
+    .expect("stdout");
+    let rep_active: StatusReport = serde_json::from_str(&out_active).unwrap();
+    assert_eq!(rep_active.providers.len(), 1);
+    assert_eq!(rep_active.providers[0].id, "gemini");
+    assert_eq!(rep_active.providers[0].primary_used_percent, Some(22));
+    assert_eq!(
+        rep_active.providers[0].accounts[0].state,
+        AccountState::ActiveOk
+    );
+    assert_eq!(server.gemini_hits.load(Ordering::SeqCst), 1);
+
+    // 3. Advance clock past `expiry_date` (`1794339600` = `t0 + 3600s`):
+    //    `collect` must NOT rotate `refresh_token` or hit `retrieveUserQuota` again,
+    //    leaving `oauth_creds.json` byte-for-byte untouched and degrading to `PassiveCached`!
+    let t_expired = t0 + chrono::Duration::seconds(4000);
+    let mut expired_ctx = fetch_ctx.clone();
+    expired_ctx.now = t_expired;
+
+    let out_passive = execute_cli(
+        &collect_cli,
+        &CliRuntime {
+            cache_store: cache_store.clone(),
+            fetch_ctx_override: Some(expired_ctx),
+            now: t_expired,
+            stdin_data: None,
+        },
+    )
+    .expect("collect expired gemini")
+    .expect("stdout");
+    let rep_passive: StatusReport = serde_json::from_str(&out_passive).unwrap();
+    assert_eq!(rep_passive.providers.len(), 1);
+    let gem_acct = &rep_passive.providers[0].accounts[0];
+    assert_eq!(gem_acct.state, AccountState::PassiveCached);
+    assert_eq!(
+        gem_acct.status_note.as_deref(),
+        Some("Updates when Gemini CLI runs")
+    );
+    assert_eq!(rep_passive.providers[0].primary_used_percent, Some(22));
+    assert_eq!(
+        server.gemini_hits.load(Ordering::SeqCst),
+        1,
+        "expired oauth_creds.json must degrade passively with zero network calls"
+    );
+    assert_eq!(
+        fs::read_to_string(&creds_path).unwrap(),
+        valid_creds,
+        "oauth_creds.json must remain strictly read-only"
+    );
 
     let _ = fs::remove_dir_all(&sandbox);
 }
