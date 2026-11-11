@@ -1,11 +1,21 @@
-/* Top-Bar Panel Modes (Minimal Icon, Compact Pills, Full Text) */
+/* ==========================================================================
+ * Agent Usage Status — GNOME Shell 45–50 Scoped Stylesheet
+ * Rules:
+ * - Strictly scoped under `.gas-*` selectors
+ * - No CSS custom properties (`var()`), `calc()`, `%` widths, or `gap`
+ * - Uses `St.BoxLayout` native `spacing`
+ * - Zero `scale` hover/focus effects anywhere (color/border shifts only)
+ * ========================================================================== */
+
+/* --- Top-Bar Panel Modes --- */
 
 .gas-panel-box {
     spacing: 6px;
     padding: 0 4px;
 }
 
-.gas-panel-box.font-monospace {
+.gas-panel-box.font-monospace,
+.gas-popover.font-monospace {
     font-family: "JetBrainsMono Nerd Font", "JetBrains Mono", "CaskaydiaMono Nerd Font", "Source Code Pro", monospace;
 }
 
@@ -69,3 +79,1111 @@
 .gas-panel-full-text.is-critical {
     color: #ff5a5f;
 }
+
+/* --- Popover Host & Fixed-Width Container --- */
+
+.gas-popup-menu-box {
+    padding: 0;
+}
+
+.gas-popover {
+    min-width: 352px;
+    max-width: 352px;
+    border-radius: 14px;
+    padding: 0;
+    font-feature-settings: "tnum";
+}
+
+.gas-page {
+    spacing: 0;
+}
+
+.gas-divider {
+    height: 1px;
+}
+
+/* --- Header & Segmented Control --- */
+
+.gas-header-section {
+    padding: 13px 16px 11px 16px;
+    spacing: 10px;
+}
+
+.gas-header-top-row {
+    spacing: 6px;
+}
+
+.gas-header-title {
+    font-size: 14px;
+    font-weight: 700;
+}
+
+.gas-header-subtitle {
+    font-size: 12px;
+    font-weight: 500;
+    padding-right: 2px;
+}
+
+.gas-icon-btn {
+    width: 26px;
+    height: 26px;
+    border-radius: 7px;
+    border: 1px solid transparent;
+    padding: 0;
+    transition-duration: 120ms;
+}
+
+.gas-icon-btn-glyph {
+    font-size: 13.5px;
+    font-weight: 600;
+    text-align: center;
+}
+
+.gas-icon-btn.is-loading {
+    opacity: 0.58;
+}
+
+.gas-segmented-track {
+    padding: 2px;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    spacing: 2px;
+}
+
+.gas-segmented-btn {
+    border-radius: 6px;
+    padding: 5px 8px;
+    border: 1px solid transparent;
+    transition-duration: 120ms;
+}
+
+.gas-segmented-label {
+    font-size: 12px;
+    font-weight: 600;
+}
+
+/* --- Scroll Views & Slim Scrollbars --- */
+
+.gas-scroll-view {
+    max-height: 420px;
+}
+
+.gas-detail-scroll,
+.gas-options-scroll {
+    max-height: 440px;
+}
+
+.gas-scroll-view StScrollBar {
+    padding: 2px;
+}
+
+.gas-scroll-view StScrollBar StBin#trough {
+    background-color: transparent;
+    border-radius: 99px;
+}
+
+.gas-scroll-view StScrollBar StButton#vhandle {
+    min-width: 4px;
+    border-radius: 99px;
+}
+
+/* --- Main Page Provider Cards --- */
+
+.gas-providers-list {
+    padding: 8px 10px;
+    spacing: 4px;
+}
+
+.gas-cards-inner {
+    spacing: 4px;
+}
+
+.gas-provider-card {
+    border-radius: 10px;
+    padding: 9px 10px;
+    border: 1px solid transparent;
+    transition-duration: 120ms;
+}
+
+.gas-provider-card.is-compact {
+    padding: 6px 10px;
+}
+
+.gas-provider-row-inner {
+    spacing: 10px;
+}
+
+.gas-avatar-ring {
+    width: 28px;
+    height: 28px;
+    border-radius: 99px;
+    border: 1px solid transparent;
+}
+
+.gas-avatar-ring-sm {
+    width: 24px;
+    height: 24px;
+}
+
+.gas-brand-icon {
+    -st-icon-style: regular;
+}
+
+.gas-provider-mid-col {
+    spacing: 5px;
+}
+
+.gas-provider-title-row {
+    spacing: 6px;
+}
+
+.gas-provider-name {
+    font-size: 13.5px;
+    font-weight: 650;
+}
+
+.gas-plan-badge {
+    font-size: 12.5px;
+    font-weight: 500;
+}
+
+.gas-reset-label {
+    font-size: 11.5px;
+    font-weight: 450;
+    padding-left: 3px;
+    font-feature-settings: "tnum";
+}
+
+.gas-provider-buckets {
+    spacing: 4px;
+}
+
+.gas-bucket-group-box {
+    spacing: 4px;
+}
+
+.gas-bucket-pair-row {
+    spacing: 14px;
+}
+
+.gas-bucket-inline-cell {
+    spacing: 6px;
+}
+
+.gas-bucket-full-row {
+    spacing: 7px;
+}
+
+.gas-bucket-short-label,
+.gas-bucket-full-label {
+    font-size: 11.5px;
+    font-weight: 450;
+}
+
+.gas-bucket-pct {
+    font-size: 11.5px;
+    font-weight: 600;
+    font-feature-settings: "tnum";
+    min-width: 28px;
+}
+
+.gas-bucket-pct-right {
+    text-align: right;
+}
+
+.gas-compact-metrics {
+    spacing: 7px;
+}
+
+.gas-compact-pct {
+    min-width: 30px;
+    text-align: right;
+}
+
+.gas-compact-reset {
+    font-size: 11px;
+    min-width: 42px;
+    text-align: right;
+    font-feature-settings: "tnum";
+}
+
+.gas-status-note {
+    font-size: 11.5px;
+    font-weight: 450;
+}
+
+.gas-chevron {
+    font-size: 15px;
+    font-weight: 500;
+    padding-left: 2px;
+}
+
+.gas-error-banner {
+    font-size: 11.5px;
+    border-radius: 8px;
+    padding: 7px 10px;
+    margin: 2px 4px 4px 4px;
+}
+
+.gas-empty-state {
+    padding: 22px 16px;
+    spacing: 6px;
+}
+
+.gas-empty-title {
+    font-size: 13px;
+    font-weight: 650;
+    text-align: center;
+}
+
+.gas-empty-detail {
+    font-size: 11.5px;
+    text-align: center;
+}
+
+/* --- Drill-Down Page (Page 2) --- */
+
+.gas-detail-header {
+    padding: 11px 14px;
+    spacing: 8px;
+}
+
+.gas-back-btn {
+    border-radius: 8px;
+    padding: 4px 8px 4px 6px;
+    border: 1px solid transparent;
+    transition-duration: 120ms;
+}
+
+.gas-back-btn-inner {
+    spacing: 6px;
+}
+
+.gas-back-chevron {
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.gas-detail-title {
+    font-size: 13.5px;
+    font-weight: 700;
+}
+
+.gas-updated-label {
+    font-size: 11.5px;
+    font-weight: 450;
+    font-feature-settings: "tnum";
+}
+
+.gas-detail-body {
+    padding: 12px 14px;
+    spacing: 14px;
+}
+
+.gas-hero-card {
+    border-radius: 12px;
+    border: 1px solid transparent;
+    padding: 13px 15px;
+    spacing: 11px;
+}
+
+.gas-hero-header-row {
+    spacing: 8px;
+}
+
+.gas-hero-account-title {
+    font-size: 13.5px;
+    font-weight: 650;
+}
+
+.gas-hero-tier-badge {
+    font-size: 11px;
+    font-weight: 600;
+    border-radius: 6px;
+    padding: 2px 7px;
+}
+
+.gas-hero-buckets-box {
+    spacing: 11px;
+}
+
+.gas-hero-bucket-block {
+    spacing: 5px;
+}
+
+.gas-hero-bucket-title {
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.gas-hero-caption-row {
+    spacing: 8px;
+}
+
+.gas-hero-caption-left,
+.gas-hero-caption-right {
+    font-size: 11.5px;
+    font-weight: 450;
+    font-feature-settings: "tnum";
+}
+
+.gas-hero-empty-note {
+    font-size: 11.5px;
+}
+
+.gas-hero-credits {
+    font-size: 11.5px;
+    font-weight: 500;
+    padding-top: 4px;
+    font-feature-settings: "tnum";
+}
+
+/* Multi-Account Switcher Table */
+
+.gas-accounts-section {
+    spacing: 3px;
+}
+
+.gas-accounts-col-headers {
+    padding: 0 8px 4px 8px;
+    spacing: 8px;
+}
+
+.gas-col-header-label {
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.gas-col-header-used {
+    min-width: 42px;
+    text-align: right;
+}
+
+.gas-col-header-reset {
+    min-width: 44px;
+    text-align: right;
+}
+
+.gas-account-rows-box {
+    spacing: 2px;
+}
+
+.gas-account-row {
+    border-radius: 8px;
+    padding: 7px 8px;
+    border: 1px solid transparent;
+    transition-duration: 120ms;
+}
+
+.gas-account-row-inner {
+    spacing: 6px;
+}
+
+.gas-account-check {
+    min-width: 16px;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.gas-account-id-col {
+    spacing: 1px;
+}
+
+.gas-account-name {
+    font-size: 12.5px;
+    font-weight: 500;
+}
+
+.gas-account-source {
+    font-size: 10.5px;
+}
+
+.gas-account-minibars-col {
+    spacing: 3px;
+}
+
+.gas-account-minibar-line {
+    spacing: 6px;
+}
+
+.gas-account-minibar-tag {
+    font-size: 10.5px;
+    min-width: 30px;
+    text-align: right;
+}
+
+.gas-account-minibar-pct {
+    font-size: 11px;
+    font-weight: 600;
+    min-width: 28px;
+    text-align: right;
+    font-feature-settings: "tnum";
+}
+
+.gas-account-minibar-reset {
+    font-size: 10.5px;
+    min-width: 38px;
+    text-align: right;
+    font-feature-settings: "tnum";
+}
+
+.gas-account-passive-note {
+    font-size: 11px;
+}
+
+/* Signed Out Section */
+
+.gas-signed-out-section {
+    spacing: 6px;
+    padding-top: 4px;
+}
+
+.gas-section-header {
+    font-size: 11.5px;
+    font-weight: 600;
+    padding: 0 4px;
+}
+
+.gas-signed-out-list {
+    spacing: 6px;
+}
+
+.gas-signed-out-row {
+    padding: 4px 6px;
+    spacing: 10px;
+}
+
+.gas-signed-out-left {
+    spacing: 2px;
+}
+
+.gas-signed-out-name {
+    font-size: 12.5px;
+    font-weight: 500;
+}
+
+.gas-signed-out-hint {
+    font-size: 11px;
+}
+
+.gas-signin-btn {
+    border-radius: 7px;
+    padding: 5px 13px;
+    border: 1px solid transparent;
+    transition-duration: 120ms;
+}
+
+.gas-signin-btn-label {
+    font-size: 12px;
+    font-weight: 600;
+}
+
+/* --- Quick Options Page (Page 3) --- */
+
+.gas-options-body {
+    padding: 12px 14px;
+    spacing: 10px;
+}
+
+.gas-option-section-title {
+    font-size: 11px;
+    font-weight: 650;
+    padding-top: 2px;
+}
+
+.gas-theme-grid {
+    spacing: 6px;
+}
+
+.gas-theme-grid-row {
+    spacing: 6px;
+}
+
+.gas-theme-chip {
+    border-radius: 8px;
+    padding: 6px 9px;
+    border: 1px solid transparent;
+    transition-duration: 120ms;
+}
+
+.gas-theme-chip-inner {
+    spacing: 7px;
+}
+
+.gas-theme-swatch {
+    width: 10px;
+    height: 10px;
+    border-radius: 99px;
+    border: 1px solid rgba(255, 255, 255, 0.28);
+}
+
+.gas-theme-chip-label {
+    font-size: 11.5px;
+    font-weight: 550;
+}
+
+.gas-option-switch-row {
+    padding: 4px 2px 2px 2px;
+    spacing: 8px;
+}
+
+.gas-option-switch-label {
+    font-size: 12.5px;
+    font-weight: 550;
+}
+
+.gas-toggle-pill {
+    border-radius: 99px;
+    padding: 4px 12px;
+    border: 1px solid transparent;
+    transition-duration: 120ms;
+}
+
+.gas-toggle-pill-text {
+    font-size: 11.5px;
+    font-weight: 650;
+}
+
+/* --- Footer Rows --- */
+
+.gas-footer-section {
+    padding: 5px 8px;
+    spacing: 2px;
+}
+
+.gas-footer-btn {
+    border-radius: 8px;
+    padding: 7px 10px;
+    border: 1px solid transparent;
+    transition-duration: 120ms;
+}
+
+.gas-footer-row-inner {
+    spacing: 8px;
+}
+
+.gas-footer-label {
+    font-size: 12.5px;
+    font-weight: 550;
+}
+
+/* ==========================================================================
+ * 8 Complete Theme Presets
+ * ========================================================================== */
+
+/* 1. Midnight Slate (`midnight-slate` — Default `#1e1f2f`) */
+.gas-popover.theme-midnight-slate {
+    background-color: #1e1f2f;
+    border: 1px solid #31344a;
+    color: #e2e7f8;
+}
+.gas-popover.theme-midnight-slate .gas-divider { background-color: #2d3146; }
+.gas-popover.theme-midnight-slate .gas-header-subtitle,
+.gas-popover.theme-midnight-slate .gas-plan-badge,
+.gas-popover.theme-midnight-slate .gas-reset-label,
+.gas-popover.theme-midnight-slate .gas-bucket-short-label,
+.gas-popover.theme-midnight-slate .gas-bucket-full-label,
+.gas-popover.theme-midnight-slate .gas-compact-reset,
+.gas-popover.theme-midnight-slate .gas-updated-label,
+.gas-popover.theme-midnight-slate .gas-hero-caption-left,
+.gas-popover.theme-midnight-slate .gas-hero-caption-right,
+.gas-popover.theme-midnight-slate .gas-col-header-label,
+.gas-popover.theme-midnight-slate .gas-account-minibar-tag,
+.gas-popover.theme-midnight-slate .gas-account-minibar-reset,
+.gas-popover.theme-midnight-slate .gas-option-section-title,
+.gas-popover.theme-midnight-slate .gas-chevron { color: #8a90ab; }
+.gas-popover.theme-midnight-slate .gas-status-note,
+.gas-popover.theme-midnight-slate .gas-empty-detail,
+.gas-popover.theme-midnight-slate .gas-account-passive-note,
+.gas-popover.theme-midnight-slate .gas-account-source,
+.gas-popover.theme-midnight-slate .gas-signed-out-hint,
+.gas-popover.theme-midnight-slate .gas-section-header { color: #747a96; }
+.gas-popover.theme-midnight-slate .gas-segmented-track { background-color: #171825; border-color: #353952; }
+.gas-popover.theme-midnight-slate .gas-segmented-btn { color: #9aa0ba; }
+.gas-popover.theme-midnight-slate .gas-segmented-btn:hover,
+.gas-popover.theme-midnight-slate .gas-segmented-btn:focus { background-color: #262a3f; color: #e2e7f8; }
+.gas-popover.theme-midnight-slate .gas-segmented-btn.is-active { background-color: #343e5a; color: #eef2ff; }
+.gas-popover.theme-midnight-slate .gas-avatar-ring { background-color: #25283c; border-color: #484b6a; }
+.gas-popover.theme-midnight-slate .gas-provider-card:hover,
+.gas-popover.theme-midnight-slate .gas-provider-card:focus,
+.gas-popover.theme-midnight-slate .gas-footer-btn:hover,
+.gas-popover.theme-midnight-slate .gas-footer-btn:focus,
+.gas-popover.theme-midnight-slate .gas-icon-btn:hover,
+.gas-popover.theme-midnight-slate .gas-icon-btn:focus,
+.gas-popover.theme-midnight-slate .gas-back-btn:hover,
+.gas-popover.theme-midnight-slate .gas-back-btn:focus,
+.gas-popover.theme-midnight-slate .gas-account-row:hover,
+.gas-popover.theme-midnight-slate .gas-account-row:focus { background-color: #272a40; border-color: #3b405e; }
+.gas-popover.theme-midnight-slate .gas-hero-card { background-color: #181926; border-color: #2e3044; }
+.gas-popover.theme-midnight-slate .gas-hero-tier-badge { background-color: #2a2e45; color: #b8bed6; }
+.gas-popover.theme-midnight-slate .gas-hero-credits { color: #9aa0ba; }
+.gas-popover.theme-midnight-slate .gas-account-row.is-selected { background-color: #363d55; border-color: #495273; color: #eef2ff; }
+.gas-popover.theme-midnight-slate .gas-signin-btn,
+.gas-popover.theme-midnight-slate .gas-theme-chip,
+.gas-popover.theme-midnight-slate .gas-toggle-pill { background-color: #2a2d44; border-color: #424766; color: #dce1f6; }
+.gas-popover.theme-midnight-slate .gas-signin-btn:hover,
+.gas-popover.theme-midnight-slate .gas-signin-btn:focus,
+.gas-popover.theme-midnight-slate .gas-theme-chip:hover,
+.gas-popover.theme-midnight-slate .gas-theme-chip:focus,
+.gas-popover.theme-midnight-slate .gas-toggle-pill:hover,
+.gas-popover.theme-midnight-slate .gas-toggle-pill:focus { background-color: #353a57; border-color: #565d85; }
+.gas-popover.theme-midnight-slate .gas-theme-chip.is-active,
+.gas-popover.theme-midnight-slate .gas-toggle-pill.is-active { background-color: #343e5a; border-color: #6b82ba; color: #ffffff; }
+.gas-popover.theme-midnight-slate .gas-bucket-pct.is-warning,
+.gas-popover.theme-midnight-slate .gas-account-minibar-pct.is-warning { color: #e0af68; }
+.gas-popover.theme-midnight-slate .gas-bucket-pct.is-critical,
+.gas-popover.theme-midnight-slate .gas-account-minibar-pct.is-critical { color: #ff5a5f; }
+.gas-popover.theme-midnight-slate .gas-error-banner { background-color: rgba(255, 68, 67, 0.14); color: #ff8084; border: 1px solid rgba(255, 68, 67, 0.32); }
+.gas-popover.theme-midnight-slate .gas-scroll-view StScrollBar StButton#vhandle { background-color: #3a3d52; }
+
+/* 2. GNOME System (`system` — Adapts cleanly to Light & Dark Shell styles) */
+.gas-popover.theme-system {
+    background-color: transparent;
+    border: 1px solid rgba(128, 128, 128, 0.22);
+}
+.gas-popover.theme-system .gas-divider { background-color: rgba(128, 128, 128, 0.20); }
+.gas-popover.theme-system .gas-header-subtitle,
+.gas-popover.theme-system .gas-plan-badge,
+.gas-popover.theme-system .gas-reset-label,
+.gas-popover.theme-system .gas-bucket-short-label,
+.gas-popover.theme-system .gas-bucket-full-label,
+.gas-popover.theme-system .gas-compact-reset,
+.gas-popover.theme-system .gas-updated-label,
+.gas-popover.theme-system .gas-hero-caption-left,
+.gas-popover.theme-system .gas-hero-caption-right,
+.gas-popover.theme-system .gas-col-header-label,
+.gas-popover.theme-system .gas-account-minibar-tag,
+.gas-popover.theme-system .gas-account-minibar-reset,
+.gas-popover.theme-system .gas-option-section-title,
+.gas-popover.theme-system .gas-chevron { opacity: 0.72; }
+.gas-popover.theme-system .gas-status-note,
+.gas-popover.theme-system .gas-empty-detail,
+.gas-popover.theme-system .gas-account-passive-note,
+.gas-popover.theme-system .gas-account-source,
+.gas-popover.theme-system .gas-signed-out-hint,
+.gas-popover.theme-system .gas-section-header { opacity: 0.58; }
+.gas-popover.theme-system .gas-segmented-track { background-color: rgba(128, 128, 128, 0.14); border-color: rgba(128, 128, 128, 0.24); }
+.gas-popover.theme-system .gas-segmented-btn:hover,
+.gas-popover.theme-system .gas-segmented-btn:focus { background-color: rgba(128, 128, 128, 0.16); }
+.gas-popover.theme-system .gas-segmented-btn.is-active { background-color: rgba(53, 132, 228, 0.28); border-color: rgba(53, 132, 228, 0.45); }
+.gas-popover.theme-system .gas-avatar-ring { background-color: rgba(128, 128, 128, 0.18); border-color: rgba(128, 128, 128, 0.30); }
+.gas-popover.theme-system .gas-provider-card:hover,
+.gas-popover.theme-system .gas-provider-card:focus,
+.gas-popover.theme-system .gas-footer-btn:hover,
+.gas-popover.theme-system .gas-footer-btn:focus,
+.gas-popover.theme-system .gas-icon-btn:hover,
+.gas-popover.theme-system .gas-icon-btn:focus,
+.gas-popover.theme-system .gas-back-btn:hover,
+.gas-popover.theme-system .gas-back-btn:focus,
+.gas-popover.theme-system .gas-account-row:hover,
+.gas-popover.theme-system .gas-account-row:focus { background-color: rgba(128, 128, 128, 0.14); border-color: rgba(128, 128, 128, 0.25); }
+.gas-popover.theme-system .gas-hero-card { background-color: rgba(128, 128, 128, 0.12); border-color: rgba(128, 128, 128, 0.24); }
+.gas-popover.theme-system .gas-hero-tier-badge { background-color: rgba(128, 128, 128, 0.20); }
+.gas-popover.theme-system .gas-account-row.is-selected { background-color: rgba(53, 132, 228, 0.25); border-color: rgba(53, 132, 228, 0.45); }
+.gas-popover.theme-system .gas-signin-btn,
+.gas-popover.theme-system .gas-theme-chip,
+.gas-popover.theme-system .gas-toggle-pill { background-color: rgba(128, 128, 128, 0.15); border-color: rgba(128, 128, 128, 0.28); }
+.gas-popover.theme-system .gas-signin-btn:hover,
+.gas-popover.theme-system .gas-signin-btn:focus,
+.gas-popover.theme-system .gas-theme-chip:hover,
+.gas-popover.theme-system .gas-theme-chip:focus,
+.gas-popover.theme-system .gas-toggle-pill:hover,
+.gas-popover.theme-system .gas-toggle-pill:focus { background-color: rgba(128, 128, 128, 0.24); }
+.gas-popover.theme-system .gas-theme-chip.is-active,
+.gas-popover.theme-system .gas-toggle-pill.is-active { background-color: rgba(53, 132, 228, 0.28); border-color: #3584e4; }
+.gas-popover.theme-system .gas-bucket-pct.is-warning,
+.gas-popover.theme-system .gas-account-minibar-pct.is-warning { color: #e0af68; }
+.gas-popover.theme-system .gas-bucket-pct.is-critical,
+.gas-popover.theme-system .gas-account-minibar-pct.is-critical { color: #ff4443; }
+.gas-popover.theme-system .gas-error-banner { background-color: rgba(255, 68, 67, 0.15); color: #ff5a5f; border: 1px solid rgba(255, 68, 67, 0.35); }
+.gas-popover.theme-system .gas-scroll-view StScrollBar StButton#vhandle { background-color: rgba(128, 128, 128, 0.42); }
+
+/* 3. Tokyo Night (`tokyo-night` — `#1a1b26`) */
+.gas-popover.theme-tokyo-night {
+    background-color: #1a1b26;
+    border: 1px solid #32344a;
+    color: #c0caf5;
+}
+.gas-popover.theme-tokyo-night .gas-divider { background-color: #292e42; }
+.gas-popover.theme-tokyo-night .gas-header-subtitle,
+.gas-popover.theme-tokyo-night .gas-plan-badge,
+.gas-popover.theme-tokyo-night .gas-reset-label,
+.gas-popover.theme-tokyo-night .gas-bucket-short-label,
+.gas-popover.theme-tokyo-night .gas-bucket-full-label,
+.gas-popover.theme-tokyo-night .gas-compact-reset,
+.gas-popover.theme-tokyo-night .gas-updated-label,
+.gas-popover.theme-tokyo-night .gas-hero-caption-left,
+.gas-popover.theme-tokyo-night .gas-hero-caption-right,
+.gas-popover.theme-tokyo-night .gas-col-header-label,
+.gas-popover.theme-tokyo-night .gas-account-minibar-tag,
+.gas-popover.theme-tokyo-night .gas-account-minibar-reset,
+.gas-popover.theme-tokyo-night .gas-option-section-title,
+.gas-popover.theme-tokyo-night .gas-chevron { color: #787c99; }
+.gas-popover.theme-tokyo-night .gas-status-note,
+.gas-popover.theme-tokyo-night .gas-empty-detail,
+.gas-popover.theme-tokyo-night .gas-account-passive-note,
+.gas-popover.theme-tokyo-night .gas-account-source,
+.gas-popover.theme-tokyo-night .gas-signed-out-hint,
+.gas-popover.theme-tokyo-night .gas-section-header { color: #565f89; }
+.gas-popover.theme-tokyo-night .gas-segmented-track { background-color: #16161e; border-color: #2f3549; }
+.gas-popover.theme-tokyo-night .gas-segmented-btn { color: #787c99; }
+.gas-popover.theme-tokyo-night .gas-segmented-btn:hover,
+.gas-popover.theme-tokyo-night .gas-segmented-btn:focus { background-color: #24283b; color: #c0caf5; }
+.gas-popover.theme-tokyo-night .gas-segmented-btn.is-active { background-color: #292e42; border-color: #3b4261; color: #7aa2f7; }
+.gas-popover.theme-tokyo-night .gas-avatar-ring { background-color: #24283b; border-color: #414868; }
+.gas-popover.theme-tokyo-night .gas-provider-card:hover,
+.gas-popover.theme-tokyo-night .gas-provider-card:focus,
+.gas-popover.theme-tokyo-night .gas-footer-btn:hover,
+.gas-popover.theme-tokyo-night .gas-footer-btn:focus,
+.gas-popover.theme-tokyo-night .gas-icon-btn:hover,
+.gas-popover.theme-tokyo-night .gas-icon-btn:focus,
+.gas-popover.theme-tokyo-night .gas-back-btn:hover,
+.gas-popover.theme-tokyo-night .gas-back-btn:focus,
+.gas-popover.theme-tokyo-night .gas-account-row:hover,
+.gas-popover.theme-tokyo-night .gas-account-row:focus { background-color: #24283b; border-color: #3b4261; }
+.gas-popover.theme-tokyo-night .gas-hero-card { background-color: #16161e; border-color: #292e42; }
+.gas-popover.theme-tokyo-night .gas-hero-tier-badge { background-color: #24283b; color: #7aa2f7; }
+.gas-popover.theme-tokyo-night .gas-hero-credits { color: #7aa2f7; }
+.gas-popover.theme-tokyo-night .gas-account-row.is-selected { background-color: #292e42; border-color: #7aa2f7; color: #c0caf5; }
+.gas-popover.theme-tokyo-night .gas-signin-btn,
+.gas-popover.theme-tokyo-night .gas-theme-chip,
+.gas-popover.theme-tokyo-night .gas-toggle-pill { background-color: #24283b; border-color: #414868; color: #c0caf5; }
+.gas-popover.theme-tokyo-night .gas-signin-btn:hover,
+.gas-popover.theme-tokyo-night .gas-signin-btn:focus,
+.gas-popover.theme-tokyo-night .gas-theme-chip:hover,
+.gas-popover.theme-tokyo-night .gas-theme-chip:focus,
+.gas-popover.theme-tokyo-night .gas-toggle-pill:hover,
+.gas-popover.theme-tokyo-night .gas-toggle-pill:focus { background-color: #2f3549; border-color: #565f89; }
+.gas-popover.theme-tokyo-night .gas-theme-chip.is-active,
+.gas-popover.theme-tokyo-night .gas-toggle-pill.is-active { background-color: #292e42; border-color: #7aa2f7; color: #7aa2f7; }
+.gas-popover.theme-tokyo-night .gas-bucket-pct.is-warning,
+.gas-popover.theme-tokyo-night .gas-account-minibar-pct.is-warning { color: #e0af68; }
+.gas-popover.theme-tokyo-night .gas-bucket-pct.is-critical,
+.gas-popover.theme-tokyo-night .gas-account-minibar-pct.is-critical { color: #f7768e; }
+.gas-popover.theme-tokyo-night .gas-error-banner { background-color: rgba(247, 118, 142, 0.14); color: #f7768e; border: 1px solid rgba(247, 118, 142, 0.35); }
+.gas-popover.theme-tokyo-night .gas-scroll-view StScrollBar StButton#vhandle { background-color: #414868; }
+
+/* 4. Catppuccin Mocha (`catppuccin` — `#1e1e2e`) */
+.gas-popover.theme-catppuccin {
+    background-color: #1e1e2e;
+    border: 1px solid #45475a;
+    color: #cdd6f4;
+}
+.gas-popover.theme-catppuccin .gas-divider { background-color: #313244; }
+.gas-popover.theme-catppuccin .gas-header-subtitle,
+.gas-popover.theme-catppuccin .gas-plan-badge,
+.gas-popover.theme-catppuccin .gas-reset-label,
+.gas-popover.theme-catppuccin .gas-bucket-short-label,
+.gas-popover.theme-catppuccin .gas-bucket-full-label,
+.gas-popover.theme-catppuccin .gas-compact-reset,
+.gas-popover.theme-catppuccin .gas-updated-label,
+.gas-popover.theme-catppuccin .gas-hero-caption-left,
+.gas-popover.theme-catppuccin .gas-hero-caption-right,
+.gas-popover.theme-catppuccin .gas-col-header-label,
+.gas-popover.theme-catppuccin .gas-account-minibar-tag,
+.gas-popover.theme-catppuccin .gas-account-minibar-reset,
+.gas-popover.theme-catppuccin .gas-option-section-title,
+.gas-popover.theme-catppuccin .gas-chevron { color: #a6adc8; }
+.gas-popover.theme-catppuccin .gas-status-note,
+.gas-popover.theme-catppuccin .gas-empty-detail,
+.gas-popover.theme-catppuccin .gas-account-passive-note,
+.gas-popover.theme-catppuccin .gas-account-source,
+.gas-popover.theme-catppuccin .gas-signed-out-hint,
+.gas-popover.theme-catppuccin .gas-section-header { color: #6c7086; }
+.gas-popover.theme-catppuccin .gas-segmented-track { background-color: #181825; border-color: #313244; }
+.gas-popover.theme-catppuccin .gas-segmented-btn { color: #9399b2; }
+.gas-popover.theme-catppuccin .gas-segmented-btn:hover,
+.gas-popover.theme-catppuccin .gas-segmented-btn:focus { background-color: #2a2b3d; color: #cdd6f4; }
+.gas-popover.theme-catppuccin .gas-segmented-btn.is-active { background-color: #313244; border-color: #585b70; color: #89b4fa; }
+.gas-popover.theme-catppuccin .gas-avatar-ring { background-color: #313244; border-color: #585b70; }
+.gas-popover.theme-catppuccin .gas-provider-card:hover,
+.gas-popover.theme-catppuccin .gas-provider-card:focus,
+.gas-popover.theme-catppuccin .gas-footer-btn:hover,
+.gas-popover.theme-catppuccin .gas-footer-btn:focus,
+.gas-popover.theme-catppuccin .gas-icon-btn:hover,
+.gas-popover.theme-catppuccin .gas-icon-btn:focus,
+.gas-popover.theme-catppuccin .gas-back-btn:hover,
+.gas-popover.theme-catppuccin .gas-back-btn:focus,
+.gas-popover.theme-catppuccin .gas-account-row:hover,
+.gas-popover.theme-catppuccin .gas-account-row:focus { background-color: #292a3c; border-color: #45475a; }
+.gas-popover.theme-catppuccin .gas-hero-card { background-color: #181825; border-color: #313244; }
+.gas-popover.theme-catppuccin .gas-hero-tier-badge { background-color: #313244; color: #cba6f7; }
+.gas-popover.theme-catppuccin .gas-hero-credits { color: #89b4fa; }
+.gas-popover.theme-catppuccin .gas-account-row.is-selected { background-color: #313244; border-color: #89b4fa; color: #cdd6f4; }
+.gas-popover.theme-catppuccin .gas-signin-btn,
+.gas-popover.theme-catppuccin .gas-theme-chip,
+.gas-popover.theme-catppuccin .gas-toggle-pill { background-color: #313244; border-color: #45475a; color: #cdd6f4; }
+.gas-popover.theme-catppuccin .gas-signin-btn:hover,
+.gas-popover.theme-catppuccin .gas-signin-btn:focus,
+.gas-popover.theme-catppuccin .gas-theme-chip:hover,
+.gas-popover.theme-catppuccin .gas-theme-chip:focus,
+.gas-popover.theme-catppuccin .gas-toggle-pill:hover,
+.gas-popover.theme-catppuccin .gas-toggle-pill:focus { background-color: #3b3d54; border-color: #585b70; }
+.gas-popover.theme-catppuccin .gas-theme-chip.is-active,
+.gas-popover.theme-catppuccin .gas-toggle-pill.is-active { background-color: #313244; border-color: #89b4fa; color: #89b4fa; }
+.gas-popover.theme-catppuccin .gas-bucket-pct.is-warning,
+.gas-popover.theme-catppuccin .gas-account-minibar-pct.is-warning { color: #f9e2af; }
+.gas-popover.theme-catppuccin .gas-bucket-pct.is-critical,
+.gas-popover.theme-catppuccin .gas-account-minibar-pct.is-critical { color: #f38ba8; }
+.gas-popover.theme-catppuccin .gas-error-banner { background-color: rgba(243, 139, 168, 0.14); color: #f38ba8; border: 1px solid rgba(243, 139, 168, 0.35); }
+.gas-popover.theme-catppuccin .gas-scroll-view StScrollBar StButton#vhandle { background-color: #585b70; }
+
+/* 5. Gruvbox Dark (`gruvbox` — `#282828`) */
+.gas-popover.theme-gruvbox {
+    background-color: #282828;
+    border: 1px solid #504945;
+    color: #ebdbb2;
+}
+.gas-popover.theme-gruvbox .gas-divider { background-color: #3c3836; }
+.gas-popover.theme-gruvbox .gas-header-subtitle,
+.gas-popover.theme-gruvbox .gas-plan-badge,
+.gas-popover.theme-gruvbox .gas-reset-label,
+.gas-popover.theme-gruvbox .gas-bucket-short-label,
+.gas-popover.theme-gruvbox .gas-bucket-full-label,
+.gas-popover.theme-gruvbox .gas-compact-reset,
+.gas-popover.theme-gruvbox .gas-updated-label,
+.gas-popover.theme-gruvbox .gas-hero-caption-left,
+.gas-popover.theme-gruvbox .gas-hero-caption-right,
+.gas-popover.theme-gruvbox .gas-col-header-label,
+.gas-popover.theme-gruvbox .gas-account-minibar-tag,
+.gas-popover.theme-gruvbox .gas-account-minibar-reset,
+.gas-popover.theme-gruvbox .gas-option-section-title,
+.gas-popover.theme-gruvbox .gas-chevron { color: #a89984; }
+.gas-popover.theme-gruvbox .gas-status-note,
+.gas-popover.theme-gruvbox .gas-empty-detail,
+.gas-popover.theme-gruvbox .gas-account-passive-note,
+.gas-popover.theme-gruvbox .gas-account-source,
+.gas-popover.theme-gruvbox .gas-signed-out-hint,
+.gas-popover.theme-gruvbox .gas-section-header { color: #928374; }
+.gas-popover.theme-gruvbox .gas-segmented-track { background-color: #1d2021; border-color: #3c3836; }
+.gas-popover.theme-gruvbox .gas-segmented-btn { color: #a89984; }
+.gas-popover.theme-gruvbox .gas-segmented-btn:hover,
+.gas-popover.theme-gruvbox .gas-segmented-btn:focus { background-color: #32302f; color: #ebdbb2; }
+.gas-popover.theme-gruvbox .gas-segmented-btn.is-active { background-color: #3c3836; border-color: #665c54; color: #83a598; }
+.gas-popover.theme-gruvbox .gas-avatar-ring { background-color: #32302f; border-color: #665c54; }
+.gas-popover.theme-gruvbox .gas-provider-card:hover,
+.gas-popover.theme-gruvbox .gas-provider-card:focus,
+.gas-popover.theme-gruvbox .gas-footer-btn:hover,
+.gas-popover.theme-gruvbox .gas-footer-btn:focus,
+.gas-popover.theme-gruvbox .gas-icon-btn:hover,
+.gas-popover.theme-gruvbox .gas-icon-btn:focus,
+.gas-popover.theme-gruvbox .gas-back-btn:hover,
+.gas-popover.theme-gruvbox .gas-back-btn:focus,
+.gas-popover.theme-gruvbox .gas-account-row:hover,
+.gas-popover.theme-gruvbox .gas-account-row:focus { background-color: #32302f; border-color: #504945; }
+.gas-popover.theme-gruvbox .gas-hero-card { background-color: #1d2021; border-color: #3c3836; }
+.gas-popover.theme-gruvbox .gas-hero-tier-badge { background-color: #3c3836; color: #fabd2f; }
+.gas-popover.theme-gruvbox .gas-hero-credits { color: #83a598; }
+.gas-popover.theme-gruvbox .gas-account-row.is-selected { background-color: #3c3836; border-color: #83a598; color: #fbf1c7; }
+.gas-popover.theme-gruvbox .gas-signin-btn,
+.gas-popover.theme-gruvbox .gas-theme-chip,
+.gas-popover.theme-gruvbox .gas-toggle-pill { background-color: #3c3836; border-color: #504945; color: #ebdbb2; }
+.gas-popover.theme-gruvbox .gas-signin-btn:hover,
+.gas-popover.theme-gruvbox .gas-signin-btn:focus,
+.gas-popover.theme-gruvbox .gas-theme-chip:hover,
+.gas-popover.theme-gruvbox .gas-theme-chip:focus,
+.gas-popover.theme-gruvbox .gas-toggle-pill:hover,
+.gas-popover.theme-gruvbox .gas-toggle-pill:focus { background-color: #504945; border-color: #665c54; }
+.gas-popover.theme-gruvbox .gas-theme-chip.is-active,
+.gas-popover.theme-gruvbox .gas-toggle-pill.is-active { background-color: #3c3836; border-color: #83a598; color: #83a598; }
+.gas-popover.theme-gruvbox .gas-bucket-pct.is-warning,
+.gas-popover.theme-gruvbox .gas-account-minibar-pct.is-warning { color: #fabd2f; }
+.gas-popover.theme-gruvbox .gas-bucket-pct.is-critical,
+.gas-popover.theme-gruvbox .gas-account-minibar-pct.is-critical { color: #fb4934; }
+.gas-popover.theme-gruvbox .gas-error-banner { background-color: rgba(251, 73, 52, 0.14); color: #fb4934; border: 1px solid rgba(251, 73, 52, 0.35); }
+.gas-popover.theme-gruvbox .gas-scroll-view StScrollBar StButton#vhandle { background-color: #665c54; }
+
+/* 6. Rosé Pine (`rose-pine` — `#1f1d2e`) */
+.gas-popover.theme-rose-pine {
+    background-color: #1f1d2e;
+    border: 1px solid #403d52;
+    color: #e0def4;
+}
+.gas-popover.theme-rose-pine .gas-divider { background-color: #26233a; }
+.gas-popover.theme-rose-pine .gas-header-subtitle,
+.gas-popover.theme-rose-pine .gas-plan-badge,
+.gas-popover.theme-rose-pine .gas-reset-label,
+.gas-popover.theme-rose-pine .gas-bucket-short-label,
+.gas-popover.theme-rose-pine .gas-bucket-full-label,
+.gas-popover.theme-rose-pine .gas-compact-reset,
+.gas-popover.theme-rose-pine .gas-updated-label,
+.gas-popover.theme-rose-pine .gas-hero-caption-left,
+.gas-popover.theme-rose-pine .gas-hero-caption-right,
+.gas-popover.theme-rose-pine .gas-col-header-label,
+.gas-popover.theme-rose-pine .gas-account-minibar-tag,
+.gas-popover.theme-rose-pine .gas-account-minibar-reset,
+.gas-popover.theme-rose-pine .gas-option-section-title,
+.gas-popover.theme-rose-pine .gas-chevron { color: #908caa; }
+.gas-popover.theme-rose-pine .gas-status-note,
+.gas-popover.theme-rose-pine .gas-empty-detail,
+.gas-popover.theme-rose-pine .gas-account-passive-note,
+.gas-popover.theme-rose-pine .gas-account-source,
+.gas-popover.theme-rose-pine .gas-signed-out-hint,
+.gas-popover.theme-rose-pine .gas-section-header { color: #6e6a86; }
+.gas-popover.theme-rose-pine .gas-segmented-track { background-color: #191724; border-color: #26233a; }
+.gas-popover.theme-rose-pine .gas-segmented-btn { color: #908caa; }
+.gas-popover.theme-rose-pine .gas-segmented-btn:hover,
+.gas-popover.theme-rose-pine .gas-segmented-btn:focus { background-color: #26233a; color: #e0def4; }
+.gas-popover.theme-rose-pine .gas-segmented-btn.is-active { background-color: #312f46; border-color: #524f67; color: #c4a7e7; }
+.gas-popover.theme-rose-pine .gas-avatar-ring { background-color: #26233a; border-color: #524f67; }
+.gas-popover.theme-rose-pine .gas-provider-card:hover,
+.gas-popover.theme-rose-pine .gas-provider-card:focus,
+.gas-popover.theme-rose-pine .gas-footer-btn:hover,
+.gas-popover.theme-rose-pine .gas-footer-btn:focus,
+.gas-popover.theme-rose-pine .gas-icon-btn:hover,
+.gas-popover.theme-rose-pine .gas-icon-btn:focus,
+.gas-popover.theme-rose-pine .gas-back-btn:hover,
+.gas-popover.theme-rose-pine .gas-back-btn:focus,
+.gas-popover.theme-rose-pine .gas-account-row:hover,
+.gas-popover.theme-rose-pine .gas-account-row:focus { background-color: #26233a; border-color: #403d52; }
+.gas-popover.theme-rose-pine .gas-hero-card { background-color: #191724; border-color: #26233a; }
+.gas-popover.theme-rose-pine .gas-hero-tier-badge { background-color: #26233a; color: #c4a7e7; }
+.gas-popover.theme-rose-pine .gas-hero-credits { color: #9ccfd8; }
+.gas-popover.theme-rose-pine .gas-account-row.is-selected { background-color: #312f46; border-color: #c4a7e7; color: #e0def4; }
+.gas-popover.theme-rose-pine .gas-signin-btn,
+.gas-popover.theme-rose-pine .gas-theme-chip,
+.gas-popover.theme-rose-pine .gas-toggle-pill { background-color: #26233a; border-color: #403d52; color: #e0def4; }
+.gas-popover.theme-rose-pine .gas-signin-btn:hover,
+.gas-popover.theme-rose-pine .gas-signin-btn:focus,
+.gas-popover.theme-rose-pine .gas-theme-chip:hover,
+.gas-popover.theme-rose-pine .gas-theme-chip:focus,
+.gas-popover.theme-rose-pine .gas-toggle-pill:hover,
+.gas-popover.theme-rose-pine .gas-toggle-pill:focus { background-color: #312f46; border-color: #524f67; }
+.gas-popover.theme-rose-pine .gas-theme-chip.is-active,
+.gas-popover.theme-rose-pine .gas-toggle-pill.is-active { background-color: #312f46; border-color: #c4a7e7; color: #c4a7e7; }
+.gas-popover.theme-rose-pine .gas-bucket-pct.is-warning,
+.gas-popover.theme-rose-pine .gas-account-minibar-pct.is-warning { color: #f6c177; }
+.gas-popover.theme-rose-pine .gas-bucket-pct.is-critical,
+.gas-popover.theme-rose-pine .gas-account-minibar-pct.is-critical { color: #eb6f92; }
+.gas-popover.theme-rose-pine .gas-error-banner { background-color: rgba(235, 111, 146, 0.14); color: #eb6f92; border: 1px solid rgba(235, 111, 146, 0.35); }
+.gas-popover.theme-rose-pine .gas-scroll-view StScrollBar StButton#vhandle { background-color: #524f67; }
+
+/* 7. Nord (`nord` — `#2e3440`) */
+.gas-popover.theme-nord {
+    background-color: #2e3440;
+    border: 1px solid #434c5e;
+    color: #eceff4;
+}
+.gas-popover.theme-nord .gas-divider { background-color: #3b4252; }
+.gas-popover.theme-nord .gas-header-subtitle,
+.gas-popover.theme-nord .gas-plan-badge,
+.gas-popover.theme-nord .gas-reset-label,
+.gas-popover.theme-nord .gas-bucket-short-label,
+.gas-popover.theme-nord .gas-bucket-full-label,
+.gas-popover.theme-nord .gas-compact-reset,
+.gas-popover.theme-nord .gas-updated-label,
+.gas-popover.theme-nord .gas-hero-caption-left,
+.gas-popover.theme-nord .gas-hero-caption-right,
+.gas-popover.theme-nord .gas-col-header-label,
+.gas-popover.theme-nord .gas-account-minibar-tag,
+.gas-popover.theme-nord .gas-account-minibar-reset,
+.gas-popover.theme-nord .gas-option-section-title,
+.gas-popover.theme-nord .gas-chevron { color: #b0bac9; }
+.gas-popover.theme-nord .gas-status-note,
+.gas-popover.theme-nord .gas-empty-detail,
+.gas-popover.theme-nord .gas-account-passive-note,
+.gas-popover.theme-nord .gas-account-source,
+.gas-popover.theme-nord .gas-signed-out-hint,
+.gas-popover.theme-nord .gas-section-header { color: #8c96a8; }
+.gas-popover.theme-nord .gas-segmented-track { background-color: #242933; border-color: #3b4252; }
+.gas-popover.theme-nord .gas-segmented-btn { color: #b0bac9; }
+.gas-popover.theme-nord .gas-segmented-btn:hover,
+.gas-popover.theme-nord .gas-segmented-btn:focus { background-color: #3b4252; color: #eceff4; }
+.gas-popover.theme-nord .gas-segmented-btn.is-active { background-color: #434c5e; border-color: #5e81ac; color: #88c0d0; }
+.gas-popover.theme-nord .gas-avatar-ring { background-color: #3b4252; border-color: #4c566a; }
+.gas-popover.theme-nord .gas-provider-card:hover,
+.gas-popover.theme-nord .gas-provider-card:focus,
+.gas-popover.theme-nord .gas-footer-btn:hover,
+.gas-popover.theme-nord .gas-footer-btn:focus,
+.gas-popover.theme-nord .gas-icon-btn:hover,
+.gas-popover.theme-nord .gas-icon-btn:focus,
+.gas-popover.theme-nord .gas-back-btn:hover,
+.gas-popover.theme-nord .gas-back-btn:focus,
+.gas-popover.theme-nord .gas-account-row:hover,
+.gas-popover.theme-nord .gas-account-row:focus { background-color: #3b4252; border-color: #4c566a; }
+.gas-popover.theme-nord .gas-hero-card { background-color: #242933; border-color: #3b4252; }
+.gas-popover.theme-nord .gas-hero-tier-badge { background-color: #3b4252; color: #88c0d0; }
+.gas-popover.theme-nord .gas-hero-credits { color: #88c0d0; }
+.gas-popover.theme-nord .gas-account-row.is-selected { background-color: #434c5e; border-color: #88c0d0; color: #eceff4; }
+.gas-popover.theme-nord .gas-signin-btn,
+.gas-popover.theme-nord .gas-theme-chip,
+.gas-popover.theme-nord .gas-toggle-pill { background-color: #3b4252; border-color: #4c566a; color: #e5e9f0; }
+.gas-popover.theme-nord .gas-signin-btn:hover,
+.gas-popover.theme-nord .gas-signin-btn:focus,
+.gas-popover.theme-nord .gas-theme-chip:hover,
+.gas-popover.theme-nord .gas-theme-chip:focus,
+.gas-popover.theme-nord .gas-toggle-pill:hover,
+.gas-popover.theme-nord .gas-toggle-pill:focus { background-color: #434c5e; border-color: #5e81ac; }
+.gas-popover.theme-nord .gas-theme-chip.is-active,
+.gas-popover.theme-nord .gas-toggle-pill.is-active { background-color: #434c5e; border-color: #88c0d0; color: #88c0d0; }
+.gas-popover.theme-nord .gas-bucket-pct.is-warning,
+.gas-popover.theme-nord .gas-account-minibar-pct.is-warning { color: #ebcb8b; }
+.gas-popover.theme-nord .gas-bucket-pct.is-critical,
+.gas-popover.theme-nord .gas-account-minibar-pct.is-critical { color: #ff6b74; }
+.gas-popover.theme-nord .gas-error-banner { background-color: rgba(191, 97, 106, 0.18); color: #ff8088; border: 1px solid rgba(191, 97, 106, 0.40); }
+.gas-popover.theme-nord .gas-scroll-view StScrollBar StButton#vhandle { background-color: #4c566a; }
+
+/* 8. Everforest Dark (`everforest` — `#2d353b`) */
+.gas-popover.theme-everforest {
+    background-color: #2d353b;
+    border: 1px solid #475258;
+    color: #d3c6aa;
+}
+.gas-popover.theme-everforest .gas-divider { background-color: #3d484d; }
+.gas-popover.theme-everforest .gas-header-subtitle,
+.gas-popover.theme-everforest .gas-plan-badge,
+.gas-popover.theme-everforest .gas-reset-label,
+.gas-popover.theme-everforest .gas-bucket-short-label,
+.gas-popover.theme-everforest .gas-bucket-full-label,
+.gas-popover.theme-everforest .gas-compact-reset,
+.gas-popover.theme-everforest .gas-updated-label,
+.gas-popover.theme-everforest .gas-hero-caption-left,
+.gas-popover.theme-everforest .gas-hero-caption-right,
+.gas-popover.theme-everforest .gas-col-header-label,
+.gas-popover.theme-everforest .gas-account-minibar-tag,
+.gas-popover.theme-everforest .gas-account-minibar-reset,
+.gas-popover.theme-everforest .gas-option-section-title,
+.gas-popover.theme-everforest .gas-chevron { color: #9da9a0; }
+.gas-popover.theme-everforest .gas-status-note,
+.gas-popover.theme-everforest .gas-empty-detail,
+.gas-popover.theme-everforest .gas-account-passive-note,
+.gas-popover.theme-everforest .gas-account-source,
+.gas-popover.theme-everforest .gas-signed-out-hint,
+.gas-popover.theme-everforest .gas-section-header { color: #859289; }
+.gas-popover.theme-everforest .gas-segmented-track { background-color: #232a2e; border-color: #3d484d; }
+.gas-popover.theme-everforest .gas-segmented-btn { color: #9da9a0; }
+.gas-popover.theme-everforest .gas-segmented-btn:hover,
+.gas-popover.theme-everforest .gas-segmented-btn:focus { background-color: #343f44; color: #d3c6aa; }
+.gas-popover.theme-everforest .gas-segmented-btn.is-active { background-color: #3d484d; border-color: #56635f; color: #a7c080; }
+.gas-popover.theme-everforest .gas-avatar-ring { background-color: #343f44; border-color: #56635f; }
+.gas-popover.theme-everforest .gas-provider-card:hover,
+.gas-popover.theme-everforest .gas-provider-card:focus,
+.gas-popover.theme-everforest .gas-footer-btn:hover,
+.gas-popover.theme-everforest .gas-footer-btn:focus,
+.gas-popover.theme-everforest .gas-icon-btn:hover,
+.gas-popover.theme-everforest .gas-icon-btn:focus,
+.gas-popover.theme-everforest .gas-back-btn:hover,
+.gas-popover.theme-everforest .gas-back-btn:focus,
+.gas-popover.theme-everforest .gas-account-row:hover,
+.gas-popover.theme-everforest .gas-account-row:focus { background-color: #343f44; border-color: #4f585e; }
+.gas-popover.theme-everforest .gas-hero-card { background-color: #232a2e; border-color: #3d484d; }
+.gas-popover.theme-everforest .gas-hero-tier-badge { background-color: #343f44; color: #a7c080; }
+.gas-popover.theme-everforest .gas-hero-credits { color: #7fbbb3; }
+.gas-popover.theme-everforest .gas-account-row.is-selected { background-color: #3d484d; border-color: #a7c080; color: #d3c6aa; }
+.gas-popover.theme-everforest .gas-signin-btn,
+.gas-popover.theme-everforest .gas-theme-chip,
+.gas-popover.theme-everforest .gas-toggle-pill { background-color: #343f44; border-color: #4f585e; color: #d3c6aa; }
+.gas-popover.theme-everforest .gas-signin-btn:hover,
+.gas-popover.theme-everforest .gas-signin-btn:focus,
+.gas-popover.theme-everforest .gas-theme-chip:hover,
+.gas-popover.theme-everforest .gas-theme-chip:focus,
+.gas-popover.theme-everforest .gas-toggle-pill:hover,
+.gas-popover.theme-everforest .gas-toggle-pill:focus { background-color: #3d484d; border-color: #56635f; }
+.gas-popover.theme-everforest .gas-theme-chip.is-active,
+.gas-popover.theme-everforest .gas-toggle-pill.is-active { background-color: #3d484d; border-color: #a7c080; color: #a7c080; }
+.gas-popover.theme-everforest .gas-bucket-pct.is-warning,
+.gas-popover.theme-everforest .gas-account-minibar-pct.is-warning { color: #dbbc7f; }
+.gas-popover.theme-everforest .gas-bucket-pct.is-critical,
+.gas-popover.theme-everforest .gas-account-minibar-pct.is-critical { color: #e67e80; }
+.gas-popover.theme-everforest .gas-error-banner { background-color: rgba(230, 126, 128, 0.16); color: #e67e80; border: 1px solid rgba(230, 126, 128, 0.35); }
+.gas-popover.theme-everforest .gas-scroll-view StScrollBar StButton#vhandle { background-color: #56635f; }

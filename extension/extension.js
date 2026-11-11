@@ -3,6 +3,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
 import {BackendClient} from './backend.js';
 import {AgentStatusIndicator} from './indicator.js';
+import {PopoverController} from './popover/controller.js';
 
 const VALID_PANEL_BOXES = new Set(['left', 'center', 'right']);
 
@@ -20,6 +21,13 @@ export default class AgentStatusExtension extends Extension {
             settings: this._settings,
             backend: this._backend,
         });
+
+        const popoverController = new PopoverController({
+            indicator: this._indicator,
+            settings: this._settings,
+            backend: this._backend,
+        });
+        this._indicator.attachPopoverController(popoverController);
 
         this._backend.setCallbacks({
             onReport: report => this._indicator?.handleReport(report),
