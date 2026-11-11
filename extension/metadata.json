@@ -1,7 +1,8 @@
 {
   "name": "Agent Usage Status",
-  "description": "Displays usage quotas, reset countdowns, pace indicators, and multi-account status for AI coding agents (Claude, Codex, Grok, Antigravity, Cursor, GitHub Copilot, Gemini CLI) in the GNOME top bar.",
+  "description": "Displays usage quotas, reset countdowns, pace projections, 7-day sparklines, and multi-account status for AI coding agents (Claude, Codex, Grok, Cursor, Antigravity, OpenRouter, GitHub Copilot, Gemini CLI, Windsurf, DeepSeek) in the GNOME top bar.",
   "uuid": "agent-status@gnome-agent-status",
+  "gettext-domain": "agent-status@gnome-agent-status",
   "shell-version": [
     "45",
     "46",

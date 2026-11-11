@@ -1,4 +1,5 @@
 import Adw from 'gi://Adw';
+import Gdk from 'gi://Gdk';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import Gtk from 'gi://Gtk';
@@ -7,6 +8,7 @@ import {ExtensionPreferences} from 'resource:///org/gnome/Shell/Extensions/js/ex
 
 import {
     CANONICAL_PROVIDERS,
+    DEFAULT_PROVIDER_ORDER,
     DENSITY_MODES,
     FONT_STYLES,
     METRIC_MODES,
@@ -20,18 +22,23 @@ import {
 
 const BINARY_NAME = 'gnome-agent-status';
 const TIMEOUT_SPIN_DEBOUNCE_MS = 250;
+const PRESET_TOGGLE_SHORTCUT = '<Super><Shift>a';
 
-export const DEFAULT_PROVIDER_ORDER = Object.freeze([
+export const POPOVER_LAYOUTS = Object.freeze([
+    Object.freeze({id: 'list', label: 'Compact Single Column (Top 5 + More)'}),
+    Object.freeze({id: 'auto-grid', label: 'Auto 2-Column Wide (6+ Agents)'}),
+    Object.freeze({id: 'grid', label: 'Always 2-Column Wide'}),
+]);
+
+const DEFAULT_TOP5_VISIBLE_IDS = Object.freeze([
     'claude',
     'codex',
     'grok',
-    'agy',
     'cursor',
-    'copilot',
-    'gemini',
+    'agy',
 ]);
 
-const BASE_PREFS_PROVIDER_SPECS = Object.freeze([
+const FALLBACK_PROVIDER_SPECS = Object.freeze([
     Object.freeze({
         id: 'claude',
         displayName: 'Claude Code',
@@ -48,14 +55,19 @@ const BASE_PREFS_PROVIDER_SPECS = Object.freeze([
         locationHint: '~/.grok-work',
     }),
     Object.freeze({
+        id: 'cursor',
+        displayName: 'Cursor',
+        locationHint: '~/.config/Cursor/User/globalStorage/state.vscdb',
+    }),
+    Object.freeze({
         id: 'agy',
         displayName: 'Google Antigravity',
         locationHint: '~/.gemini/antigravity',
     }),
     Object.freeze({
-        id: 'cursor',
-        displayName: 'Cursor',
-        locationHint: '~/.config/Cursor/User/globalStorage/state.vscdb',
+        id: 'openrouter',
+        displayName: 'OpenRouter',
+        locationHint: '~/.config/openrouter/api_key',
     }),
     Object.freeze({
         id: 'copilot',
@@ -67,34 +79,94 @@ const BASE_PREFS_PROVIDER_SPECS = Object.freeze([
         displayName: 'Gemini CLI',
         locationHint: '~/.gemini/oauth_creds.json',
     }),
+    Object.freeze({
+        id: 'windsurf',
+        displayName: 'Windsurf',
+        locationHint: '~/.config/Windsurf/User/globalStorage/state.vscdb',
+    }),
+    Object.freeze({
+        id: 'deepseek',
+        displayName: 'DeepSeek',
+        locationHint: '~/.config/deepseek/api_key',
+    }),
 ]);
 
-export const PREFS_PROVIDERS = Object.freeze((() => {
-    const merged = BASE_PREFS_PROVIDER_SPECS.map(spec => {
-        const fromFormat = PROVIDER_BY_ID?.[spec.id] ?? null;
-        return Object.freeze({
-            ...(fromFormat ?? {}),
-            id: spec.id,
-            displayName: spec.displayName,
-            locationHint: spec.locationHint || fromFormat?.locationHint || '',
-        });
-    });
-    const seen = new Set(merged.map(p => p.id));
+const FALLBACK_SPEC_BY_ID = Object.freeze(
+    Object.fromEntries(FALLBACK_PROVIDER_SPECS.map(s => [s.id, s]))
+);
+
+/**
+ * Resolves the canonical default provider priority order dynamically from `format.js`
+ * (`DEFAULT_PROVIDER_ORDER` + `CANONICAL_PROVIDERS`), falling back cleanly to the 10-provider
+ * schema priority order if `format.js` has not yet been updated during rebase.
+ *
+ * @returns {string[]}
+ */
+export function resolveDefaultProviderOrder() {
+    const baseIds =
+        Array.isArray(DEFAULT_PROVIDER_ORDER) &&
+        DEFAULT_PROVIDER_ORDER.length >= FALLBACK_PROVIDER_SPECS.length
+            ? DEFAULT_PROVIDER_ORDER
+            : FALLBACK_PROVIDER_SPECS.map(s => s.id);
+
+    const ordered = [];
+    const seen = new Set();
+
+    for (const rawId of baseIds) {
+        const id = String(rawId ?? '').trim();
+        if (id && !seen.has(id)) {
+            seen.add(id);
+            ordered.push(id);
+        }
+    }
+
     for (const extra of CANONICAL_PROVIDERS ?? []) {
         if (extra?.id && !seen.has(extra.id)) {
             seen.add(extra.id);
-            merged.push(Object.freeze({
-                ...extra,
-                displayName: extra.displayName || extra.id,
-                locationHint: extra.locationHint || '',
-            }));
+            ordered.push(extra.id);
         }
     }
-    return merged;
+
+    for (const spec of FALLBACK_PROVIDER_SPECS) {
+        if (!seen.has(spec.id)) {
+            seen.add(spec.id);
+            ordered.push(spec.id);
+        }
+    }
+
+    return ordered;
+}
+
+export const PREFS_PROVIDERS = Object.freeze((() => {
+    const canonicalOrder = resolveDefaultProviderOrder();
+    return canonicalOrder.map(id => {
+        const fromFormat = PROVIDER_BY_ID?.[id] ??
+            (CANONICAL_PROVIDERS ?? []).find(p => p?.id === id) ??
+            null;
+        const fallback = FALLBACK_SPEC_BY_ID[id] ?? null;
+        return Object.freeze({
+            ...(fromFormat ?? {}),
+            id,
+            displayName:
+                fallback?.displayName ||
+                fromFormat?.displayName ||
+                id,
+            locationHint:
+                fromFormat?.locationHint ||
+                fallback?.locationHint ||
+                '',
+        });
+    });
 })());
 
 export const PREFS_PROVIDER_BY_ID = Object.freeze(
     Object.fromEntries(PREFS_PROVIDERS.map(p => [p.id, p]))
+);
+
+export const DEFAULT_HIDDEN_PROVIDERS = Object.freeze(
+    PREFS_PROVIDERS
+        .map(p => p.id)
+        .filter(id => !DEFAULT_TOP5_VISIBLE_IDS.includes(id))
 );
 
 const POLL_MODE_OPTIONS = Object.freeze([
@@ -115,6 +187,119 @@ function hasSettingKey(settings, key) {
     } catch (_e) {
         return false;
     }
+}
+
+/**
+ * Builds dynamically formatted `{id, label}` choices from `THEME_PRESETS`, grouping by
+ * category (`glass`, `light`, `dark`) and adding clear Light / Glass / Dark indicators
+ * whenever `preset.category` (or `preset.isLight`) is present.
+ *
+ * @param {ReadonlyArray<object>} [presets=THEME_PRESETS]
+ * @param {(s: string) => string} [translate=s => s]
+ * @returns {Array<{id: string, label: string}>}
+ */
+export function buildThemeComboOptions(presets = THEME_PRESETS, translate = s => String(s ?? '')) {
+    const list = Array.isArray(presets) ? presets.filter(p => p && p.id) : [];
+    const hasCategories = list.some(p => typeof p.category === 'string' && p.category.trim() !== '');
+
+    const ordered = [];
+    if (hasCategories) {
+        const categoryRank = ['glass', 'light', 'dark'];
+        const seen = new Set();
+        for (const cat of categoryRank) {
+            for (const preset of list) {
+                if (String(preset.category || '').toLowerCase() === cat && !seen.has(preset.id)) {
+                    seen.add(preset.id);
+                    ordered.push(preset);
+                }
+            }
+        }
+        for (const preset of list) {
+            if (!seen.has(preset.id)) {
+                seen.add(preset.id);
+                ordered.push(preset);
+            }
+        }
+    } else {
+        ordered.push(...list);
+    }
+
+    return ordered.map(preset => {
+        const baseLabel = translate(preset.label || preset.id);
+        const cat = typeof preset.category === 'string' ? preset.category.trim().toLowerCase() : '';
+        let badge = '';
+        if (cat === 'glass')
+            badge = translate('Glass');
+        else if (cat === 'light')
+            badge = translate('Light');
+        else if (cat === 'dark')
+            badge = translate('Dark');
+        else if (cat !== '')
+            badge = translate(preset.category);
+        else if (typeof preset.isLight === 'boolean')
+            badge = preset.isLight ? translate('Light') : translate('Dark');
+
+        return {
+            id: preset.id,
+            label: badge ? `${baseLabel}  ·  ${badge}` : baseLabel,
+        };
+    });
+}
+
+/**
+ * Parses and normalizes the first valid GTK accelerator from a `keybinding-toggle-popover` array.
+ *
+ * @param {ReadonlyArray<string>|null|undefined} rawAccels
+ * @returns {{accel: string, readable: string}}
+ */
+export function parseShortcutSetting(rawAccels) {
+    if (!Array.isArray(rawAccels))
+        return {accel: '', readable: ''};
+
+    for (const entry of rawAccels) {
+        const candidate = String(entry ?? '').trim();
+        if (!candidate)
+            continue;
+        try {
+            const [ok, keyval, mods] = Gtk.accelerator_parse(candidate);
+            if (ok && keyval !== 0) {
+                return {
+                    accel: candidate,
+                    readable: Gtk.accelerator_get_label(keyval, mods) || candidate,
+                };
+            }
+        } catch (_e) {
+            // Ignore malformed accelerator strings
+        }
+    }
+
+    return {accel: '', readable: ''};
+}
+
+/**
+ * Returns `true` when `keyval` is a bare modifier key rather than a trigger key.
+ *
+ * @param {number} keyval
+ * @returns {boolean}
+ */
+function isStandaloneModifierKey(keyval) {
+    return (
+        keyval === Gdk.KEY_Shift_L ||
+        keyval === Gdk.KEY_Shift_R ||
+        keyval === Gdk.KEY_Control_L ||
+        keyval === Gdk.KEY_Control_R ||
+        keyval === Gdk.KEY_Alt_L ||
+        keyval === Gdk.KEY_Alt_R ||
+        keyval === Gdk.KEY_Meta_L ||
+        keyval === Gdk.KEY_Meta_R ||
+        keyval === Gdk.KEY_Super_L ||
+        keyval === Gdk.KEY_Super_R ||
+        keyval === Gdk.KEY_Hyper_L ||
+        keyval === Gdk.KEY_Hyper_R ||
+        keyval === Gdk.KEY_ISO_Level3_Shift ||
+        keyval === Gdk.KEY_Caps_Lock ||
+        keyval === Gdk.KEY_Num_Lock
+    );
 }
 
 /**
@@ -208,14 +393,15 @@ export function isDismissedDialogError(err) {
  *
  * @param {Gio.File|null|undefined} file
  * @param {(message: string) => void} [showToast]
+ * @param {(s: string) => string} [translate]
  * @returns {string|null}
  */
-export function extractLocalDialogPath(file, showToast) {
+export function extractLocalDialogPath(file, showToast, translate = s => String(s ?? '')) {
     if (!file)
         return null;
     const localPath = file.get_path();
     if (!localPath || localPath.trim() === '') {
-        showToast?.('Selected location must be a local filesystem path');
+        showToast?.(translate('Selected location must be a local filesystem path'));
         return null;
     }
     return localPath;
@@ -232,6 +418,7 @@ export function extractLocalDialogPath(file, showToast) {
  *   title: string,
  *   selectFolder?: boolean,
  *   showToast: (message: string) => void,
+ *   translate?: (s: string) => string,
  *   onPathSelected: (localPath: string) => void
  * }} params
  */
@@ -241,6 +428,7 @@ function openLocalFileDialog({
     title,
     selectFolder = false,
     showToast,
+    translate = s => String(s ?? ''),
     onPathSelected,
 }) {
     if (cli.isDestroyed)
@@ -261,14 +449,14 @@ function openLocalFileDialog({
         } catch (err) {
             if (cli.isDestroyed || isDismissedDialogError(err))
                 return;
-            showToast(`Could not select path: ${err.message}`);
+            showToast(translate('Could not select path: %s').replace('%s', err.message));
             return;
         }
 
         if (cli.isDestroyed)
             return;
 
-        const localPath = extractLocalDialogPath(chosenFile, showToast);
+        const localPath = extractLocalDialogPath(chosenFile, showToast, translate);
         if (localPath)
             onPathSelected(localPath);
     };
@@ -277,6 +465,243 @@ function openLocalFileDialog({
         dialog.select_folder(window, cancellable, onReady);
     else
         dialog.open(window, cancellable, onReady);
+}
+
+/**
+ * Opens a modal GTK 4 key-capture dialog (`Gtk.EventControllerKey`) for `keybinding-toggle-popover`,
+ * supporting live modifier+key capture, `[Use Super+Shift+A]` quick preset, `[Clear]`, and `Esc` to cancel.
+ *
+ * @param {{
+ *   window: Gtk.Window,
+ *   settings: Gio.Settings,
+ *   cli: PrefsCliRunner,
+ *   showToast: (message: string) => void,
+ *   translate: (s: string) => string
+ * }} params
+ * @returns {Gtk.Window|null}
+ */
+export function openShortcutCaptureDialog({
+    window,
+    settings,
+    cli,
+    showToast,
+    translate: _,
+}) {
+    if (cli.isDestroyed || !hasSettingKey(settings, 'keybinding-toggle-popover'))
+        return null;
+
+    const current = parseShortcutSetting(settings.get_strv('keybinding-toggle-popover'));
+
+    const dialog = new Gtk.Window({
+        title: _('Set Global Toggle Shortcut'),
+        transient_for: window,
+        modal: true,
+        resizable: false,
+        default_width: 440,
+    });
+
+    let closed = false;
+    const closeDialog = () => {
+        if (closed)
+            return;
+        closed = true;
+        try {
+            dialog.destroy();
+        } catch (_e) {
+            // Ignore late destroy errors
+        }
+    };
+    cli.trackCleanup(closeDialog);
+    dialog.connect('close-request', () => {
+        closed = true;
+        return false;
+    });
+
+    const contentBox = new Gtk.Box({
+        orientation: Gtk.Orientation.VERTICAL,
+        spacing: 16,
+        margin_top: 20,
+        margin_bottom: 20,
+        margin_start: 24,
+        margin_end: 24,
+    });
+
+    const headingLabel = new Gtk.Label({
+        label: _('Press a keyboard shortcut to toggle Agent Usage Status'),
+        wrap: true,
+        xalign: 0.5,
+        justify: Gtk.Justification.CENTER,
+        css_classes: ['title-4'],
+    });
+
+    const hintLabel = new Gtk.Label({
+        label: _(
+            'Hold Super, Ctrl, or Alt with a key (for example Super+Shift+A), or press Esc to cancel.'
+        ),
+        wrap: true,
+        xalign: 0.5,
+        justify: Gtk.Justification.CENTER,
+        css_classes: ['dim-label'],
+    });
+
+    const previewPill = new Gtk.ShortcutLabel({
+        accelerator: current.accel,
+        disabled_text: _('Waiting for shortcut…'),
+        halign: Gtk.Align.CENTER,
+        valign: Gtk.Align.CENTER,
+    });
+
+    const statusLabel = new Gtk.Label({
+        label: current.readable
+            ? _('Current shortcut: %s').replace('%s', current.readable)
+            : _('Currently disabled'),
+        wrap: true,
+        xalign: 0.5,
+        justify: Gtk.Justification.CENTER,
+        css_classes: ['caption', 'dim-label'],
+    });
+
+    const actionsBox = new Gtk.Box({
+        orientation: Gtk.Orientation.HORIZONTAL,
+        spacing: 8,
+        halign: Gtk.Align.END,
+        margin_top: 8,
+    });
+
+    const cancelBtn = new Gtk.Button({
+        label: _('Cancel'),
+        valign: Gtk.Align.CENTER,
+    });
+    cancelBtn.connect('clicked', () => {
+        closeDialog();
+    });
+
+    const clearBtn = new Gtk.Button({
+        label: _('Clear'),
+        tooltip_text: _('Disable global keyboard shortcut'),
+        valign: Gtk.Align.CENTER,
+        css_classes: ['destructive-action'],
+    });
+    clearBtn.connect('clicked', () => {
+        if (!cli.isDestroyed) {
+            settings.set_strv('keybinding-toggle-popover', []);
+            showToast(_('Global toggle shortcut cleared'));
+        }
+        closeDialog();
+    });
+
+    const presetBtn = new Gtk.Button({
+        label: _('Use Super+Shift+A'),
+        tooltip_text: _('Bind global shortcut to Super+Shift+A'),
+        valign: Gtk.Align.CENTER,
+        css_classes: ['suggested-action'],
+    });
+    presetBtn.connect('clicked', () => {
+        if (!cli.isDestroyed) {
+            settings.set_strv('keybinding-toggle-popover', [PRESET_TOGGLE_SHORTCUT]);
+            showToast(_('Global shortcut set to Super+Shift+A'));
+        }
+        closeDialog();
+    });
+
+    actionsBox.append(cancelBtn);
+    actionsBox.append(clearBtn);
+    actionsBox.append(presetBtn);
+
+    contentBox.append(headingLabel);
+    contentBox.append(hintLabel);
+    contentBox.append(previewPill);
+    contentBox.append(statusLabel);
+    contentBox.append(actionsBox);
+    dialog.set_child(contentBox);
+
+    const keyController = new Gtk.EventControllerKey({
+        name: 'agent-status-shortcut-capture',
+        propagation_phase: Gtk.PropagationPhase.CAPTURE,
+    });
+
+    const modMask =
+        Gdk.ModifierType.CONTROL_MASK |
+        Gdk.ModifierType.SHIFT_MASK |
+        Gdk.ModifierType.ALT_MASK |
+        Gdk.ModifierType.SUPER_MASK |
+        Gdk.ModifierType.HYPER_MASK |
+        Gdk.ModifierType.META_MASK;
+    const primaryModMask =
+        Gdk.ModifierType.CONTROL_MASK |
+        Gdk.ModifierType.ALT_MASK |
+        Gdk.ModifierType.SUPER_MASK |
+        Gdk.ModifierType.HYPER_MASK |
+        Gdk.ModifierType.META_MASK;
+
+    keyController.connect('key-pressed', (_ctrl, keyval, _keycode, state) => {
+        if (cli.isDestroyed || closed)
+            return Gdk.EVENT_STOP;
+
+        const cleanMods = state & modMask;
+
+        if (keyval === Gdk.KEY_Escape) {
+            closeDialog();
+            return Gdk.EVENT_STOP;
+        }
+
+        if (isStandaloneModifierKey(keyval))
+            return Gdk.EVENT_STOP;
+
+        // Allow bare Tab / Enter / Space navigation across the dialog buttons when no primary modifier is held
+        if (
+            (cleanMods & primaryModMask) === 0 &&
+            (keyval === Gdk.KEY_Tab ||
+                keyval === Gdk.KEY_ISO_Left_Tab ||
+                keyval === Gdk.KEY_Return ||
+                keyval === Gdk.KEY_KP_Enter ||
+                keyval === Gdk.KEY_space)
+        ) {
+            return Gdk.EVENT_PROPAGATE;
+        }
+
+        // Bare BackSpace / Delete clears the shortcut cleanly (matching GNOME Settings)
+        if (
+            cleanMods === 0 &&
+            (keyval === Gdk.KEY_BackSpace || keyval === Gdk.KEY_Delete)
+        ) {
+            settings.set_strv('keybinding-toggle-popover', []);
+            showToast(_('Global toggle shortcut cleared'));
+            closeDialog();
+            return Gdk.EVENT_STOP;
+        }
+
+        let normKeyval = Gdk.keyval_to_lower(keyval);
+        let normMods = cleanMods;
+        if (keyval === Gdk.KEY_ISO_Left_Tab) {
+            normKeyval = Gdk.KEY_Tab;
+            normMods |= Gdk.ModifierType.SHIFT_MASK;
+        }
+
+        const isFunctionKey = normKeyval >= Gdk.KEY_F1 && normKeyval <= Gdk.KEY_F35;
+        const hasPrimaryMod = (normMods & primaryModMask) !== 0;
+
+        if ((!hasPrimaryMod && !isFunctionKey) || !Gtk.accelerator_valid(normKeyval, normMods)) {
+            statusLabel.set_label(
+                _('Include Super, Ctrl, or Alt (or press a function key F1–F12).')
+            );
+            return Gdk.EVENT_STOP;
+        }
+
+        const accelName = Gtk.accelerator_name(normKeyval, normMods);
+        if (!accelName)
+            return Gdk.EVENT_STOP;
+
+        const readable = Gtk.accelerator_get_label(normKeyval, normMods) || accelName;
+        settings.set_strv('keybinding-toggle-popover', [accelName]);
+        showToast(_('Global shortcut set to %s').replace('%s', readable));
+        closeDialog();
+        return Gdk.EVENT_STOP;
+    });
+
+    dialog.add_controller(keyController);
+    dialog.present();
+    return dialog;
 }
 
 /**
@@ -322,17 +747,30 @@ function isExecutableAsync(filePath, cancellable) {
  *   options: ReadonlyArray<{id: string, label: string}>,
  *   settings: Gio.Settings,
  *   key: string,
+ *   defaultId?: string,
  *   cli: PrefsCliRunner
  * }} params
  * @returns {Adw.ComboRow}
  */
-function createBoundComboRow({title, subtitle, options, settings, key, cli}) {
+function createBoundComboRow({title, subtitle, options, settings, key, defaultId, cli}) {
+    const hasKey = hasSettingKey(settings, key);
     const stringList = Gtk.StringList.new(options.map(o => o.label));
     const row = new Adw.ComboRow({
         title: escapeMarkup(title),
         subtitle: subtitle ? escapeMarkup(subtitle) : '',
         model: stringList,
+        sensitive: hasKey && options.length > 0,
     });
+
+    const fallbackIdx = defaultId
+        ? Math.max(0, options.findIndex(o => o.id === defaultId))
+        : 0;
+
+    if (!hasKey || options.length === 0) {
+        if (options.length > 0)
+            row.set_selected(fallbackIdx);
+        return row;
+    }
 
     let updating = false;
     const syncFromSettings = () => {
@@ -341,7 +779,7 @@ function createBoundComboRow({title, subtitle, options, settings, key, cli}) {
         const val = settings.get_string(key);
         const idx = options.findIndex(o => o.id === val);
         updating = true;
-        row.set_selected(idx >= 0 ? idx : 0);
+        row.set_selected(idx >= 0 ? idx : fallbackIdx);
         updating = false;
     };
 
@@ -383,9 +821,11 @@ export class PrefsCliRunner {
         this._cleanups = [];
         this._mutationChain = Promise.resolve();
 
-        this._binSigId = this._settings.connect('changed::binary-path', () => {
-            this._resolvedBin = null;
-        });
+        this._binSigId = hasSettingKey(this._settings, 'binary-path')
+            ? this._settings.connect('changed::binary-path', () => {
+                this._resolvedBin = null;
+            })
+            : 0;
     }
 
     get isDestroyed() {
@@ -495,7 +935,9 @@ export class PrefsCliRunner {
 
         const cancellable = this.newCancellable();
         try {
-            const custom = this._settings.get_string('binary-path').trim();
+            const custom = hasSettingKey(this._settings, 'binary-path')
+                ? this._settings.get_string('binary-path').trim()
+                : '';
             if (custom !== '') {
                 const expanded = custom.startsWith('~/')
                     ? GLib.build_filenamev([GLib.get_home_dir(), custom.slice(2)])
@@ -627,10 +1069,13 @@ export class PrefsCliRunner {
 
 export default class AgentStatusPreferences extends ExtensionPreferences {
     fillPreferencesWindow(window) {
+        const _ = typeof this.gettext === 'function'
+            ? s => this.gettext(s)
+            : s => String(s ?? '');
         const settings = this.getSettings();
         const cli = new PrefsCliRunner(settings);
 
-        window.set_default_size(680, 720);
+        window.set_default_size(700, 740);
         window.set_search_enabled(true);
 
         window.connect('close-request', () => {
@@ -648,13 +1093,14 @@ export default class AgentStatusPreferences extends ExtensionPreferences {
             }
         };
 
-        window.add(this._buildAppearancePage(settings, cli));
-        const refreshHooks = this._buildRefreshVisibilityPage(window, settings, cli, showToast);
+        window.add(this._buildAppearancePage(window, settings, cli, showToast, _));
+        const refreshHooks = this._buildRefreshVisibilityPage(window, settings, cli, showToast, _);
         window.add(refreshHooks.page);
         const accountsHooks = this._buildAccountsPage(
             window,
             cli,
             showToast,
+            _,
             cfg => refreshHooks.applyConfigState(cfg)
         );
         window.add(accountsHooks.page);
@@ -674,39 +1120,41 @@ export default class AgentStatusPreferences extends ExtensionPreferences {
         })();
     }
 
-    _buildAppearancePage(settings, cli) {
+    _buildAppearancePage(window, settings, cli, showToast, _) {
         const page = new Adw.PreferencesPage({
-            title: 'Appearance & Top Bar',
+            title: _('Appearance & Top Bar'),
             icon_name: 'preferences-desktop-appearance-symbolic',
         });
 
         // Top Bar Indicator Group
         const panelGroup = new Adw.PreferencesGroup({
-            title: escapeMarkup('Top Bar Indicator'),
-            description: escapeMarkup('Configure how AI agent usage appears in the GNOME top panel.'),
+            title: escapeMarkup(_('Top Bar Indicator')),
+            description: escapeMarkup(_('Configure how AI agent usage appears in the GNOME top panel.')),
         });
 
         panelGroup.add(createBoundComboRow({
-            title: 'Panel Mode',
-            subtitle: 'Minimal single icon, compact provider pills, or full text summary',
-            options: PANEL_MODES,
+            title: _('Panel Mode'),
+            subtitle: _('Minimal single icon, compact provider pills, or full text summary'),
+            options: PANEL_MODES.map(o => ({id: o.id, label: _(o.label)})),
             settings,
             key: 'panel-mode',
+            defaultId: 'icon',
             cli,
         }));
 
         panelGroup.add(createBoundComboRow({
-            title: 'Panel Box Alignment',
-            subtitle: 'Section of the GNOME top bar where the indicator sits',
-            options: PANEL_BOXES,
+            title: _('Panel Box Alignment'),
+            subtitle: _('Section of the GNOME top bar where the indicator sits'),
+            options: PANEL_BOXES.map(o => ({id: o.id, label: _(o.label)})),
             settings,
             key: 'panel-box',
+            defaultId: 'right',
             cli,
         }));
 
         const posRow = new Adw.SpinRow({
-            title: escapeMarkup('Panel Position Index'),
-            subtitle: escapeMarkup('Zero-based slot index within the chosen top bar box'),
+            title: escapeMarkup(_('Panel Position Index')),
+            subtitle: escapeMarkup(_('Zero-based slot index within the chosen top bar box')),
             adjustment: new Gtk.Adjustment({
                 lower: 0,
                 upper: 25,
@@ -720,54 +1168,147 @@ export default class AgentStatusPreferences extends ExtensionPreferences {
         panelGroup.add(posRow);
 
         const autoHideRow = new Adw.SwitchRow({
-            title: escapeMarkup('Auto-Hide When Empty'),
-            subtitle: escapeMarkup('Hide the top bar icon automatically when no active providers are detected'),
+            title: escapeMarkup(_('Auto-Hide When Empty')),
+            subtitle: escapeMarkup(
+                _('Hide the top bar icon automatically when no active providers are detected')
+            ),
         });
         settings.bind('auto-hide-when-empty', autoHideRow, 'active', Gio.SettingsBindFlags.DEFAULT);
         cli.trackCleanup(() => Gio.Settings.unbind(autoHideRow, 'active'));
         panelGroup.add(autoHideRow);
 
+        // Global Toggle Shortcut Row
+        const hasShortcutKey = hasSettingKey(settings, 'keybinding-toggle-popover');
+        const shortcutRow = new Adw.ActionRow({
+            title: escapeMarkup(_('Global Toggle Shortcut')),
+            subtitle: escapeMarkup(
+                _('Toggle the usage popover from anywhere in GNOME Shell (optional)')
+            ),
+            sensitive: hasShortcutKey,
+        });
+
+        const shortcutPill = new Gtk.ShortcutLabel({
+            accelerator: '',
+            disabled_text: _('Disabled'),
+            valign: Gtk.Align.CENTER,
+        });
+
+        const setShortcutBtn = new Gtk.Button({
+            label: _('Set Shortcut…'),
+            tooltip_text: _('Configure or clear the global keyboard shortcut'),
+            valign: Gtk.Align.CENTER,
+            sensitive: hasShortcutKey,
+        });
+        setShortcutBtn.connect('clicked', () => {
+            openShortcutCaptureDialog({
+                window,
+                settings,
+                cli,
+                showToast,
+                translate: _,
+            });
+        });
+
+        const syncShortcutRow = () => {
+            if (cli.isDestroyed)
+                return;
+            const parsed = hasShortcutKey
+                ? parseShortcutSetting(settings.get_strv('keybinding-toggle-popover'))
+                : {accel: '', readable: ''};
+            shortcutPill.set_accelerator(parsed.accel);
+            shortcutRow.set_subtitle(
+                escapeMarkup(
+                    parsed.readable
+                        ? _('Active shortcut: %s · Click Set Shortcut… to change or clear').replace(
+                            '%s',
+                            parsed.readable
+                        )
+                        : _('Disabled · Click Set Shortcut… to bind (for example Super+Shift+A)')
+                )
+            );
+        };
+
+        syncShortcutRow();
+
+        if (hasShortcutKey) {
+            let shortcutSigId = settings.connect('changed::keybinding-toggle-popover', () => {
+                syncShortcutRow();
+            });
+            const disconnectShortcutSig = () => {
+                if (shortcutSigId !== 0) {
+                    settings.disconnect(shortcutSigId);
+                    shortcutSigId = 0;
+                }
+            };
+            cli.trackCleanup(disconnectShortcutSig);
+            shortcutRow.connect('destroy', disconnectShortcutSig);
+        }
+
+        shortcutRow.add_suffix(shortcutPill);
+        shortcutRow.add_suffix(setShortcutBtn);
+        panelGroup.add(shortcutRow);
+
         page.add(panelGroup);
 
-        // Popover Theme & Typography Group
+        // Popover Theme & Layout Group
         const themeGroup = new Adw.PreferencesGroup({
-            title: escapeMarkup('Popover Theme & Layout'),
-            description: escapeMarkup('Customize colors, information density, and number formatting.'),
+            title: escapeMarkup(_('Popover Theme & Layout')),
+            description: escapeMarkup(
+                _('Customize curated palettes, card grid layout, density, and number formatting.')
+            ),
         });
 
         themeGroup.add(createBoundComboRow({
-            title: 'Theme Preset',
-            subtitle: 'Applies immediately to the expandable usage popover and gauges',
-            options: THEME_PRESETS,
+            title: _('Theme Preset'),
+            subtitle: _(
+                'Synced live with the popover theme picker across Glass, Light, and Dark palettes'
+            ),
+            options: buildThemeComboOptions(THEME_PRESETS, _),
             settings,
             key: 'theme',
+            defaultId: 'midnight-slate',
             cli,
         }));
 
         themeGroup.add(createBoundComboRow({
-            title: 'Default Popover Density',
-            subtitle: 'Detailed multi-window breakdown or compact single-line summary',
-            options: DENSITY_MODES,
+            title: _('Popover Layout'),
+            subtitle: _(
+                'Single column with Top 5 progressive disclosure or wide 2-column bento grid'
+            ),
+            options: POPOVER_LAYOUTS.map(o => ({id: o.id, label: _(o.label)})),
+            settings,
+            key: 'popover-layout',
+            defaultId: 'list',
+            cli,
+        }));
+
+        themeGroup.add(createBoundComboRow({
+            title: _('Default Popover Density'),
+            subtitle: _('Detailed multi-window breakdown or compact single-line summary'),
+            options: DENSITY_MODES.map(o => ({id: o.id, label: _(o.label)})),
             settings,
             key: 'density-mode',
+            defaultId: 'detailed',
             cli,
         }));
 
         themeGroup.add(createBoundComboRow({
-            title: 'Font Style',
-            subtitle: 'System UI font with tabular numbers or developer monospace font',
-            options: FONT_STYLES,
+            title: _('Font Style'),
+            subtitle: _('System UI font with tabular numbers or developer monospace font'),
+            options: FONT_STYLES.map(o => ({id: o.id, label: _(o.label)})),
             settings,
             key: 'font-style',
+            defaultId: 'system',
             cli,
         }));
 
         themeGroup.add(createBoundComboRow({
-            title: 'Quota Metric',
-            subtitle: 'Display percentages and gauges as quota used or quota remaining',
-            options: METRIC_MODES,
+            title: _('Quota Metric'),
+            subtitle: _('Display percentages and gauges as quota used or quota remaining'),
+            options: METRIC_MODES.map(o => ({id: o.id, label: _(o.label)})),
             settings,
             key: 'metric-mode',
+            defaultId: 'used',
             cli,
         }));
 
@@ -775,20 +1316,24 @@ export default class AgentStatusPreferences extends ExtensionPreferences {
         return page;
     }
 
-    _buildRefreshVisibilityPage(window, settings, cli, showToast) {
+    _buildRefreshVisibilityPage(window, settings, cli, showToast, _) {
         const page = new Adw.PreferencesPage({
-            title: 'Refresh & Visibility',
+            title: _('Refresh & Visibility'),
             icon_name: 'preferences-system-time-symbolic',
         });
 
         const cadenceGroup = new Adw.PreferencesGroup({
-            title: escapeMarkup('Collection Cadence & Binary'),
-            description: escapeMarkup('Control background polling intervals, discovery defaults, and binary path.'),
+            title: escapeMarkup(_('Collection Cadence & Binary')),
+            description: escapeMarkup(
+                _('Control background polling intervals, discovery defaults, and binary path.')
+            ),
         });
 
         const refreshSpin = new Adw.SpinRow({
-            title: escapeMarkup('Background Refresh Interval (seconds)'),
-            subtitle: escapeMarkup('Minimum 300s recommended to stay well within provider OAuth rate limits'),
+            title: escapeMarkup(_('Background Refresh Interval (seconds)')),
+            subtitle: escapeMarkup(
+                _('Minimum 300s recommended to stay well within provider OAuth rate limits')
+            ),
             adjustment: new Gtk.Adjustment({
                 lower: 60,
                 upper: 3600,
@@ -804,9 +1349,11 @@ export default class AgentStatusPreferences extends ExtensionPreferences {
         let syncingConfig = false;
 
         const autoDiscoverRow = new Adw.SwitchRow({
-            title: escapeMarkup('Auto-Discover Local Accounts'),
+            title: escapeMarkup(_('Auto-Discover Local Accounts')),
             subtitle: escapeMarkup(
-                'Automatically detect local Claude, Codex, Grok, Antigravity, Cursor, Copilot, and Gemini profiles'
+                _(
+                    'Automatically detect local Claude, Codex, Grok, Cursor, Antigravity, OpenRouter, Copilot, Gemini, Windsurf, and DeepSeek profiles'
+                )
             ),
             active: true,
         });
@@ -822,18 +1369,18 @@ export default class AgentStatusPreferences extends ExtensionPreferences {
                     if (!updated || cli.isDestroyed)
                         return;
                     void cli.triggerBackgroundCollect();
-                    showToast('Updated auto-discovery setting');
+                    showToast(_('Updated auto-discovery setting'));
                 } catch (e) {
                     if (!cli.isDestroyed)
-                        showToast(`Failed to update config.toml: ${e.message}`);
+                        showToast(_('Failed to update config.toml: %s').replace('%s', e.message));
                 }
             })();
         });
         cadenceGroup.add(autoDiscoverRow);
 
         const timeoutSpin = new Adw.SpinRow({
-            title: escapeMarkup('Collector Timeout (seconds)'),
-            subtitle: escapeMarkup('Maximum wait time per collection run in config.toml'),
+            title: escapeMarkup(_('Collector Timeout (seconds)')),
+            subtitle: escapeMarkup(_('Maximum wait time per collection run in config.toml')),
             adjustment: new Gtk.Adjustment({
                 lower: 5,
                 upper: 180,
@@ -871,7 +1418,7 @@ export default class AgentStatusPreferences extends ExtensionPreferences {
                             );
                         } catch (e) {
                             if (!cli.isDestroyed)
-                                showToast(`Failed to update timeout: ${e.message}`);
+                                showToast(_('Failed to update timeout: %s').replace('%s', e.message));
                         }
                     })();
                     return GLib.SOURCE_REMOVE;
@@ -883,7 +1430,7 @@ export default class AgentStatusPreferences extends ExtensionPreferences {
 
         // Custom binary override with two-way GSettings sync and Gtk.FileDialog
         const binaryEntry = new Adw.EntryRow({
-            title: escapeMarkup('Custom gnome-agent-status Binary Path (Optional)'),
+            title: escapeMarkup(_('Custom gnome-agent-status Binary Path (Optional)')),
             text: settings.get_string('binary-path') || '',
         });
         let syncingBinaryEntry = false;
@@ -914,7 +1461,7 @@ export default class AgentStatusPreferences extends ExtensionPreferences {
         binaryEntry.connect('destroy', disconnectBinEntry);
 
         const browseBinBtn = new Gtk.Button({
-            label: 'Browse…',
+            label: _('Browse…'),
             valign: Gtk.Align.CENTER,
             css_classes: ['flat'],
         });
@@ -922,9 +1469,10 @@ export default class AgentStatusPreferences extends ExtensionPreferences {
             openLocalFileDialog({
                 window,
                 cli,
-                title: 'Select gnome-agent-status Executable',
+                title: _('Select gnome-agent-status Executable'),
                 selectFolder: false,
                 showToast,
+                translate: _,
                 onPathSelected: path => binaryEntry.set_text(path),
             });
         });
@@ -935,29 +1483,35 @@ export default class AgentStatusPreferences extends ExtensionPreferences {
 
         // Desktop Notifications Group
         const notificationsGroup = new Adw.PreferencesGroup({
-            title: escapeMarkup('Desktop Notifications'),
+            title: escapeMarkup(_('Desktop Notifications')),
             description: escapeMarkup(
-                'Alert once per quota window when active providers cross usage thresholds or reset.'
+                _('Alert once per quota window when active providers cross usage thresholds or reset.')
             ),
         });
 
         const notificationSpecs = [
             {
                 key: 'notify-on-warning',
-                title: 'Warning Threshold (80%)',
-                subtitle: 'Send a calm notification once per window when a primary bucket reaches 80% used',
+                title: _('Warning Threshold (80%)'),
+                subtitle: _(
+                    'Send a calm notification once per window when a primary bucket reaches 80% used'
+                ),
                 fallback: false,
             },
             {
                 key: 'notify-on-critical',
-                title: 'Critical Threshold (90%)',
-                subtitle: 'Send an urgent notification once per window when a primary bucket reaches 90% used',
+                title: _('Critical Threshold (90%)'),
+                subtitle: _(
+                    'Send an urgent notification once per window when a primary bucket reaches 90% used'
+                ),
                 fallback: true,
             },
             {
                 key: 'notify-on-reset',
-                title: 'Quota Reset Notification',
-                subtitle: 'Notify when a previously high-usage primary bucket resets back to fresh capacity',
+                title: _('Quota Reset Notification'),
+                subtitle: _(
+                    'Notify when a previously high-usage primary bucket resets back to fresh capacity'
+                ),
                 fallback: true,
             },
         ];
@@ -979,32 +1533,49 @@ export default class AgentStatusPreferences extends ExtensionPreferences {
 
         page.add(notificationsGroup);
 
-        // Provider Display Order Group
-        const orderGroup = new Adw.PreferencesGroup({
-            title: escapeMarkup('Provider Display Order'),
+        // Unified Visible Agents & Display Order Group
+        const agentsGroup = new Adw.PreferencesGroup({
+            title: escapeMarkup(_('Visible Agents & Display Order')),
             description: escapeMarkup(
-                'Reorder how providers appear in top bar pills, text summaries, and the usage popover.'
+                _(
+                    'The top 5 enabled agents appear on the main card list by default (with "Show more" or 2-Column layout when 6+ are enabled). Toggle visibility or move agents up and down to customize priority.'
+                )
             ),
         });
 
         const hasOrderKey = hasSettingKey(settings, 'provider-order');
-        const readNormalizedOrder = () =>
-            normalizeProviderOrder(hasOrderKey ? settings.get_strv('provider-order') : DEFAULT_PROVIDER_ORDER);
+        const hasHiddenKey = hasSettingKey(settings, 'hidden-providers');
+        const defaultOrder = resolveDefaultProviderOrder();
+        const defaultHiddenSet = new Set(DEFAULT_HIDDEN_PROVIDERS);
 
-        const resetOrderBtn = new Gtk.Button({
-            label: 'Reset Order',
-            tooltip_text: 'Restore default provider display order',
+        const readNormalizedOrder = () =>
+            normalizeProviderOrder(hasOrderKey ? settings.get_strv('provider-order') : defaultOrder);
+        const readHiddenSet = () =>
+            new Set(
+                (hasHiddenKey ? settings.get_strv('hidden-providers') : DEFAULT_HIDDEN_PROVIDERS)
+                    .map(s => String(s ?? '').trim())
+                    .filter(id => Boolean(id && PREFS_PROVIDER_BY_ID[id]))
+            );
+
+        const resetTop5Btn = new Gtk.Button({
+            label: _('Reset to Default Top 5'),
+            tooltip_text: _(
+                'Restore default Top 5 visible agents (Claude, Codex, Grok, Cursor, Antigravity) and canonical display order'
+            ),
             valign: Gtk.Align.CENTER,
             has_frame: false,
             css_classes: ['flat'],
         });
-        orderGroup.set_header_suffix(resetOrderBtn);
+        agentsGroup.set_header_suffix(resetTop5Btn);
 
+        let syncingAgentRows = false;
         const orderSlots = [];
+
         for (let idx = 0; idx < PREFS_PROVIDERS.length; idx++) {
+            const initialProv = PREFS_PROVIDERS[idx];
             const row = new Adw.ActionRow({
-                title: escapeMarkup(PREFS_PROVIDERS[idx].displayName),
-                subtitle: escapeMarkup(`Position ${idx + 1} · Provider ID: ${PREFS_PROVIDERS[idx].id}`),
+                title: escapeMarkup(initialProv.displayName),
+                subtitle: escapeMarkup(`Position ${idx + 1} · ID: ${initialProv.id}`),
             });
 
             const upBtn = new Gtk.Button({
@@ -1020,6 +1591,19 @@ export default class AgentStatusPreferences extends ExtensionPreferences {
                 has_frame: false,
                 css_classes: ['flat'],
             });
+
+            const visSwitch = new Gtk.Switch({
+                valign: Gtk.Align.CENTER,
+                sensitive: hasHiddenKey,
+            });
+
+            const slot = {
+                row,
+                upBtn,
+                downBtn,
+                visSwitch,
+                currentProvId: initialProv.id,
+            };
 
             upBtn.connect('clicked', () => {
                 if (cli.isDestroyed || !hasOrderKey || idx <= 0)
@@ -1051,118 +1635,134 @@ export default class AgentStatusPreferences extends ExtensionPreferences {
                 }
             });
 
+            visSwitch.connect('notify::active', () => {
+                if (syncingAgentRows || cli.isDestroyed || !hasHiddenKey)
+                    return;
+                const provId = slot.currentProvId;
+                if (!provId)
+                    return;
+                const nextHidden = new Set(settings.get_strv('hidden-providers') || []);
+                if (visSwitch.get_active())
+                    nextHidden.delete(provId);
+                else
+                    nextHidden.add(provId);
+                settings.set_strv('hidden-providers', Array.from(nextHidden));
+            });
+
             row.add_suffix(upBtn);
             row.add_suffix(downBtn);
-            orderGroup.add(row);
-            orderSlots.push({row, upBtn, downBtn});
+            row.add_suffix(visSwitch);
+            agentsGroup.add(row);
+            orderSlots.push(slot);
         }
 
-        const syncOrderRows = () => {
+        const syncAgentRows = () => {
             if (cli.isDestroyed)
                 return;
             const orderedIds = readNormalizedOrder();
-            for (let idx = 0; idx < orderSlots.length; idx++) {
-                const slot = orderSlots[idx];
-                const provId = orderedIds[idx] ?? PREFS_PROVIDERS[idx].id;
-                const prov = PREFS_PROVIDER_BY_ID[provId] ?? {
-                    id: provId,
-                    displayName: provId,
-                };
+            const hiddenSet = readHiddenSet();
 
-                slot.row.set_title(escapeMarkup(prov.displayName));
-                slot.row.set_subtitle(escapeMarkup(`Position ${idx + 1} · Provider ID: ${prov.id}`));
+            let enabledCounter = 0;
+            syncingAgentRows = true;
+            try {
+                for (let idx = 0; idx < orderSlots.length; idx++) {
+                    const slot = orderSlots[idx];
+                    const provId = orderedIds[idx] ?? PREFS_PROVIDERS[idx].id;
+                    const prov = PREFS_PROVIDER_BY_ID[provId] ?? {
+                        id: provId,
+                        displayName: provId,
+                    };
+                    const isVisible = !hiddenSet.has(provId);
+                    let statusTag;
+                    if (isVisible) {
+                        enabledCounter++;
+                        statusTag = enabledCounter <= 5
+                            ? _('Main Card #%d (Top 5)').replace('%d', String(enabledCounter))
+                            : _('Enabled #%d ("Show more" / 2-Column)').replace(
+                                '%d',
+                                String(enabledCounter)
+                            );
+                    } else {
+                        statusTag = _('Hidden');
+                    }
 
-                const upLabel = `Move ${prov.displayName} up`;
-                const downLabel = `Move ${prov.displayName} down`;
-                slot.upBtn.set_tooltip_text(upLabel);
-                slot.downBtn.set_tooltip_text(downLabel);
-                slot.upBtn.update_property([Gtk.AccessibleProperty.LABEL], [upLabel]);
-                slot.downBtn.update_property([Gtk.AccessibleProperty.LABEL], [downLabel]);
+                    slot.currentProvId = provId;
+                    slot.row.set_title(escapeMarkup(prov.displayName));
+                    slot.row.set_subtitle(
+                        escapeMarkup(
+                            _('Position %d · %s · ID: %s')
+                                .replace('%d', String(idx + 1))
+                                .replace('%s', statusTag)
+                                .replace('%s', prov.id)
+                        )
+                    );
 
-                slot.upBtn.set_sensitive(hasOrderKey && idx > 0);
-                slot.downBtn.set_sensitive(hasOrderKey && idx < orderSlots.length - 1);
+                    const upLabel = _('Move %s up').replace('%s', prov.displayName);
+                    const downLabel = _('Move %s down').replace('%s', prov.displayName);
+                    const toggleLabel = _('Toggle %s visibility').replace('%s', prov.displayName);
+                    slot.upBtn.set_tooltip_text(upLabel);
+                    slot.downBtn.set_tooltip_text(downLabel);
+                    slot.visSwitch.set_tooltip_text(toggleLabel);
+                    slot.upBtn.update_property([Gtk.AccessibleProperty.LABEL], [upLabel]);
+                    slot.downBtn.update_property([Gtk.AccessibleProperty.LABEL], [downLabel]);
+                    slot.visSwitch.update_property([Gtk.AccessibleProperty.LABEL], [toggleLabel]);
+
+                    slot.upBtn.set_sensitive(hasOrderKey && idx > 0);
+                    slot.downBtn.set_sensitive(hasOrderKey && idx < orderSlots.length - 1);
+                    if (slot.visSwitch.get_active() !== isVisible)
+                        slot.visSwitch.set_active(isVisible);
+                }
+            } finally {
+                syncingAgentRows = false;
             }
 
             const isDefaultOrder =
-                orderedIds.length === DEFAULT_PROVIDER_ORDER.length &&
-                orderedIds.every((id, i) => id === DEFAULT_PROVIDER_ORDER[i]);
-            resetOrderBtn.set_sensitive(hasOrderKey && !isDefaultOrder);
+                orderedIds.length === defaultOrder.length &&
+                orderedIds.every((id, i) => id === defaultOrder[i]);
+            const isDefaultHidden =
+                hiddenSet.size === defaultHiddenSet.size &&
+                Array.from(defaultHiddenSet).every(id => hiddenSet.has(id));
+
+            resetTop5Btn.set_sensitive(
+                (hasOrderKey && !isDefaultOrder) || (hasHiddenKey && !isDefaultHidden)
+            );
         };
 
-        resetOrderBtn.connect('clicked', () => {
-            if (cli.isDestroyed || !hasOrderKey)
+        resetTop5Btn.connect('clicked', () => {
+            if (cli.isDestroyed)
                 return;
-            settings.set_strv('provider-order', [...DEFAULT_PROVIDER_ORDER]);
+            if (hasOrderKey)
+                settings.set_strv('provider-order', [...defaultOrder]);
+            if (hasHiddenKey)
+                settings.set_strv('hidden-providers', [...DEFAULT_HIDDEN_PROVIDERS]);
+            showToast(_('Restored default Top 5 visible agents and display order'));
         });
 
-        syncOrderRows();
+        syncAgentRows();
 
+        const signalDisconnectorIds = [];
         if (hasOrderKey) {
-            let orderSigId = settings.connect('changed::provider-order', () => {
-                syncOrderRows();
-            });
-            const disconnectOrderSig = () => {
-                if (orderSigId !== 0) {
-                    settings.disconnect(orderSigId);
-                    orderSigId = 0;
-                }
-            };
-            cli.trackCleanup(disconnectOrderSig);
-            orderGroup.connect('destroy', disconnectOrderSig);
+            signalDisconnectorIds.push(
+                settings.connect('changed::provider-order', () => syncAgentRows())
+            );
+        }
+        if (hasHiddenKey) {
+            signalDisconnectorIds.push(
+                settings.connect('changed::hidden-providers', () => syncAgentRows())
+            );
         }
 
-        page.add(orderGroup);
+        const disconnectAgentSigs = () => {
+            while (signalDisconnectorIds.length > 0) {
+                const id = signalDisconnectorIds.pop();
+                if (id)
+                    settings.disconnect(id);
+            }
+        };
+        cli.trackCleanup(disconnectAgentSigs);
+        agentsGroup.connect('destroy', disconnectAgentSigs);
 
-        // Provider Visibility Group
-        const visibilityGroup = new Adw.PreferencesGroup({
-            title: escapeMarkup('Visible Providers'),
-            description: escapeMarkup('Choose which providers appear in the top bar and usage popover.'),
-        });
-
-        for (const prov of PREFS_PROVIDERS) {
-            const hiddenInitial = new Set(settings.get_strv('hidden-providers') || []);
-            const switchRow = new Adw.SwitchRow({
-                title: escapeMarkup(prov.displayName),
-                subtitle: escapeMarkup(`Provider ID: ${prov.id}`),
-                active: !hiddenInitial.has(prov.id),
-            });
-
-            let internalSync = false;
-            switchRow.connect('notify::active', () => {
-                if (internalSync || cli.isDestroyed)
-                    return;
-                const currentHidden = new Set(settings.get_strv('hidden-providers') || []);
-                if (switchRow.get_active())
-                    currentHidden.delete(prov.id);
-                else
-                    currentHidden.add(prov.id);
-                settings.set_strv('hidden-providers', Array.from(currentHidden));
-            });
-
-            let sigId = settings.connect('changed::hidden-providers', () => {
-                if (cli.isDestroyed)
-                    return;
-                const updatedHidden = new Set(settings.get_strv('hidden-providers') || []);
-                const shouldBeActive = !updatedHidden.has(prov.id);
-                if (switchRow.get_active() !== shouldBeActive) {
-                    internalSync = true;
-                    switchRow.set_active(shouldBeActive);
-                    internalSync = false;
-                }
-            });
-            const disconnectSwitch = () => {
-                if (sigId !== 0) {
-                    settings.disconnect(sigId);
-                    sigId = 0;
-                }
-            };
-            cli.trackCleanup(disconnectSwitch);
-            switchRow.connect('destroy', disconnectSwitch);
-
-            visibilityGroup.add(switchRow);
-        }
-
-        page.add(visibilityGroup);
+        page.add(agentsGroup);
 
         return {
             page,
@@ -1179,16 +1779,18 @@ export default class AgentStatusPreferences extends ExtensionPreferences {
         };
     }
 
-    _buildAccountsPage(window, cli, showToast, onReloadConfig = null) {
+    _buildAccountsPage(window, cli, showToast, _, onReloadConfig = null) {
         const page = new Adw.PreferencesPage({
-            title: 'Accounts & Manual Locations',
+            title: _('Accounts & Manual Locations'),
             icon_name: 'system-users-symbolic',
         });
 
         // 1. Configured Manual Accounts Group
         const listGroup = new Adw.PreferencesGroup({
-            title: escapeMarkup('Configured Manual Account Locations'),
-            description: escapeMarkup('Manual directories, credential files, or databases stored in config.toml.'),
+            title: escapeMarkup(_('Configured Manual Account Locations')),
+            description: escapeMarkup(
+                _('Manual directories, credential files, or databases stored in config.toml.')
+            ),
         });
 
         const headerActionsBox = new Gtk.Box({
@@ -1206,7 +1808,7 @@ export default class AgentStatusPreferences extends ExtensionPreferences {
         let editingKey = null;
 
         const openConfigBtn = new Gtk.Button({
-            label: 'Open config.toml',
+            label: _('Open config.toml'),
             css_classes: ['flat'],
         });
         openConfigBtn.connect('clicked', () => {
@@ -1242,7 +1844,7 @@ export default class AgentStatusPreferences extends ExtensionPreferences {
                     Gio.AppInfo.launch_default_for_uri(uri, null);
                 } catch (e) {
                     if (!cli.isDestroyed)
-                        showToast(`Could not open config.toml: ${e.message}`);
+                        showToast(_('Could not open config.toml: %s').replace('%s', e.message));
                 } finally {
                     cli.releaseCancellable(cancellable);
                 }
@@ -1251,7 +1853,7 @@ export default class AgentStatusPreferences extends ExtensionPreferences {
 
         const reloadBtn = new Gtk.Button({
             icon_name: 'view-refresh-symbolic',
-            tooltip_text: 'Reload manual accounts from config.toml',
+            tooltip_text: _('Reload manual accounts from config.toml'),
             css_classes: ['flat'],
         });
         headerActionsBox.append(openConfigBtn);
@@ -1268,33 +1870,37 @@ export default class AgentStatusPreferences extends ExtensionPreferences {
 
         // 2. Add / Update Manual Account Form Group
         const formGroup = new Adw.PreferencesGroup({
-            title: escapeMarkup('Add or Update Manual Account'),
+            title: escapeMarkup(_('Add or Update Manual Account')),
             description: escapeMarkup(
-                'Point manually to any custom Claude, Codex, Grok, Antigravity, Cursor, Copilot, or Gemini directory or file if auto-discovery does not find it.'
+                _(
+                    'Point manually to any custom Claude, Codex, Grok, Cursor, Antigravity, OpenRouter, Copilot, Gemini, Windsurf, or DeepSeek directory or credential file if auto-discovery does not find it.'
+                )
             ),
         });
 
         const providerCombo = new Adw.ComboRow({
-            title: escapeMarkup('Provider'),
-            subtitle: escapeMarkup(`Example location: ${PREFS_PROVIDERS[0].locationHint}`),
+            title: escapeMarkup(_('Provider')),
+            subtitle: escapeMarkup(
+                _('Example location: %s').replace('%s', PREFS_PROVIDERS[0].locationHint)
+            ),
             model: Gtk.StringList.new(PREFS_PROVIDERS.map(p => p.displayName)),
         });
 
         const labelEntry = new Adw.EntryRow({
-            title: escapeMarkup('Display Label (e.g. Work Claude)'),
+            title: escapeMarkup(_('Display Label (e.g. Work Claude)')),
         });
 
         const idEntry = new Adw.EntryRow({
-            title: escapeMarkup('Account ID Slug (e.g. work — auto-filled if blank)'),
+            title: escapeMarkup(_('Account ID Slug (e.g. work — auto-filled if blank)')),
         });
 
         const pathEntry = new Adw.EntryRow({
-            title: escapeMarkup('Profile Directory or Auth/DB File Path'),
+            title: escapeMarkup(_('Profile Directory or Auth/DB File Path')),
         });
 
         const pickFolderBtn = new Gtk.Button({
-            label: 'Folder…',
-            tooltip_text: 'Select a custom profile directory (e.g. ~/.claude-work or ~/.codex-work)',
+            label: _('Folder…'),
+            tooltip_text: _('Select a custom profile directory (e.g. ~/.claude-work or ~/.codex-work)'),
             valign: Gtk.Align.CENTER,
             css_classes: ['flat'],
         });
@@ -1302,16 +1908,19 @@ export default class AgentStatusPreferences extends ExtensionPreferences {
             openLocalFileDialog({
                 window,
                 cli,
-                title: 'Select Custom Account Directory',
+                title: _('Select Custom Account Directory'),
                 selectFolder: true,
                 showToast,
+                translate: _,
                 onPathSelected: folderPath => pathEntry.set_text(folderPath),
             });
         });
 
         const pickFileBtn = new Gtk.Button({
-            label: 'File…',
-            tooltip_text: 'Select a specific credential or database file (e.g. state.vscdb or auth.json)',
+            label: _('File…'),
+            tooltip_text: _(
+                'Select a specific credential or database file (e.g. state.vscdb, api_key, or auth.json)'
+            ),
             valign: Gtk.Align.CENTER,
             css_classes: ['flat'],
         });
@@ -1319,9 +1928,10 @@ export default class AgentStatusPreferences extends ExtensionPreferences {
             openLocalFileDialog({
                 window,
                 cli,
-                title: 'Select Account Credential or Database File',
+                title: _('Select Account Credential or Database File'),
                 selectFolder: false,
                 showToast,
+                translate: _,
                 onPathSelected: filePath => pathEntry.set_text(filePath),
             });
         });
@@ -1330,10 +1940,10 @@ export default class AgentStatusPreferences extends ExtensionPreferences {
         pathEntry.add_suffix(pickFileBtn);
 
         const binaryOverrideEntry = new Adw.EntryRow({
-            title: escapeMarkup('Custom Provider CLI Binary (Optional)'),
+            title: escapeMarkup(_('Custom Provider CLI Binary (Optional)')),
         });
         const pickBinBtn = new Gtk.Button({
-            label: 'Browse…',
+            label: _('Browse…'),
             valign: Gtk.Align.CENTER,
             css_classes: ['flat'],
         });
@@ -1341,29 +1951,32 @@ export default class AgentStatusPreferences extends ExtensionPreferences {
             openLocalFileDialog({
                 window,
                 cli,
-                title: 'Select Provider CLI Binary',
+                title: _('Select Provider CLI Binary'),
                 selectFolder: false,
                 showToast,
+                translate: _,
                 onPathSelected: binPath => binaryOverrideEntry.set_text(binPath),
             });
         });
         binaryOverrideEntry.add_suffix(pickBinBtn);
 
         const pollModeCombo = new Adw.ComboRow({
-            title: escapeMarkup('Polling Mode'),
-            subtitle: escapeMarkup('Active background polling or passive local cache updates only'),
-            model: Gtk.StringList.new(POLL_MODE_OPTIONS.map(o => o.label)),
+            title: escapeMarkup(_('Polling Mode')),
+            subtitle: escapeMarkup(_('Active background polling or passive local cache updates only')),
+            model: Gtk.StringList.new(POLL_MODE_OPTIONS.map(o => _(o.label))),
         });
 
         const switchCmdEntry = new Adw.EntryRow({
-            title: escapeMarkup('External Switch Command (Optional)'),
+            title: escapeMarkup(_('External Switch Command (Optional)')),
         });
 
         providerCombo.connect('notify::selected', () => {
             if (cli.isDestroyed)
                 return;
             const chosen = PREFS_PROVIDERS[providerCombo.get_selected()] ?? PREFS_PROVIDERS[0];
-            providerCombo.set_subtitle(escapeMarkup(`Example location: ${chosen.locationHint}`));
+            providerCombo.set_subtitle(
+                escapeMarkup(_('Example location: %s').replace('%s', chosen.locationHint))
+            );
         });
 
         const resetForm = () => {
@@ -1390,23 +2003,27 @@ export default class AgentStatusPreferences extends ExtensionPreferences {
             binaryOverrideEntry.set_text(acc.binary || '');
             pollModeCombo.set_selected(acc.poll_mode === 'passive' ? 1 : 0);
             switchCmdEntry.set_text(acc.switch_command || '');
-            showToast(`Loaded "${acc.label || acc.id}" into editor below`);
+            showToast(
+                _('Loaded "%s" into editor below').replace('%s', String(acc.label || acc.id))
+            );
         };
 
         const submitActionRow = new Adw.ActionRow({
-            title: escapeMarkup('Save to config.toml'),
-            subtitle: escapeMarkup('Writes [[providers.<id>.accounts]] safely and refreshes cached state'),
+            title: escapeMarkup(_('Save to config.toml')),
+            subtitle: escapeMarkup(
+                _('Writes [[providers.<id>.accounts]] safely and refreshes cached state')
+            ),
         });
 
         const clearFormBtn = new Gtk.Button({
-            label: 'Clear',
+            label: _('Clear'),
             valign: Gtk.Align.CENTER,
             css_classes: ['flat'],
         });
         clearFormBtn.connect('clicked', () => resetForm());
 
         const saveBtn = new Gtk.Button({
-            label: 'Save Account',
+            label: _('Save Account'),
             valign: Gtk.Align.CENTER,
             css_classes: ['suggested-action'],
         });
@@ -1434,8 +2051,10 @@ export default class AgentStatusPreferences extends ExtensionPreferences {
             currentManualAccounts = accounts;
             if (accounts.length === 0) {
                 const emptyRow = new Adw.ActionRow({
-                    title: escapeMarkup('No manual accounts configured'),
-                    subtitle: escapeMarkup('Auto-discovery handles default locations. Use the form below to add custom paths.'),
+                    title: escapeMarkup(_('No manual accounts configured')),
+                    subtitle: escapeMarkup(
+                        _('Auto-discovery handles default locations. Use the form below to add custom paths.')
+                    ),
                 });
                 listGroup.add(emptyRow);
                 dynamicRows.push(emptyRow);
@@ -1455,12 +2074,12 @@ export default class AgentStatusPreferences extends ExtensionPreferences {
 
                 const row = new Adw.ActionRow({
                     title: escapeMarkup(`${provName} · ${acc.label || acc.id} (${acc.id})`),
-                    subtitle: escapeMarkup(details.join('  •  ') || 'Default path'),
+                    subtitle: escapeMarkup(details.join('  •  ') || _('Default path')),
                 });
 
                 const editBtn = new Gtk.Button({
                     icon_name: 'document-edit-symbolic',
-                    tooltip_text: 'Edit manual account',
+                    tooltip_text: _('Edit manual account'),
                     valign: Gtk.Align.CENTER,
                     css_classes: ['flat'],
                 });
@@ -1468,7 +2087,7 @@ export default class AgentStatusPreferences extends ExtensionPreferences {
 
                 const removeBtn = new Gtk.Button({
                     icon_name: 'user-trash-symbolic',
-                    tooltip_text: 'Remove manual account',
+                    tooltip_text: _('Remove manual account'),
                     valign: Gtk.Align.CENTER,
                     css_classes: ['flat', 'destructive-action'],
                 });
@@ -1498,12 +2117,19 @@ export default class AgentStatusPreferences extends ExtensionPreferences {
                                 }
                                 renderManualAccounts(updated);
                                 void cli.triggerBackgroundCollect();
-                                showToast(`Removed manual account "${acc.label || acc.id}"`);
+                                showToast(
+                                    _('Removed manual account "%s"').replace(
+                                        '%s',
+                                        String(acc.label || acc.id)
+                                    )
+                                );
                             }
                         } catch (e) {
                             if (!cli.isDestroyed) {
                                 removeBtn.set_sensitive(true);
-                                showToast(`Failed to remove account: ${e.message}`);
+                                showToast(
+                                    _('Failed to remove account: %s').replace('%s', e.message)
+                                );
                             }
                         }
                     })();
@@ -1521,9 +2147,12 @@ export default class AgentStatusPreferences extends ExtensionPreferences {
                 return;
             clearDynamicRows();
             const errRow = new Adw.ActionRow({
-                title: escapeMarkup('Could not query gnome-agent-status config'),
+                title: escapeMarkup(_('Could not query gnome-agent-status config')),
                 subtitle: escapeMarkup(
-                    message || 'Verify gnome-agent-status is installed or set Binary Path on Refresh & Visibility.'
+                    message ||
+                        _(
+                            'Verify gnome-agent-status is installed or set Binary Path on Refresh & Visibility.'
+                        )
                 ),
             });
             listGroup.add(errRow);
@@ -1559,7 +2188,7 @@ export default class AgentStatusPreferences extends ExtensionPreferences {
             const rawSwitch = switchCmdEntry.get_text().trim();
 
             if (!rawLabel && !rawId && !rawPath) {
-                showToast('Enter at least a label or custom path before saving');
+                showToast(_('Enter at least a label or custom path before saving'));
                 return;
             }
 
@@ -1617,11 +2246,11 @@ export default class AgentStatusPreferences extends ExtensionPreferences {
                         renderManualAccounts(updated);
                         resetForm();
                         void cli.triggerBackgroundCollect();
-                        showToast(`Saved manual account "${finalLabel}"`);
+                        showToast(_('Saved manual account "%s"').replace('%s', finalLabel));
                     }
                 } catch (e) {
                     if (!cli.isDestroyed)
-                        showToast(`Failed to save manual account: ${e.message}`);
+                        showToast(_('Failed to save manual account: %s').replace('%s', e.message));
                 } finally {
                     if (!cli.isDestroyed)
                         saveBtn.set_sensitive(true);

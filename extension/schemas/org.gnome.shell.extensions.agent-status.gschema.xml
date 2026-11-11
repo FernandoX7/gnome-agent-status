@@ -31,10 +31,16 @@
       <description>Controls whether the main popover displays 'detailed' multi-bucket cards or 'compact' single-line rows.</description>
     </key>
 
+    <key name="popover-layout" type="s">
+      <default>'list'</default>
+      <summary>Popover card layout mode</summary>
+      <description>Selects how provider cards are arranged in the main popover: 'list' (compact single column with top 5 and progressive disclosure), 'auto-grid' (2-column wide layout when 6+ providers are visible), or 'grid' (always 2-column wide layout).</description>
+    </key>
+
     <key name="theme" type="s">
       <default>'midnight-slate'</default>
       <summary>Popover color theme preset</summary>
-      <description>Selects the popover theme preset: 'midnight-slate', 'system', 'tokyo-night', 'catppuccin', 'gruvbox', 'rose-pine', 'nord', or 'everforest'.</description>
+      <description>Selects one of the 24 curated dark, light, adaptive GNOME system, and frosted Liquid Glass theme presets (for example 'midnight-slate', 'system', 'liquid-glass', 'liquid-glass-light', 'catppuccin-latte', 'tokyo-night', 'catppuccin', 'gruvbox', 'rose-pine', 'nord', or 'everforest') without restricting custom preset IDs.</description>
     </key>
 
     <key name="font-style" type="s">
@@ -49,6 +55,12 @@
       <description>Controls whether bars and labels display percentage 'used' or percentage 'remaining'.</description>
     </key>
 
+    <key name="keybinding-toggle-popover" type="as">
+      <default>[]</default>
+      <summary>Global keyboard shortcut to toggle the usage popover</summary>
+      <description>Optional GNOME Shell accelerator array (such as ['&lt;Super&gt;&lt;Shift&gt;a']) that toggles the usage popover globally. Leave empty to disable.</description>
+    </key>
+
     <key name="refresh-interval-seconds" type="i">
       <default>300</default>
       <summary>Background refresh interval in seconds</summary>
@@ -56,9 +68,9 @@
     </key>
 
     <key name="hidden-providers" type="as">
-      <default>[]</default>
+      <default>['openrouter', 'copilot', 'gemini', 'windsurf', 'deepseek']</default>
       <summary>Hidden provider IDs</summary>
-      <description>List of canonical provider IDs hidden from the top bar and main popover.</description>
+      <description>List of canonical provider IDs hidden from the top bar and main popover. Secondary providers are hidden by default so the top 5 (Claude, Codex, Grok, Cursor, Antigravity) appear first.</description>
     </key>
 
     <key name="binary-path" type="s">
@@ -68,7 +80,7 @@
     </key>
 
     <key name="provider-order" type="as">
-      <default>['claude', 'codex', 'grok', 'agy', 'cursor', 'copilot', 'gemini']</default>
+      <default>['claude', 'codex', 'grok', 'cursor', 'agy', 'openrouter', 'copilot', 'gemini', 'windsurf', 'deepseek']</default>
       <summary>Provider display order</summary>
       <description>Ordered list of canonical provider IDs controlling top bar pills, text summaries, and main popover cards.</description>
     </key>
