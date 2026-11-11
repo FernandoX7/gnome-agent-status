@@ -4,16 +4,20 @@ import GLib from 'gi://GLib';
 import St from 'gi://St';
 
 import {
+    connectSettingChangedSafe,
     containPopoverEvents,
     createDesktopInterfaceSettings,
     createVBox,
     crossfadePages,
+    getSettingStrvSafe,
 } from '../compat.js';
 import {
+    DEFAULT_PROVIDER_ORDER,
     THEME_BY_ID,
     THEME_PRESETS,
     filterVisibleProviders,
     normalizeStatusReport,
+    sortProvidersByOrder,
 } from '../format.js';
 import {ProviderDetailPage} from './detailPage.js';
 import {MainUsagePage} from './mainPage.js';
@@ -228,6 +232,19 @@ export class PopoverController {
                 })
             );
         }
+
+        const orderSigId = connectSettingChangedSafe(
+            this._settings,
+            'provider-order',
+            () => {
+                if (this._destroyed)
+                    return;
+                if (this._menu?.isOpen)
+                    this._refreshViews();
+            }
+        );
+        if (orderSigId)
+            this._settingsSigIds.push(orderSigId);
 
         if (this._desktopSettings) {
             for (const dKey of ['color-scheme', 'gtk-theme']) {
@@ -483,8 +500,16 @@ export class PopoverController {
             : 'used';
         const themeId = this._getThemeId();
         const hiddenIds = this._settings.get_strv('hidden-providers') ?? [];
+        const orderIds = getSettingStrvSafe(
+            this._settings,
+            'provider-order',
+            DEFAULT_PROVIDER_ORDER
+        );
         const allProviders = this._report?.providers ?? [];
-        const visibleProviders = filterVisibleProviders(allProviders, hiddenIds);
+        const visibleProviders = sortProvidersByOrder(
+            filterVisibleProviders(allProviders, hiddenIds),
+            orderIds
+        );
 
         this._mainPage.update({
             visibleProviders,

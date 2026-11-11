@@ -486,7 +486,7 @@ export class MainUsagePage {
             x_align: Clutter.ActorAlign.CENTER,
         });
         this._emptyDetail = new St.Label({
-            text: 'Sign into Claude, Codex, Grok, Antigravity, or Cursor — or configure custom locations in Preferences.',
+            text: 'Sign into Claude, Codex, Grok, Antigravity, Cursor, Copilot, or Gemini — or configure custom locations in Preferences.',
             style_class: 'gas-empty-detail',
             x_align: Clutter.ActorAlign.CENTER,
         });

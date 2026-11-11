@@ -4,6 +4,16 @@
  * (`extension.js`, `indicator.js`, `popover/*`), Libadwaita (`prefs.js`), and Node unit tests.
  */
 
+export const DEFAULT_PROVIDER_ORDER = Object.freeze([
+    'claude',
+    'codex',
+    'grok',
+    'agy',
+    'cursor',
+    'copilot',
+    'gemini',
+]);
+
 export const CANONICAL_PROVIDERS = Object.freeze([
     Object.freeze({
         id: 'claude',
@@ -12,6 +22,7 @@ export const CANONICAL_PROVIDERS = Object.freeze([
         shortCode: 'CC',
         defaultLoginCommand: 'claude auth login',
         locationHint: '~/.claude-work',
+        dashboardUrl: 'https://claude.ai/settings/usage',
     }),
     Object.freeze({
         id: 'codex',
@@ -20,6 +31,7 @@ export const CANONICAL_PROVIDERS = Object.freeze([
         shortCode: 'CX',
         defaultLoginCommand: 'codex login',
         locationHint: '~/.codex-work',
+        dashboardUrl: 'https://chatgpt.com/codex/settings/usage',
     }),
     Object.freeze({
         id: 'grok',
@@ -28,6 +40,7 @@ export const CANONICAL_PROVIDERS = Object.freeze([
         shortCode: 'GK',
         defaultLoginCommand: 'grok login',
         locationHint: '~/.grok-work',
+        dashboardUrl: 'https://grok.com',
     }),
     Object.freeze({
         id: 'agy',
@@ -36,6 +49,7 @@ export const CANONICAL_PROVIDERS = Object.freeze([
         shortCode: 'AG',
         defaultLoginCommand: 'agy auth login',
         locationHint: '~/.gemini/antigravity',
+        dashboardUrl: 'https://antigravity.google/',
     }),
     Object.freeze({
         id: 'cursor',
@@ -44,6 +58,25 @@ export const CANONICAL_PROVIDERS = Object.freeze([
         shortCode: 'CU',
         defaultLoginCommand: 'cursor',
         locationHint: '~/.config/Cursor/User/globalStorage/state.vscdb',
+        dashboardUrl: 'https://www.cursor.com/dashboard',
+    }),
+    Object.freeze({
+        id: 'copilot',
+        displayName: 'GitHub Copilot',
+        iconName: 'provider-copilot',
+        shortCode: 'CP',
+        defaultLoginCommand: 'gh auth login',
+        locationHint: '~/.config/github-copilot/hosts.json',
+        dashboardUrl: 'https://github.com/settings/copilot',
+    }),
+    Object.freeze({
+        id: 'gemini',
+        displayName: 'Gemini CLI',
+        iconName: 'provider-gemini',
+        shortCode: 'GM',
+        defaultLoginCommand: 'gemini',
+        locationHint: '~/.gemini/oauth_creds.json',
+        dashboardUrl: 'https://aistudio.google.com/',
     }),
 ]);
 
@@ -327,6 +360,15 @@ export function formatBucketDisplayLabel(bucket) {
     )
         return '5-Hour';
     if (
+        lower === '24h' ||
+        lower === '24-hour' ||
+        lower === '24 hour' ||
+        lower === '1d' ||
+        lower === 'daily' ||
+        lower === 'daily (24h)'
+    )
+        return 'Daily';
+    if (
         lower === '31d' ||
         lower === '30d' ||
         lower === 'monthly' ||
@@ -334,13 +376,129 @@ export function formatBucketDisplayLabel(bucket) {
         lower === 'monthly (30d)'
     )
         return 'Monthly';
+    if (lower === 'premium' || lower === 'premium requests')
+        return 'Premium Requests';
     if (lower === 'extra usage' || lower === 'extra')
         return 'Extra Usage';
 
     return cleaned
         .replace(/·\s*5h\b/gi, '· 5-Hour')
+        .replace(/·\s*24h\b/gi, '· Daily')
         .replace(/·\s*wk\b/gi, '· Weekly')
         .replace(/·\s*31d\b/gi, '· Monthly');
+}
+
+/**
+ * Resolves a quota bucket's reset window length in seconds, preferring explicit
+ * `bucket.window_seconds` from the Rust collector and falling back to well-known
+ * bucket IDs / labels (`5h`, `24h`/`daily`, `wk`/`weekly`/`7d`, `31d`/`monthly`/`premium`).
+ *
+ * @param {object|null|undefined} bucket
+ * @returns {number} Window duration in seconds, or `0` if unknown
+ */
+export function inferBucketWindowSeconds(bucket) {
+    if (!bucket || typeof bucket !== 'object')
+        return 0;
+
+    if (
+        typeof bucket.window_seconds === 'number' &&
+        Number.isFinite(bucket.window_seconds) &&
+        bucket.window_seconds > 0
+    ) {
+        return Math.round(bucket.window_seconds);
+    }
+
+    const candidates = [bucket.id, bucket.short_label, bucket.label]
+        .filter(v => typeof v === 'string' && v.trim() !== '')
+        .map(v => v.trim().toLowerCase());
+
+    for (const raw of candidates) {
+        if (/\b(5h|5-hour|5\s*hour|five\s*hour|session)\b/.test(raw))
+            return 18000;
+        if (/\b(24h|24-hour|24\s*hour|1d|daily)\b/.test(raw))
+            return 86400;
+        if (/\b(wk|7d|weekly)\b/.test(raw))
+            return 604800;
+        if (/\b(31d|30d|monthly|premium)\b/.test(raw))
+            return 2678400;
+    }
+
+    return 0;
+}
+
+/**
+ * Computes calm-technology burn-rate / pace projection for a quota bucket relative
+ * to elapsed window time (`5% <= elapsedFraction < 99%` and `used_percent > 0`).
+ *
+ * @param {object|null|undefined} bucket
+ * @param {number} [nowEpoch]
+ * @returns {{
+ *   state: 'under' | 'on_track' | 'elevated' | 'over',
+ *   ratio: number,
+ *   projectedPercent: number,
+ *   elapsedPercent: number,
+ *   severity: 'normal' | 'warning' | 'critical',
+ *   text: string
+ * } | null}
+ */
+export function computeBucketPace(bucket, nowEpoch = Math.floor(Date.now() / 1000)) {
+    if (!bucket || typeof bucket !== 'object')
+        return null;
+
+    const usedPercent = clampPercent(bucket.used_percent ?? 0);
+    if (usedPercent <= 0)
+        return null;
+
+    const resetEpoch = bucket.resets_at_epoch;
+    if (typeof resetEpoch !== 'number' || !Number.isFinite(resetEpoch) || resetEpoch <= 0)
+        return null;
+
+    const windowSec = inferBucketWindowSeconds(bucket);
+    if (windowSec <= 0)
+        return null;
+
+    const remainingSec = resetEpoch - nowEpoch;
+    if (remainingSec <= 0 || remainingSec >= windowSec)
+        return null;
+
+    const elapsedFraction = 1 - (remainingSec / windowSec);
+    if (elapsedFraction < 0.05 || elapsedFraction >= 0.99)
+        return null;
+
+    const paceRatio = (usedPercent / 100) / elapsedFraction;
+    const ratio = Math.round(paceRatio * 100) / 100;
+    const projectedPercent = Math.round(((usedPercent / 100) / elapsedFraction) * 100);
+    const elapsedPercent = Math.round(elapsedFraction * 100);
+
+    let state;
+    let text;
+    if (usedPercent >= 100 || paceRatio > 1.35) {
+        state = 'over';
+        const mult = paceRatio >= 10 ? String(Math.round(paceRatio)) : paceRatio.toFixed(1);
+        text = `Pace: ${mult}× sustainable · hits 100% before reset`;
+    } else if (paceRatio > 1.0) {
+        state = 'elevated';
+        text = `Pace: Elevated (${paceRatio.toFixed(1)}×) · hits 100% near reset`;
+    } else if (paceRatio >= 0.85) {
+        state = 'on_track';
+        text = `Pace: On track · ~${Math.min(100, projectedPercent)}% by reset`;
+    } else {
+        state = 'under';
+        text = `Pace: Comfortable · ${usedPercent}% used at ${elapsedPercent}% of window`;
+    }
+
+    let severity = 'normal';
+    if (projectedPercent >= 95 && ratio > 1.15)
+        severity = state === 'over' ? 'critical' : 'warning';
+
+    return {
+        state,
+        ratio,
+        projectedPercent,
+        elapsedPercent,
+        severity,
+        text,
+    };
 }
 
 /**
@@ -537,7 +695,7 @@ export function normalizeStatusReport(raw, nowEpoch = Math.floor(Date.now() / 10
                 display_name: agent.name || meta?.displayName || id,
                 icon_name: meta?.iconName || 'agent-status-symbolic',
                 plan_badge: null,
-                dashboard_url: null,
+                dashboard_url: meta?.dashboardUrl || null,
                 active_account_id: `${id}:default`,
                 primary_used_percent: used,
                 primary_remaining_percent: rem,
@@ -614,6 +772,7 @@ export function normalizeStatusReport(raw, nowEpoch = Math.floor(Date.now() / 10
             ...prov,
             display_name: prov?.display_name || meta?.displayName || prov?.id || 'Agent',
             icon_name: prov?.icon_name || meta?.iconName || 'agent-status-symbolic',
+            dashboard_url: prov?.dashboard_url || meta?.dashboardUrl || null,
             accounts,
         };
 
@@ -677,6 +836,55 @@ export function filterVisibleProviders(providers, hiddenProviderIds = []) {
         return providers;
     const hidden = new Set(hiddenProviderIds);
     return providers.filter(p => p && !hidden.has(p.id));
+}
+
+/**
+ * Orders providers according to the user's `provider-order` list, appending any
+ * valid canonical provider omitted from `orderIds` in canonical `DEFAULT_PROVIDER_ORDER`
+ * sequence (and preserving any unknown custom provider IDs afterward) so newly
+ * added providers are never lost.
+ *
+ * @param {Array<object>} providers
+ * @param {ReadonlyArray<string>} [orderIds=DEFAULT_PROVIDER_ORDER]
+ * @returns {Array<object>}
+ */
+export function sortProvidersByOrder(providers, orderIds = DEFAULT_PROVIDER_ORDER) {
+    if (!Array.isArray(providers) || providers.length === 0)
+        return [];
+
+    const rankById = new Map();
+    let nextRank = 0;
+
+    if (Array.isArray(orderIds)) {
+        for (const rawId of orderIds) {
+            if (typeof rawId !== 'string')
+                continue;
+            const id = rawId.trim();
+            if (id && !rankById.has(id))
+                rankById.set(id, nextRank++);
+        }
+    }
+
+    for (const canonicalId of DEFAULT_PROVIDER_ORDER) {
+        if (!rankById.has(canonicalId))
+            rankById.set(canonicalId, nextRank++);
+    }
+
+    return providers
+        .map((prov, originalIndex) => ({prov, originalIndex}))
+        .filter(({prov}) => Boolean(prov && typeof prov === 'object'))
+        .sort((a, b) => {
+            const rankA = rankById.has(a.prov.id)
+                ? rankById.get(a.prov.id)
+                : (1000 + a.originalIndex);
+            const rankB = rankById.has(b.prov.id)
+                ? rankById.get(b.prov.id)
+                : (1000 + b.originalIndex);
+            if (rankA !== rankB)
+                return rankA - rankB;
+            return a.originalIndex - b.originalIndex;
+        })
+        .map(({prov}) => prov);
 }
 
 /**

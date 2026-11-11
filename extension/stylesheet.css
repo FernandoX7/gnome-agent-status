@@ -4,7 +4,7 @@
  * - Strictly scoped under `.gas-*` selectors
  * - No CSS custom properties (`var()`), `calc()`, `%` widths, or `gap`
  * - Uses `St.BoxLayout` native `spacing`
- * - Zero `scale` hover/focus effects anywhere (color/border shifts only)
+ * - Zero size/zoom hover/focus effects anywhere (color/border shifts only)
  * ========================================================================== */
 
 /* --- Top-Bar Panel Modes --- */
@@ -88,7 +88,7 @@
 /* Light top-bar panel adaptation (Classic mode / light Shell themes) */
 #panel .panel-button .gas-panel-box.on-light-panel .gas-panel-icon.is-warning,
 .gas-panel-box.on-light-panel .gas-panel-icon.is-warning {
-    color: #b06500 !important;
+    color: #9a5400 !important;
 }
 
 #panel .panel-button .gas-panel-box.on-light-panel .gas-panel-icon.is-critical,
@@ -97,7 +97,7 @@
 }
 
 .gas-panel-box.on-light-panel .gas-panel-dot.is-warning {
-    background-color: #b06500;
+    background-color: #9a5400;
 }
 
 .gas-panel-box.on-light-panel .gas-panel-dot.is-critical {
@@ -106,7 +106,7 @@
 
 .gas-panel-box.on-light-panel .gas-panel-pill-label.is-warning,
 .gas-panel-box.on-light-panel .gas-panel-full-text.is-warning {
-    color: #b06500;
+    color: #9a5400;
 }
 
 .gas-panel-box.on-light-panel .gas-panel-pill-label.is-critical,
@@ -496,6 +496,19 @@
     font-feature-settings: "tnum";
 }
 
+.gas-hero-pace-pill {
+    font-size: 11px;
+    font-weight: 550;
+    border-radius: 6px;
+    padding: 2px 7px;
+    border: 1px solid transparent;
+    font-feature-settings: "tnum";
+}
+
+.gas-popover.font-monospace .gas-hero-pace-pill {
+    font-size: 10px;
+}
+
 .gas-hero-empty-note {
     font-size: 11.5px;
 }
@@ -855,6 +868,9 @@
 .gas-popover.theme-midnight-slate .gas-account-row:focus { background-color: #272a40; border-color: #3b405e; }
 .gas-popover.theme-midnight-slate .gas-hero-card { background-color: #181926; border-color: #2e3044; }
 .gas-popover.theme-midnight-slate .gas-hero-tier-badge { background-color: #2a2e45; color: #b8bed6; }
+.gas-popover.theme-midnight-slate .gas-hero-pace-pill { background-color: #222538; border-color: #323750; color: #9ea5c2; }
+.gas-popover.theme-midnight-slate .gas-hero-pace-pill.is-warning { background-color: rgba(224, 175, 104, 0.12); border-color: rgba(224, 175, 104, 0.34); color: #e0af68; }
+.gas-popover.theme-midnight-slate .gas-hero-pace-pill.is-critical { background-color: rgba(255, 90, 95, 0.13); border-color: rgba(255, 90, 95, 0.36); color: #ff7075; }
 .gas-popover.theme-midnight-slate .gas-hero-credits,
 .gas-popover.theme-midnight-slate .gas-extra-info-note { color: #9aa0ba; }
 .gas-popover.theme-midnight-slate .gas-account-row.is-selected { background-color: #363d55; border-color: #495273; color: #eef2ff; }
@@ -922,6 +938,9 @@
 .gas-popover.theme-system .gas-account-row:focus { background-color: rgba(255, 255, 255, 0.08); border-color: rgba(255, 255, 255, 0.18); }
 .gas-popover.theme-system .gas-hero-card { background-color: rgba(0, 0, 0, 0.20); border-color: rgba(255, 255, 255, 0.14); }
 .gas-popover.theme-system .gas-hero-tier-badge { background-color: rgba(53, 132, 228, 0.22); color: #99c1f1; }
+.gas-popover.theme-system .gas-hero-pace-pill { background-color: rgba(255, 255, 255, 0.07); border-color: rgba(255, 255, 255, 0.16); color: #b4b8c2; }
+.gas-popover.theme-system .gas-hero-pace-pill.is-warning { background-color: rgba(224, 175, 104, 0.14); border-color: rgba(224, 175, 104, 0.36); color: #e0af68; }
+.gas-popover.theme-system .gas-hero-pace-pill.is-critical { background-color: rgba(255, 90, 95, 0.15); border-color: rgba(255, 90, 95, 0.38); color: #ff7075; }
 .gas-popover.theme-system .gas-hero-credits,
 .gas-popover.theme-system .gas-extra-info-note { color: #99c1f1; }
 .gas-popover.theme-system .gas-account-row.is-selected { background-color: rgba(53, 132, 228, 0.25); border-color: rgba(53, 132, 228, 0.50); color: #ffffff; }
@@ -988,6 +1007,9 @@
 .gas-popover.theme-system.is-light-surface .gas-account-row:focus { background-color: rgba(0, 0, 0, 0.055); border-color: rgba(0, 0, 0, 0.13); }
 .gas-popover.theme-system.is-light-surface .gas-hero-card { background-color: rgba(0, 0, 0, 0.045); border-color: rgba(0, 0, 0, 0.12); }
 .gas-popover.theme-system.is-light-surface .gas-hero-tier-badge { background-color: rgba(26, 95, 180, 0.12); color: #1a5fb4; }
+.gas-popover.theme-system.is-light-surface .gas-hero-pace-pill { background-color: rgba(0, 0, 0, 0.055); border-color: rgba(0, 0, 0, 0.14); color: #4a505c; }
+.gas-popover.theme-system.is-light-surface .gas-hero-pace-pill.is-warning { background-color: rgba(154, 84, 0, 0.09); border-color: rgba(154, 84, 0, 0.28); color: #9a5400; }
+.gas-popover.theme-system.is-light-surface .gas-hero-pace-pill.is-critical { background-color: rgba(201, 42, 42, 0.09); border-color: rgba(201, 42, 42, 0.28); color: #b82222; }
 .gas-popover.theme-system.is-light-surface .gas-hero-credits,
 .gas-popover.theme-system.is-light-surface .gas-extra-info-note { color: #1a5fb4; }
 .gas-popover.theme-system.is-light-surface .gas-account-row.is-selected { background-color: rgba(53, 132, 228, 0.14); border-color: rgba(26, 95, 180, 0.45); color: #16181d; }
@@ -1004,7 +1026,7 @@
 .gas-popover.theme-system.is-light-surface .gas-toggle-pill.is-active { background-color: rgba(53, 132, 228, 0.16); border-color: #1c71d8; color: #15539e; }
 .gas-popover.theme-system.is-light-surface .gas-theme-swatch { border-color: rgba(0, 0, 0, 0.25); }
 .gas-popover.theme-system.is-light-surface .gas-bucket-pct.is-warning,
-.gas-popover.theme-system.is-light-surface .gas-account-minibar-pct.is-warning { color: #b06500; }
+.gas-popover.theme-system.is-light-surface .gas-account-minibar-pct.is-warning { color: #9a5400; }
 .gas-popover.theme-system.is-light-surface .gas-bucket-pct.is-critical,
 .gas-popover.theme-system.is-light-surface .gas-account-minibar-pct.is-critical { color: #c92a2a; }
 .gas-popover.theme-system.is-light-surface .gas-error-banner { background-color: rgba(201, 42, 42, 0.10); color: #b02020; border: 1px solid rgba(201, 42, 42, 0.30); }
@@ -1037,7 +1059,7 @@
 .gas-popover.theme-tokyo-night .gas-account-passive-note,
 .gas-popover.theme-tokyo-night .gas-account-source,
 .gas-popover.theme-tokyo-night .gas-signed-out-hint,
-.gas-popover.theme-tokyo-night .gas-section-header { color: #7880a6; }
+.gas-popover.theme-tokyo-night .gas-section-header { color: #858db3; }
 .gas-popover.theme-tokyo-night .gas-segmented-track { background-color: #16161e; border-color: #2f3549; }
 .gas-popover.theme-tokyo-night .gas-segmented-btn { color: #8990b3; }
 .gas-popover.theme-tokyo-night .gas-segmented-btn:hover,
@@ -1056,6 +1078,9 @@
 .gas-popover.theme-tokyo-night .gas-account-row:focus { background-color: #24283b; border-color: #3b4261; }
 .gas-popover.theme-tokyo-night .gas-hero-card { background-color: #16161e; border-color: #292e42; }
 .gas-popover.theme-tokyo-night .gas-hero-tier-badge { background-color: #24283b; color: #7aa2f7; }
+.gas-popover.theme-tokyo-night .gas-hero-pace-pill { background-color: #202334; border-color: #313750; color: #9aa5ce; }
+.gas-popover.theme-tokyo-night .gas-hero-pace-pill.is-warning { background-color: rgba(224, 175, 104, 0.12); border-color: rgba(224, 175, 104, 0.34); color: #e0af68; }
+.gas-popover.theme-tokyo-night .gas-hero-pace-pill.is-critical { background-color: rgba(247, 118, 142, 0.13); border-color: rgba(247, 118, 142, 0.36); color: #f7768e; }
 .gas-popover.theme-tokyo-night .gas-hero-credits,
 .gas-popover.theme-tokyo-night .gas-extra-info-note { color: #7aa2f7; }
 .gas-popover.theme-tokyo-night .gas-account-row.is-selected { background-color: #292e42; border-color: #7aa2f7; color: #c0caf5; }
@@ -1104,7 +1129,7 @@
 .gas-popover.theme-catppuccin .gas-account-passive-note,
 .gas-popover.theme-catppuccin .gas-account-source,
 .gas-popover.theme-catppuccin .gas-signed-out-hint,
-.gas-popover.theme-catppuccin .gas-section-header { color: #7f849c; }
+.gas-popover.theme-catppuccin .gas-section-header { color: #8e93ad; }
 .gas-popover.theme-catppuccin .gas-segmented-track { background-color: #181825; border-color: #313244; }
 .gas-popover.theme-catppuccin .gas-segmented-btn { color: #9399b2; }
 .gas-popover.theme-catppuccin .gas-segmented-btn:hover,
@@ -1123,6 +1148,9 @@
 .gas-popover.theme-catppuccin .gas-account-row:focus { background-color: #292a3c; border-color: #45475a; }
 .gas-popover.theme-catppuccin .gas-hero-card { background-color: #181825; border-color: #313244; }
 .gas-popover.theme-catppuccin .gas-hero-tier-badge { background-color: #313244; color: #cba6f7; }
+.gas-popover.theme-catppuccin .gas-hero-pace-pill { background-color: #232436; border-color: #383a4f; color: #a6adc8; }
+.gas-popover.theme-catppuccin .gas-hero-pace-pill.is-warning { background-color: rgba(249, 226, 175, 0.11); border-color: rgba(249, 226, 175, 0.32); color: #f9e2af; }
+.gas-popover.theme-catppuccin .gas-hero-pace-pill.is-critical { background-color: rgba(243, 139, 168, 0.13); border-color: rgba(243, 139, 168, 0.35); color: #f38ba8; }
 .gas-popover.theme-catppuccin .gas-hero-credits,
 .gas-popover.theme-catppuccin .gas-extra-info-note { color: #89b4fa; }
 .gas-popover.theme-catppuccin .gas-account-row.is-selected { background-color: #313244; border-color: #89b4fa; color: #cdd6f4; }
@@ -1171,7 +1199,7 @@
 .gas-popover.theme-gruvbox .gas-account-passive-note,
 .gas-popover.theme-gruvbox .gas-account-source,
 .gas-popover.theme-gruvbox .gas-signed-out-hint,
-.gas-popover.theme-gruvbox .gas-section-header { color: #928374; }
+.gas-popover.theme-gruvbox .gas-section-header { color: #a09282; }
 .gas-popover.theme-gruvbox .gas-segmented-track { background-color: #1d2021; border-color: #3c3836; }
 .gas-popover.theme-gruvbox .gas-segmented-btn { color: #a89984; }
 .gas-popover.theme-gruvbox .gas-segmented-btn:hover,
@@ -1190,6 +1218,9 @@
 .gas-popover.theme-gruvbox .gas-account-row:focus { background-color: #32302f; border-color: #504945; }
 .gas-popover.theme-gruvbox .gas-hero-card { background-color: #1d2021; border-color: #3c3836; }
 .gas-popover.theme-gruvbox .gas-hero-tier-badge { background-color: #3c3836; color: #fabd2f; }
+.gas-popover.theme-gruvbox .gas-hero-pace-pill { background-color: #282828; border-color: #45403d; color: #bdae93; }
+.gas-popover.theme-gruvbox .gas-hero-pace-pill.is-warning { background-color: rgba(250, 189, 47, 0.12); border-color: rgba(250, 189, 47, 0.34); color: #fabd2f; }
+.gas-popover.theme-gruvbox .gas-hero-pace-pill.is-critical { background-color: rgba(255, 99, 79, 0.13); border-color: rgba(255, 99, 79, 0.36); color: #ff634f; }
 .gas-popover.theme-gruvbox .gas-hero-credits,
 .gas-popover.theme-gruvbox .gas-extra-info-note { color: #83a598; }
 .gas-popover.theme-gruvbox .gas-account-row.is-selected { background-color: #3c3836; border-color: #83a598; color: #fbf1c7; }
@@ -1207,8 +1238,8 @@
 .gas-popover.theme-gruvbox .gas-bucket-pct.is-warning,
 .gas-popover.theme-gruvbox .gas-account-minibar-pct.is-warning { color: #fabd2f; }
 .gas-popover.theme-gruvbox .gas-bucket-pct.is-critical,
-.gas-popover.theme-gruvbox .gas-account-minibar-pct.is-critical { color: #fb4934; }
-.gas-popover.theme-gruvbox .gas-error-banner { background-color: rgba(251, 73, 52, 0.14); color: #fb4934; border: 1px solid rgba(251, 73, 52, 0.35); }
+.gas-popover.theme-gruvbox .gas-account-minibar-pct.is-critical { color: #ff634f; }
+.gas-popover.theme-gruvbox .gas-error-banner { background-color: rgba(255, 99, 79, 0.14); color: #ff634f; border: 1px solid rgba(255, 99, 79, 0.35); }
 .gas-popover.theme-gruvbox .gas-scroll-view StScrollBar StButton#vhandle,
 .gas-popover.theme-gruvbox .gas-scroll-view StScrollBar > .vhandle { background-color: #665c54; }
 
@@ -1238,7 +1269,7 @@
 .gas-popover.theme-rose-pine .gas-account-passive-note,
 .gas-popover.theme-rose-pine .gas-account-source,
 .gas-popover.theme-rose-pine .gas-signed-out-hint,
-.gas-popover.theme-rose-pine .gas-section-header { color: #817c9c; }
+.gas-popover.theme-rose-pine .gas-section-header { color: #8d88a8; }
 .gas-popover.theme-rose-pine .gas-segmented-track { background-color: #191724; border-color: #26233a; }
 .gas-popover.theme-rose-pine .gas-segmented-btn { color: #908caa; }
 .gas-popover.theme-rose-pine .gas-segmented-btn:hover,
@@ -1257,6 +1288,9 @@
 .gas-popover.theme-rose-pine .gas-account-row:focus { background-color: #26233a; border-color: #403d52; }
 .gas-popover.theme-rose-pine .gas-hero-card { background-color: #191724; border-color: #26233a; }
 .gas-popover.theme-rose-pine .gas-hero-tier-badge { background-color: #26233a; color: #c4a7e7; }
+.gas-popover.theme-rose-pine .gas-hero-pace-pill { background-color: #232035; border-color: #36334c; color: #a4a0bd; }
+.gas-popover.theme-rose-pine .gas-hero-pace-pill.is-warning { background-color: rgba(246, 193, 119, 0.12); border-color: rgba(246, 193, 119, 0.34); color: #f6c177; }
+.gas-popover.theme-rose-pine .gas-hero-pace-pill.is-critical { background-color: rgba(235, 111, 146, 0.13); border-color: rgba(235, 111, 146, 0.36); color: #eb6f92; }
 .gas-popover.theme-rose-pine .gas-hero-credits,
 .gas-popover.theme-rose-pine .gas-extra-info-note { color: #9ccfd8; }
 .gas-popover.theme-rose-pine .gas-account-row.is-selected { background-color: #312f46; border-color: #c4a7e7; color: #e0def4; }
@@ -1305,7 +1339,7 @@
 .gas-popover.theme-nord .gas-account-passive-note,
 .gas-popover.theme-nord .gas-account-source,
 .gas-popover.theme-nord .gas-signed-out-hint,
-.gas-popover.theme-nord .gas-section-header { color: #8c96a8; }
+.gas-popover.theme-nord .gas-section-header { color: #9ca6b8; }
 .gas-popover.theme-nord .gas-segmented-track { background-color: #242933; border-color: #3b4252; }
 .gas-popover.theme-nord .gas-segmented-btn { color: #b0bac9; }
 .gas-popover.theme-nord .gas-segmented-btn:hover,
@@ -1324,6 +1358,9 @@
 .gas-popover.theme-nord .gas-account-row:focus { background-color: #3b4252; border-color: #4c566a; }
 .gas-popover.theme-nord .gas-hero-card { background-color: #242933; border-color: #3b4252; }
 .gas-popover.theme-nord .gas-hero-tier-badge { background-color: #3b4252; color: #88c0d0; }
+.gas-popover.theme-nord .gas-hero-pace-pill { background-color: #2e3440; border-color: #434c5e; color: #b8c2d1; }
+.gas-popover.theme-nord .gas-hero-pace-pill.is-warning { background-color: rgba(235, 203, 139, 0.12); border-color: rgba(235, 203, 139, 0.34); color: #ebcb8b; }
+.gas-popover.theme-nord .gas-hero-pace-pill.is-critical { background-color: rgba(255, 107, 116, 0.14); border-color: rgba(255, 107, 116, 0.38); color: #ff7a82; }
 .gas-popover.theme-nord .gas-hero-credits,
 .gas-popover.theme-nord .gas-extra-info-note { color: #88c0d0; }
 .gas-popover.theme-nord .gas-account-row.is-selected { background-color: #434c5e; border-color: #88c0d0; color: #eceff4; }
@@ -1372,7 +1409,7 @@
 .gas-popover.theme-everforest .gas-account-passive-note,
 .gas-popover.theme-everforest .gas-account-source,
 .gas-popover.theme-everforest .gas-signed-out-hint,
-.gas-popover.theme-everforest .gas-section-header { color: #859289; }
+.gas-popover.theme-everforest .gas-section-header { color: #99a69d; }
 .gas-popover.theme-everforest .gas-segmented-track { background-color: #232a2e; border-color: #3d484d; }
 .gas-popover.theme-everforest .gas-segmented-btn { color: #9da9a0; }
 .gas-popover.theme-everforest .gas-segmented-btn:hover,
@@ -1391,6 +1428,9 @@
 .gas-popover.theme-everforest .gas-account-row:focus { background-color: #343f44; border-color: #4f585e; }
 .gas-popover.theme-everforest .gas-hero-card { background-color: #232a2e; border-color: #3d484d; }
 .gas-popover.theme-everforest .gas-hero-tier-badge { background-color: #343f44; color: #a7c080; }
+.gas-popover.theme-everforest .gas-hero-pace-pill { background-color: #2b3338; border-color: #424e53; color: #a8b5ab; }
+.gas-popover.theme-everforest .gas-hero-pace-pill.is-warning { background-color: rgba(219, 188, 127, 0.12); border-color: rgba(219, 188, 127, 0.34); color: #dbbc7f; }
+.gas-popover.theme-everforest .gas-hero-pace-pill.is-critical { background-color: rgba(230, 126, 128, 0.14); border-color: rgba(230, 126, 128, 0.36); color: #eb8789; }
 .gas-popover.theme-everforest .gas-hero-credits,
 .gas-popover.theme-everforest .gas-extra-info-note { color: #7fbbb3; }
 .gas-popover.theme-everforest .gas-account-row.is-selected { background-color: #3d484d; border-color: #a7c080; color: #d3c6aa; }

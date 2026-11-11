@@ -9,6 +9,7 @@ import {
     setScrollChild,
 } from '../compat.js';
 import {
+    computeBucketPace,
     formatBucketDisplayLabel,
     formatBucketMetric,
     formatCreditsSummary,
@@ -539,11 +540,27 @@ export class ProviderDetailPage {
             captionRow.add_child(usedCaption);
             captionRow.add_child(resetCaption);
 
+            const paceLabel = new St.Label({
+                text: '',
+                x_align: Clutter.ActorAlign.START,
+                style_class: 'gas-hero-pace-pill',
+                visible: false,
+            });
+            paceLabel.clutter_text.ellipsize = Pango.EllipsizeMode.END;
+
             block.add_child(titleLabel);
             block.add_child(bar.actor);
             block.add_child(captionRow);
+            block.add_child(paceLabel);
             this._heroBucketsBox.add_child(block);
-            this._heroBucketPool.push({block, titleLabel, bar, usedCaption, resetCaption});
+            this._heroBucketPool.push({
+                block,
+                titleLabel,
+                bar,
+                usedCaption,
+                resetCaption,
+                paceLabel,
+            });
         }
         return this._heroBucketPool[index];
     }
@@ -670,6 +687,14 @@ export class ProviderDetailPage {
             slot.resetCaption.set_text(
                 formatResetCountdown(b.resets_at_epoch, nowEpoch, {prefix: true})
             );
+            const pace = computeBucketPace(b, nowEpoch);
+            if (pace) {
+                slot.paceLabel.set_text(pace.text);
+                applySeverityClass(slot.paceLabel, pace.severity);
+                slot.paceLabel.show();
+            } else {
+                slot.paceLabel.hide();
+            }
             slot.block.show();
         }
         for (let i = heroBuckets.length; i < this._heroBucketPool.length; i++)

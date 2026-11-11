@@ -323,7 +323,7 @@ const TOOLTIP_FADE_DURATION_MS = 110;
  * - Connects only non-event GObject signals (`notify::hover`, `key-focus-in`, `key-focus-out`,
  *   `clicked`, `notify::mapped`, `destroy`) — zero legacy button-press/release handlers.
  * - Opacity-only fade (`110ms` when desktop animations are enabled, `0ms` otherwise) with zero
- *   `scale` transforms anywhere.
+ *   size or zoom transforms anywhere.
  * - Deterministically removes any pending `GLib.timeout_add` source on click, leave, page change,
  *   menu close, or `destroy()`.
  */

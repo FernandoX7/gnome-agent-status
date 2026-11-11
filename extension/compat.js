@@ -94,7 +94,7 @@ export function areAnimationsEnabled(desktopSettings) {
 
 /**
  * Returns 130ms opacity crossfade duration when animations are enabled, or 0ms otherwise.
- * Never uses scale transforms.
+ * Uses opacity transitions only (zero size transforms).
  *
  * @param {Gio.Settings|null} desktopSettings
  * @returns {number}
@@ -169,4 +169,85 @@ export function connectInteractiveButton(button, callback) {
 export function containPopoverEvents(container) {
     container.reactive = true;
     return [];
+}
+
+/**
+ * Checks whether a Gio.Settings instance declares `key` in its compiled schema
+ * so reading newly added keys never throws before schema recompilation.
+ *
+ * @param {Gio.Settings|null|undefined} settings
+ * @param {string} key
+ * @returns {boolean}
+ */
+export function hasSettingKey(settings, key) {
+    if (!settings || !key)
+        return false;
+    try {
+        const schema = settings.settings_schema;
+        if (schema && typeof schema.has_key === 'function')
+            return Boolean(schema.has_key(key));
+        if (typeof settings.list_keys === 'function')
+            return settings.list_keys().includes(key);
+        return true;
+    } catch (_e) {
+        return false;
+    }
+}
+
+/**
+ * Reads a `strv` (`as`) GSettings key safely, returning a copy of `fallback`
+ * when the key is absent from an older compiled schema.
+ *
+ * @param {Gio.Settings|null|undefined} settings
+ * @param {string} key
+ * @param {ReadonlyArray<string>} [fallback=[]]
+ * @returns {string[]}
+ */
+export function getSettingStrvSafe(settings, key, fallback = []) {
+    if (!hasSettingKey(settings, key))
+        return [...fallback];
+    try {
+        const val = settings.get_strv(key);
+        return Array.isArray(val) ? val : [...fallback];
+    } catch (_e) {
+        return [...fallback];
+    }
+}
+
+/**
+ * Reads a boolean (`b`) GSettings key safely, returning `fallback` when the key
+ * is absent from an older compiled schema.
+ *
+ * @param {Gio.Settings|null|undefined} settings
+ * @param {string} key
+ * @param {boolean} [fallback=false]
+ * @returns {boolean}
+ */
+export function getSettingBoolSafe(settings, key, fallback = false) {
+    if (!hasSettingKey(settings, key))
+        return Boolean(fallback);
+    try {
+        return Boolean(settings.get_boolean(key));
+    } catch (_e) {
+        return Boolean(fallback);
+    }
+}
+
+/**
+ * Connects to `changed::${key}` only when `key` exists in `settings`'s compiled schema.
+ * Returns `0` when the key is absent so callers can safely skip disconnecting `0`.
+ *
+ * @param {Gio.Settings|null|undefined} settings
+ * @param {string} key
+ * @param {Function} callback
+ * @returns {number}
+ */
+export function connectSettingChangedSafe(settings, key, callback) {
+    if (!hasSettingKey(settings, key))
+        return 0;
+    try {
+        return settings.connect(`changed::${key}`, callback);
+    } catch (_e) {
+        return 0;
+    }
 }

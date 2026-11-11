@@ -8,10 +8,16 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
-import {createHBox} from './compat.js';
 import {
+    connectSettingChangedSafe,
+    createHBox,
+    getSettingStrvSafe,
+} from './compat.js';
+import {
+    DEFAULT_PROVIDER_ORDER,
     computePanelSummary,
     filterVisibleProviders,
+    sortProvidersByOrder,
 } from './format.js';
 
 export const AgentStatusIndicator = GObject.registerClass(
@@ -195,18 +201,20 @@ class AgentStatusIndicator extends PanelMenu.Button {
                 this._toggleContextMenu();
             });
             this.add_action(this._secondaryClickGesture);
-        } else if (!this._clickGesture) {
-            // GNOME Shell 45-48 legacy fallback where Clutter.ClickGesture does not exist.
-            this._selfSigIds.push(
-                this.connect('button-press-event', (_actor, event) => {
-                    if (event.get_button() === Clutter.BUTTON_SECONDARY) {
-                        this._toggleContextMenu();
-                        return Clutter.EVENT_STOP;
-                    }
-                    return Clutter.EVENT_PROPAGATE;
-                })
-            );
         }
+    }
+
+    vfunc_event(event) {
+        if (
+            !this._secondaryClickGesture &&
+            !this._clickGesture &&
+            event.type() === Clutter.EventType.BUTTON_PRESS &&
+            event.get_button() === Clutter.BUTTON_SECONDARY
+        ) {
+            this._toggleContextMenu();
+            return Clutter.EVENT_STOP;
+        }
+        return super.vfunc_event(event);
     }
 
     _buildContextMenu() {
@@ -339,6 +347,17 @@ class AgentStatusIndicator extends PanelMenu.Button {
                 })
             );
         }
+
+        const orderSigId = connectSettingChangedSafe(
+            this._settings,
+            'provider-order',
+            () => {
+                if (!this._destroyed)
+                    this._syncPanelPresentation();
+            }
+        );
+        if (orderSigId)
+            this._settingsSigIds.push(orderSigId);
 
         this._menuSigIds.push(
             this.menu.connect('open-state-changed', (_menu, isOpen) => {
@@ -539,7 +558,12 @@ class AgentStatusIndicator extends PanelMenu.Button {
     _getVisibleProviders() {
         const providers = this._lastReport?.providers ?? [];
         const hidden = this._settings.get_strv('hidden-providers') ?? [];
-        return filterVisibleProviders(providers, hidden);
+        const orderIds = getSettingStrvSafe(
+            this._settings,
+            'provider-order',
+            DEFAULT_PROVIDER_ORDER
+        );
+        return sortProvidersByOrder(filterVisibleProviders(providers, hidden), orderIds);
     }
 
     _updateAutoHideVisibility() {
@@ -671,6 +695,11 @@ class AgentStatusIndicator extends PanelMenu.Button {
     }
 
     _renderFullText(summary, severity, metricMode, visibleProviders) {
+        const rawProviders = this._lastReport?.providers ?? [];
+        const isUnmodifiedOrder =
+            visibleProviders.length === rawProviders.length &&
+            visibleProviders.every((p, idx) => p.id === rawProviders[idx]?.id);
+
         let text;
         if (!this._hasHydratedOnce) {
             text = 'Agents: …';
@@ -679,7 +708,7 @@ class AgentStatusIndicator extends PanelMenu.Button {
         } else if (
             metricMode === 'used' &&
             this._lastReport?.label &&
-            visibleProviders.length === (this._lastReport.providers?.length ?? 0)
+            isUnmodifiedOrder
         ) {
             text = this._lastReport.label;
         } else {
