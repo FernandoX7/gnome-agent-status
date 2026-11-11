@@ -1,7 +1,7 @@
 //! OpenAI Codex (`codex`) usage provider:
 //! - Tier 1A: Direct ChatGPT WHAM Usage API (`GET https://chatgpt.com/backend-api/wham/usage` + `ChatGPT-Account-Id`)
 //! - Tier 1B: Official `codex app-server` JSON-RPC (`account/rateLimits/read`, keyring & safe token rotation)
-//! - Tier 2: Offline session rollout JSONL backward scanner (`$CODEX_HOME/sessions/**/rollout-*.jsonl`)
+//! - Tier 2: Offline session rollout JSONL / `.jsonl.zst` scanner (`$CODEX_HOME/sessions/**/rollout-*.jsonl[.zst]`)
 
 use crate::cache::CachedAccountState;
 use crate::config::{
@@ -21,6 +21,7 @@ use anyhow::{anyhow, Context, Result};
 use chrono::{DateTime, Local, TimeZone, Utc};
 use serde::Deserialize;
 use std::fs;
+use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 
 const DEFAULT_CODEX_WHAM_URL: &str = "https://chatgpt.com/backend-api/wham/usage";
@@ -558,6 +559,8 @@ struct WhamRateLimit {
 struct WhamWindow {
     used_percent: Option<f64>,
     #[serde(default)]
+    limit_window_seconds: Option<i64>,
+    #[serde(default)]
     reset_at: Option<i64>,
 }
 
@@ -596,10 +599,19 @@ where
             if let Some(pct) = pri.used_percent {
                 let norm = pri.reset_at.and_then(|ts| reset::normalize_epoch(ts, tz));
                 let is_primary = buckets.is_empty();
+                // ChatGPT Pro plans expose a single 7-day (`604800`s) window in `primary_window`
+                // with `secondary_window: null`. Classify >= 5-day windows as `wk` ("Weekly").
+                let is_weekly_single =
+                    buckets.is_empty() && pri.limit_window_seconds.is_some_and(|s| s >= 432_000);
+                let (id, label, short_label) = if is_weekly_single {
+                    ("wk", "Weekly", "wk")
+                } else {
+                    ("5h", "Session (5h)", "5h")
+                };
                 buckets.push(UsageBucket::new(
-                    "5h",
-                    "Session (5h)",
-                    "5h",
+                    id,
+                    label,
+                    short_label,
                     BucketLayout::InlinePair,
                     is_primary,
                     pct,
@@ -738,10 +750,20 @@ where
                 .and_then(|v| v.as_i64())
                 .and_then(|ts| reset::normalize_epoch(ts, tz));
             let is_primary = buckets.is_empty();
+            let is_weekly_single = buckets.is_empty()
+                && pri
+                    .get("windowDurationMins")
+                    .and_then(|v| v.as_i64())
+                    .is_some_and(|m| m >= 7200);
+            let (id, label, short_label) = if is_weekly_single {
+                ("wk", "Weekly", "wk")
+            } else {
+                ("5h", "Session (5h)", "5h")
+            };
             buckets.push(UsageBucket::new(
-                "5h",
-                "Session (5h)",
-                "5h",
+                id,
+                label,
+                short_label,
                 BucketLayout::InlinePair,
                 is_primary,
                 pct,
@@ -816,7 +838,7 @@ where
     rollout_files.sort_by_key(|a| std::cmp::Reverse(a.0));
 
     for (_, file_path) in rollout_files.into_iter().take(5) {
-        let Ok(raw) = fs::read_to_string(&file_path) else {
+        let Some(raw) = read_rollout_token_count_lines(&file_path) else {
             continue;
         };
         if let Some(buckets) = parse_codex_rollout_jsonl(&raw, now, tz) {
@@ -824,6 +846,37 @@ where
         }
     }
     None
+}
+
+fn read_rollout_token_count_lines(file_path: &Path) -> Option<String> {
+    let is_zst = file_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("zst"));
+
+    if !is_zst {
+        return fs::read_to_string(file_path).ok();
+    }
+
+    let file = fs::File::open(file_path).ok()?;
+    let decoder = ruzstd::decoding::StreamingDecoder::new(file).ok()?;
+    let reader = BufReader::new(decoder.take(64 * 1024 * 1024));
+
+    let mut matched = String::new();
+    for line in reader.lines() {
+        let Ok(line) = line else {
+            break;
+        };
+        if line.contains("token_count") {
+            matched.push_str(&line);
+            matched.push('\n');
+        }
+    }
+    if matched.is_empty() {
+        None
+    } else {
+        Some(matched)
+    }
 }
 
 fn collect_rollout_files(
@@ -842,9 +895,9 @@ fn collect_rollout_files(
         if p.is_dir() {
             collect_rollout_files(&p, out, depth + 1);
         } else if p
-            .extension()
-            .and_then(|e| e.to_str())
-            .is_some_and(|e| e == "jsonl")
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n.ends_with(".jsonl") || n.ends_with(".jsonl.zst"))
         {
             let mtime = entry
                 .metadata()
@@ -896,9 +949,13 @@ where
         if let Some(sec) = rate_limits.get("secondary").filter(|v| !v.is_null()) {
             if let Some(pct) = sec.get("used_percent").and_then(|v| v.as_f64()) {
                 let reset_epoch = sec
-                    .get("resets_in_seconds")
+                    .get("resets_at")
                     .and_then(|v| v.as_i64())
-                    .map(|rel| event_epoch + rel);
+                    .or_else(|| {
+                        sec.get("resets_in_seconds")
+                            .and_then(|v| v.as_i64())
+                            .map(|rel| event_epoch + rel)
+                    });
                 let effective_pct = if reset_epoch.is_some_and(|r| now_epoch >= r) {
                     0.0
                 } else {
@@ -919,9 +976,13 @@ where
         if let Some(pri) = rate_limits.get("primary").filter(|v| !v.is_null()) {
             if let Some(pct) = pri.get("used_percent").and_then(|v| v.as_f64()) {
                 let reset_epoch = pri
-                    .get("resets_in_seconds")
+                    .get("resets_at")
                     .and_then(|v| v.as_i64())
-                    .map(|rel| event_epoch + rel);
+                    .or_else(|| {
+                        pri.get("resets_in_seconds")
+                            .and_then(|v| v.as_i64())
+                            .map(|rel| event_epoch + rel)
+                    });
                 let effective_pct = if reset_epoch.is_some_and(|r| now_epoch >= r) {
                     0.0
                 } else {
@@ -929,10 +990,20 @@ where
                 };
                 let norm = reset_epoch.and_then(|ts| reset::normalize_epoch(ts, tz));
                 let is_primary = buckets.is_empty();
+                let is_weekly_single = buckets.is_empty()
+                    && pri
+                        .get("window_minutes")
+                        .and_then(|v| v.as_i64())
+                        .is_some_and(|m| m >= 7200);
+                let (id, label, short_label) = if is_weekly_single {
+                    ("wk", "Weekly", "wk")
+                } else {
+                    ("5h", "Session (5h)", "5h")
+                };
                 buckets.push(UsageBucket::new(
-                    "5h",
-                    "Session (5h)",
-                    "5h",
+                    id,
+                    label,
+                    short_label,
                     BucketLayout::InlinePair,
                     is_primary,
                     effective_pct,
@@ -1015,5 +1086,55 @@ mod tests {
         assert_eq!(buckets[0].used_percent, 35);
         assert_eq!(buckets[1].id, "5h");
         assert_eq!(buckets[1].used_percent, 0);
+    }
+
+    #[test]
+    fn test_pro_single_weekly_window_and_zstd_rollout_scanner() {
+        let pro_wham = r#"{
+          "plan_type": "pro",
+          "rate_limit": {
+            "primary_window": {
+              "used_percent": 19,
+              "limit_window_seconds": 604800,
+              "reset_at": 1794860654
+            },
+            "secondary_window": null
+          }
+        }"#;
+        let parsed = parse_codex_wham_usage(pro_wham, &Utc).expect("parse Pro single-window wham");
+        assert_eq!(parsed.buckets.len(), 1);
+        assert_eq!(parsed.buckets[0].id, "wk");
+        assert_eq!(parsed.buckets[0].label, "Weekly");
+        assert!(parsed.buckets[0].is_primary);
+        assert_eq!(parsed.buckets[0].used_percent, 19);
+
+        // Zstandard `.jsonl.zst` session rollout file with `window_minutes: 10080` and `resets_at`
+        let tmp_dir = std::env::temp_dir().join(format!(
+            "gas-codex-zst-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let day_dir = tmp_dir.join("sessions/2026/11/10");
+        fs::create_dir_all(&day_dir).unwrap();
+
+        let rollout_line = "{\"timestamp\":\"2026-11-10T20:00:00Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"rate_limits\":{\"primary\":{\"used_percent\":23.0,\"window_minutes\":10080,\"resets_at\":1794860654},\"secondary\":null}}}\n";
+        let compressed = ruzstd::encoding::compress_to_vec(
+            rollout_line.as_bytes(),
+            ruzstd::encoding::CompressionLevel::Fastest,
+        );
+        fs::write(day_dir.join("rollout-test.jsonl.zst"), compressed).unwrap();
+
+        let now = Utc.with_ymd_and_hms(2026, 11, 10, 21, 0, 0).unwrap();
+        let scanned = scan_codex_rollout_sessions(&tmp_dir, now, &Utc)
+            .expect("scan .jsonl.zst rollout session");
+        assert_eq!(scanned.len(), 1);
+        assert_eq!(scanned[0].id, "wk");
+        assert_eq!(scanned[0].used_percent, 23);
+        assert_eq!(scanned[0].resets_at_epoch, Some(1794860654));
+
+        let _ = fs::remove_dir_all(&tmp_dir);
     }
 }

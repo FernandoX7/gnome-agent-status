@@ -653,8 +653,36 @@ struct ClaudeUsageApiResponse {
     seven_day_cowork: Option<ClaudeApiWindow>,
     #[serde(default)]
     extra_usage: Option<ClaudeExtraUsage>,
+    #[serde(default)]
+    limits: Vec<ClaudeScopedLimit>,
     #[serde(flatten)]
     extra_buckets: BTreeMap<String, serde_json::Value>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ClaudeScopedLimit {
+    #[serde(default)]
+    kind: String,
+    #[serde(default)]
+    percent: Option<f64>,
+    #[serde(default)]
+    resets_at: Option<String>,
+    #[serde(default)]
+    scope: Option<ClaudeLimitScope>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ClaudeLimitScope {
+    #[serde(default)]
+    model: Option<ClaudeScopedModel>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ClaudeScopedModel {
+    #[serde(default)]
+    id: Option<String>,
+    #[serde(default)]
+    display_name: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -731,9 +759,20 @@ where
         push_window(&mut buckets, "cowork", "Cowork", "Cowork", false, cowork);
     }
 
-    // Dynamic flattened model buckets (e.g. `fable` or `seven_day_fable`), ignoring null staging flags.
+    // Dynamic flattened model buckets (e.g. `fable` or `seven_day_fable`), ignoring metadata & null staging flags.
+    const IGNORED_META_KEYS: &[&str] = &[
+        "spend",
+        "seven_day_breakdown",
+        "seven_day_oauth_apps",
+        "limits",
+        "weekly_scoped_shares",
+        "pace",
+        "indicator",
+        "promo_credits",
+        "member_dashboard_available",
+    ];
     for (raw_key, val) in &parsed.extra_buckets {
-        if raw_key == "seven_day_oauth_apps" && val.is_null() {
+        if IGNORED_META_KEYS.contains(&raw_key.as_str()) {
             continue;
         }
         let Some(obj) = val.as_object() else {
@@ -761,6 +800,45 @@ where
             BucketLayout::InlinePair,
             is_primary,
             util,
+            norm_reset,
+        ));
+    }
+
+    // Claude Code 2.1.322+ `limits` array (`weekly_scoped` model limits such as `Fable`)
+    for lim in &parsed.limits {
+        if lim.kind != "weekly_scoped" {
+            continue;
+        }
+        let Some(pct) = lim.percent else {
+            continue;
+        };
+        let Some(raw_model_name) = lim
+            .scope
+            .as_ref()
+            .and_then(|s| s.model.as_ref())
+            .and_then(|m| m.display_name.as_deref().or(m.id.as_deref()))
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        else {
+            continue;
+        };
+        let id = slugify_id(raw_model_name);
+        if id.is_empty() || buckets.iter().any(|b| b.id == id) {
+            continue;
+        }
+        let title = humanize_model_bucket_label(raw_model_name);
+        let norm_reset = lim
+            .resets_at
+            .as_deref()
+            .and_then(|r| reset::normalize_reset(r, now, tz));
+        let is_primary = buckets.is_empty();
+        buckets.push(UsageBucket::new(
+            id,
+            title.clone(),
+            title,
+            BucketLayout::InlinePair,
+            is_primary,
+            pct,
             norm_reset,
         ));
     }
@@ -1397,6 +1475,55 @@ mod tests {
         assert_eq!(cred.used_dollars, Some(14.5));
         assert_eq!(cred.limit_dollars, Some(100.0));
         assert_eq!(cred.used_percent, Some(15));
+    }
+
+    #[test]
+    fn test_parse_claude_oauth_v2_1_322_scoped_limits_fable_and_metadata_ignore() {
+        let raw = r#"{
+          "five_hour": null,
+          "seven_day": {
+            "utilization": 3.0,
+            "resets_at": "2026-11-16T05:00:00+00:00"
+          },
+          "spend": { "utilization": 99.0 },
+          "pace": { "utilization": 50.0 },
+          "limits": [
+            {
+              "kind": "weekly_total",
+              "group": "weekly",
+              "percent": 3,
+              "resets_at": "2026-11-16T05:00:00+00:00",
+              "scope": null,
+              "is_active": true
+            },
+            {
+              "kind": "weekly_scoped",
+              "group": "weekly",
+              "percent": 0,
+              "resets_at": "2026-11-16T05:00:00+00:00",
+              "scope": {
+                "model": { "id": "fable", "display_name": "Fable" }
+              },
+              "is_active": false
+            }
+          ],
+          "extra_usage": {
+            "is_enabled": false,
+            "monthly_limit": null,
+            "used_credits": null,
+            "utilization": null
+          }
+        }"#;
+        let now = Utc.with_ymd_and_hms(2026, 11, 10, 18, 0, 0).unwrap();
+        let (buckets, credits) =
+            parse_claude_oauth_usage_json(raw, now, &Utc).expect("parse v2.1.322 oauth usage");
+        assert!(credits.is_none());
+        assert_eq!(buckets.len(), 2);
+        assert_eq!(buckets[0].id, "wk");
+        assert_eq!(buckets[0].used_percent, 3);
+        assert_eq!(buckets[1].id, "fable");
+        assert_eq!(buckets[1].label, "Fable");
+        assert_eq!(buckets[1].used_percent, 0);
     }
 
     #[test]
