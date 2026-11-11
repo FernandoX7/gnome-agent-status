@@ -300,7 +300,12 @@ fn select_active_account_index(
 
     if let Some(pin) = pinned_account_id {
         if !pin.is_empty() && pin != "default" {
-            if let Some(idx) = accounts.iter().position(|a| a.id == pin) {
+            if let Some(idx) = accounts.iter().position(|a| {
+                a.id == pin
+                    || a.id
+                        .split_once(':')
+                        .is_some_and(|(_, suffix)| suffix == pin)
+            }) {
                 return Some(idx);
             }
         }

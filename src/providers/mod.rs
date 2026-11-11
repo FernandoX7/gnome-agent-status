@@ -1,6 +1,7 @@
 //! Pluggable `UsageProvider` trait, account deduplication, and parallel collection engine.
 
 pub mod antigravity;
+pub mod claude;
 
 use crate::cache::{
     apply_report_time_decay, default_jitter_secs, CacheStore, CachedAccountState, CollectorState,
@@ -148,7 +149,10 @@ impl ProviderRegistry {
 
     pub fn builtin() -> Self {
         Self {
-            providers: vec![Box::new(antigravity::AntigravityProvider::new())],
+            providers: vec![
+                Box::new(claude::ClaudeProvider::new()),
+                Box::new(antigravity::AntigravityProvider::new()),
+            ],
         }
     }
 
