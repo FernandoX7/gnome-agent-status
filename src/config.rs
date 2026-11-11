@@ -1063,17 +1063,19 @@ pub fn discover_provider_locations(
                 candidates.push(macos_default);
             }
 
-            for (idx, db_path) in candidates.into_iter().enumerate() {
+            for db_path in candidates {
                 if db_path.is_file() {
+                    let is_first = out.is_empty();
+                    let suggested_id = if is_first {
+                        "default".to_string()
+                    } else {
+                        format!("default-{}", out.len() + 1)
+                    };
                     out.push(DiscoveredLocation {
-                        suggested_id: if idx == 0 {
-                            "default".to_string()
-                        } else {
-                            format!("default-{}", idx + 1)
-                        },
+                        suggested_id,
                         source_label: abbreviate_home(&db_path, Some(home)),
                         path: db_path,
-                        is_system_default: out.is_empty(),
+                        is_system_default: is_first,
                         poll_mode: PollMode::Active,
                     });
                 }
@@ -1291,9 +1293,14 @@ enabled = true
         assert_eq!(grok_locs.len(), 1);
         assert_eq!(grok_locs[0].suggested_id, "swap-personal");
 
-        let cursor_locs = discover_provider_locations("cursor", Some(&tmp_home), Some(&xdg));
+        let cursor_locs = discover_provider_locations(
+            "cursor",
+            Some(&tmp_home),
+            Some(&tmp_home.join("custom-xdg")),
+        );
         assert_eq!(cursor_locs.len(), 1);
         assert!(cursor_locs[0].is_system_default);
+        assert_eq!(cursor_locs[0].suggested_id, "default");
 
         let _ = fs::remove_dir_all(&tmp_home);
     }
