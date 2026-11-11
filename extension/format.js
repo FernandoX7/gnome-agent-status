@@ -1,6 +1,6 @@
 /**
- * Pure formatting, normalization, countdown, CLI-arg, and theme-palette helpers.
- * Zero GI/GNOME imports so this module can be imported safely by both GNOME Shell
+ * Pure formatting, normalization, countdown, sparkline, clipboard, CLI-arg, and theme-palette helpers.
+ * Zero GI/GNOME imports so this module can be imported safely by GNOME Shell
  * (`extension.js`, `indicator.js`, `popover/*`), Libadwaita (`prefs.js`), and Node unit tests.
  */
 
@@ -8,10 +8,21 @@ export const DEFAULT_PROVIDER_ORDER = Object.freeze([
     'claude',
     'codex',
     'grok',
-    'agy',
     'cursor',
+    'agy',
+    'openrouter',
     'copilot',
     'gemini',
+    'windsurf',
+    'deepseek',
+]);
+
+export const DEFAULT_HIDDEN_PROVIDERS = Object.freeze([
+    'openrouter',
+    'copilot',
+    'gemini',
+    'windsurf',
+    'deepseek',
 ]);
 
 export const CANONICAL_PROVIDERS = Object.freeze([
@@ -43,6 +54,15 @@ export const CANONICAL_PROVIDERS = Object.freeze([
         dashboardUrl: 'https://grok.com',
     }),
     Object.freeze({
+        id: 'cursor',
+        displayName: 'Cursor',
+        iconName: 'provider-cursor',
+        shortCode: 'CU',
+        defaultLoginCommand: 'cursor',
+        locationHint: '~/.config/Cursor/User/globalStorage/state.vscdb',
+        dashboardUrl: 'https://www.cursor.com/dashboard',
+    }),
+    Object.freeze({
         id: 'agy',
         displayName: 'Antigravity',
         iconName: 'provider-agy',
@@ -52,13 +72,13 @@ export const CANONICAL_PROVIDERS = Object.freeze([
         dashboardUrl: 'https://antigravity.google/',
     }),
     Object.freeze({
-        id: 'cursor',
-        displayName: 'Cursor',
-        iconName: 'provider-cursor',
-        shortCode: 'CU',
-        defaultLoginCommand: 'cursor',
-        locationHint: '~/.config/Cursor/User/globalStorage/state.vscdb',
-        dashboardUrl: 'https://www.cursor.com/dashboard',
+        id: 'openrouter',
+        displayName: 'OpenRouter',
+        iconName: 'provider-openrouter',
+        shortCode: 'OR',
+        defaultLoginCommand: 'openrouter',
+        locationHint: '~/.config/openrouter/api_key',
+        dashboardUrl: 'https://openrouter.ai/activity',
     }),
     Object.freeze({
         id: 'copilot',
@@ -78,6 +98,24 @@ export const CANONICAL_PROVIDERS = Object.freeze([
         locationHint: '~/.gemini/oauth_creds.json',
         dashboardUrl: 'https://aistudio.google.com/',
     }),
+    Object.freeze({
+        id: 'windsurf',
+        displayName: 'Windsurf',
+        iconName: 'provider-windsurf',
+        shortCode: 'WS',
+        defaultLoginCommand: 'windsurf',
+        locationHint: '~/.config/Windsurf/User/globalStorage/state.vscdb',
+        dashboardUrl: 'https://windsurf.com/subscription',
+    }),
+    Object.freeze({
+        id: 'deepseek',
+        displayName: 'DeepSeek',
+        iconName: 'provider-deepseek',
+        shortCode: 'DS',
+        defaultLoginCommand: 'deepseek',
+        locationHint: '~/.config/deepseek/api_key',
+        dashboardUrl: 'https://platform.deepseek.com/usage',
+    }),
 ]);
 
 export const PROVIDER_BY_ID = Object.freeze(
@@ -96,6 +134,12 @@ export const PANEL_BOXES = Object.freeze([
     Object.freeze({id: 'right', label: 'Right'}),
 ]);
 
+export const POPOVER_LAYOUTS = Object.freeze([
+    Object.freeze({id: 'list', label: 'Compact List'}),
+    Object.freeze({id: 'auto-grid', label: 'Auto 2-Column'}),
+    Object.freeze({id: 'grid', label: '2-Column Wide'}),
+]);
+
 export const DENSITY_MODES = Object.freeze([
     Object.freeze({id: 'detailed', label: 'Detailed'}),
     Object.freeze({id: 'compact', label: 'Compact'}),
@@ -109,6 +153,20 @@ export const FONT_STYLES = Object.freeze([
 export const METRIC_MODES = Object.freeze([
     Object.freeze({id: 'used', label: '% Used'}),
     Object.freeze({id: 'remaining', label: '% Remaining'}),
+]);
+
+export const THEME_CATEGORIES = Object.freeze([
+    Object.freeze({id: 'all', label: 'All'}),
+    Object.freeze({id: 'dark', label: 'Dark'}),
+    Object.freeze({id: 'light', label: 'Light'}),
+    Object.freeze({id: 'glass', label: 'Glass'}),
+]);
+
+export const QUICK_THEME_IDS = Object.freeze([
+    'midnight-slate',
+    'liquid-glass',
+    'catppuccin-latte',
+    'tokyo-night',
 ]);
 
 export const TERMINAL_CANDIDATES = Object.freeze([
@@ -142,100 +200,488 @@ export function hexToRgba(hex, alpha = 1.0) {
     return [r, g, b, alpha];
 }
 
+function makeThemePreset({
+    id,
+    label,
+    category,
+    isLight,
+    swatchHex,
+    accentHex,
+    bgHex,
+    fgHex,
+    mutedHex,
+    trackHex,
+    trackAlpha = 0.96,
+    heroTrackHex,
+    heroTrackAlpha = 1.0,
+    okFillHex,
+    warnFillHex,
+    critFillHex,
+}) {
+    return Object.freeze({
+        id,
+        label,
+        category,
+        isLight: Boolean(isLight),
+        swatchHex,
+        accentHex,
+        bgHex,
+        fgHex,
+        mutedHex,
+        trackRgba: Object.freeze(hexToRgba(trackHex, trackAlpha)),
+        heroTrackRgba: Object.freeze(hexToRgba(heroTrackHex, heroTrackAlpha)),
+        okFillRgba: Object.freeze(hexToRgba(okFillHex, 1.0)),
+        warnFillRgba: Object.freeze(hexToRgba(warnFillHex, 1.0)),
+        critFillRgba: Object.freeze(hexToRgba(critFillHex, 1.0)),
+    });
+}
+
 export const THEME_PRESETS = Object.freeze([
-    Object.freeze({
-        id: 'midnight-slate',
-        label: 'Midnight Slate',
-        swatchHex: '#1e1f2f',
-        trackRgba: hexToRgba('#343852', 0.96),
-        heroTrackRgba: hexToRgba('#32364e', 1.0),
-        okFillRgba: hexToRgba('#858ea8', 1.0),
-        warnFillRgba: hexToRgba('#e0af68', 1.0),
-        critFillRgba: hexToRgba('#ff4443', 1.0),
-    }),
-    Object.freeze({
+    // --- Glass & Adaptive (3) ---
+    makeThemePreset({
         id: 'system',
         label: 'GNOME System',
+        category: 'glass',
+        isLight: false,
         swatchHex: '#3584e4',
-        trackRgba: [0.50, 0.53, 0.60, 0.34],
-        heroTrackRgba: [0.50, 0.53, 0.60, 0.40],
-        okFillRgba: hexToRgba('#7c8599', 1.0),
-        warnFillRgba: hexToRgba('#e0af68', 1.0),
-        critFillRgba: hexToRgba('#ff4443', 1.0),
+        accentHex: '#62a0ea',
+        bgHex: '#242429',
+        fgHex: '#f4f6fb',
+        mutedHex: '#b2b8c9',
+        trackHex: '#3c3f4d',
+        heroTrackHex: '#373a47',
+        okFillHex: '#8d96ad',
+        warnFillHex: '#e5a952',
+        critFillHex: '#ff4d52',
     }),
-    Object.freeze({
+    makeThemePreset({
+        id: 'liquid-glass',
+        label: 'Liquid Glass',
+        category: 'glass',
+        isLight: false,
+        swatchHex: '#28364e',
+        accentHex: '#64d2ff',
+        bgHex: '#181d2a',
+        fgHex: '#f5f8ff',
+        mutedHex: '#c0cce2',
+        trackHex: '#475673',
+        trackAlpha: 0.72,
+        heroTrackHex: '#3f4d68',
+        heroTrackAlpha: 0.82,
+        okFillHex: '#64d2ff',
+        warnFillHex: '#ffd166',
+        critFillHex: '#ff5c64',
+    }),
+    makeThemePreset({
+        id: 'liquid-glass-light',
+        label: 'Liquid Glass Light',
+        category: 'glass',
+        isLight: true,
+        swatchHex: '#dce8fa',
+        accentHex: '#0066cc',
+        bgHex: '#f4f7fd',
+        fgHex: '#0f141f',
+        mutedHex: '#3b4559',
+        trackHex: '#c5d1e4',
+        trackAlpha: 0.90,
+        heroTrackHex: '#bcc9df',
+        heroTrackAlpha: 0.95,
+        okFillHex: '#0066cc',
+        warnFillHex: '#c76a00',
+        critFillHex: '#d1242f',
+    }),
+
+    // --- Light Palettes (5) ---
+    makeThemePreset({
+        id: 'catppuccin-latte',
+        label: 'Catppuccin Latte',
+        category: 'light',
+        isLight: true,
+        swatchHex: '#eff1f5',
+        accentHex: '#1e66f5',
+        bgHex: '#eff1f5',
+        fgHex: '#191b28',
+        mutedHex: '#43475c',
+        trackHex: '#ccd0da',
+        heroTrackHex: '#c2c7d4',
+        okFillHex: '#1e66f5',
+        warnFillHex: '#c96a00',
+        critFillHex: '#d20f39',
+    }),
+    makeThemePreset({
+        id: 'flexoki-light',
+        label: 'Flexoki Light',
+        category: 'light',
+        isLight: true,
+        swatchHex: '#fffcf0',
+        accentHex: '#205ea6',
+        bgHex: '#fffcf0',
+        fgHex: '#100f0f',
+        mutedHex: '#4b4944',
+        trackHex: '#dad8ce',
+        heroTrackHex: '#cecdc3',
+        okFillHex: '#205ea6',
+        warnFillHex: '#bc6700',
+        critFillHex: '#af3029',
+    }),
+    makeThemePreset({
+        id: 'rose-pine-dawn',
+        label: 'Rosé Pine Dawn',
+        category: 'light',
+        isLight: true,
+        swatchHex: '#faf4ed',
+        accentHex: '#907aa9',
+        bgHex: '#faf4ed',
+        fgHex: '#262138',
+        mutedHex: '#575279',
+        trackHex: '#dfd5cc',
+        heroTrackHex: '#d5c9bf',
+        okFillHex: '#286983',
+        warnFillHex: '#c96f18',
+        critFillHex: '#b43356',
+    }),
+    makeThemePreset({
+        id: 'daylight-white',
+        label: 'Pure Daylight',
+        category: 'light',
+        isLight: true,
+        swatchHex: '#ffffff',
+        accentHex: '#0969da',
+        bgHex: '#ffffff',
+        fgHex: '#0d1117',
+        mutedHex: '#424a53',
+        trackHex: '#d8dee4',
+        heroTrackHex: '#cfd7df',
+        okFillHex: '#0969da',
+        warnFillHex: '#bf6700',
+        critFillHex: '#cf222e',
+    }),
+    makeThemePreset({
+        id: 'lumon',
+        label: 'Lumon Ice',
+        category: 'light',
+        isLight: true,
+        swatchHex: '#edf4f8',
+        accentHex: '#0e6994',
+        bgHex: '#edf4f8',
+        fgHex: '#0d1b26',
+        mutedHex: '#354b5c',
+        trackHex: '#c6dae6',
+        heroTrackHex: '#bad0de',
+        okFillHex: '#0e6994',
+        warnFillHex: '#c46a00',
+        critFillHex: '#c92a35',
+    }),
+
+    // --- Dark Palettes (16) ---
+    makeThemePreset({
+        id: 'midnight-slate',
+        label: 'Midnight Slate',
+        category: 'dark',
+        isLight: false,
+        swatchHex: '#1e1f2f',
+        accentHex: '#7e97d6',
+        bgHex: '#1e1f2f',
+        fgHex: '#eef2ff',
+        mutedHex: '#a7b0cc',
+        trackHex: '#343852',
+        heroTrackHex: '#30344d',
+        okFillHex: '#8c97b5',
+        warnFillHex: '#e0af68',
+        critFillHex: '#ff4d52',
+    }),
+    makeThemePreset({
         id: 'tokyo-night',
         label: 'Tokyo Night',
+        category: 'dark',
+        isLight: false,
         swatchHex: '#1a1b26',
-        trackRgba: hexToRgba('#313750', 0.96),
-        heroTrackRgba: hexToRgba('#2f354d', 1.0),
-        okFillRgba: hexToRgba('#7e88ad', 1.0),
-        warnFillRgba: hexToRgba('#e0af68', 1.0),
-        critFillRgba: hexToRgba('#ff4443', 1.0),
+        accentHex: '#7aa2f7',
+        bgHex: '#1a1b26',
+        fgHex: '#dde5ff',
+        mutedHex: '#a3aed2',
+        trackHex: '#313750',
+        heroTrackHex: '#2d334a',
+        okFillHex: '#7aa2f7',
+        warnFillHex: '#e0af68',
+        critFillHex: '#f7768e',
     }),
-    Object.freeze({
+    makeThemePreset({
         id: 'catppuccin',
         label: 'Catppuccin Mocha',
+        category: 'dark',
+        isLight: false,
         swatchHex: '#1e1e2e',
-        trackRgba: hexToRgba('#36384d', 0.96),
-        heroTrackRgba: hexToRgba('#35374b', 1.0),
-        okFillRgba: hexToRgba('#878ca6', 1.0),
-        warnFillRgba: hexToRgba('#e0af68', 1.0),
-        critFillRgba: hexToRgba('#ff4443', 1.0),
+        accentHex: '#89b4fa',
+        bgHex: '#1e1e2e',
+        fgHex: '#e6ecff',
+        mutedHex: '#aeb5d1',
+        trackHex: '#36384d',
+        heroTrackHex: '#33354a',
+        okFillHex: '#89b4fa',
+        warnFillHex: '#f9e2af',
+        critFillHex: '#f38ba8',
     }),
-    Object.freeze({
+    makeThemePreset({
+        id: 'everforest',
+        label: 'Everforest',
+        category: 'dark',
+        isLight: false,
+        swatchHex: '#272e33',
+        accentHex: '#a7c080',
+        bgHex: '#272e33',
+        fgHex: '#f0e9d6',
+        mutedHex: '#b4c2b6',
+        trackHex: '#3d484d',
+        heroTrackHex: '#394449',
+        okFillHex: '#a7c080',
+        warnFillHex: '#dbbc7f',
+        critFillHex: '#e67e80',
+    }),
+    makeThemePreset({
         id: 'gruvbox',
-        label: 'Gruvbox Dark',
+        label: 'Gruvbox',
+        category: 'dark',
+        isLight: false,
         swatchHex: '#282828',
-        trackRgba: hexToRgba('#45403d', 0.96),
-        heroTrackRgba: hexToRgba('#423d3a', 1.0),
-        okFillRgba: hexToRgba('#a89984', 1.0),
-        warnFillRgba: hexToRgba('#d79921', 1.0),
-        critFillRgba: hexToRgba('#fb4934', 1.0),
+        accentHex: '#83a598',
+        bgHex: '#282828',
+        fgHex: '#fbf1c7',
+        mutedHex: '#c6b8a2',
+        trackHex: '#45403d',
+        heroTrackHex: '#403b38',
+        okFillHex: '#83a598',
+        warnFillHex: '#fabd2f',
+        critFillHex: '#fb4934',
     }),
-    Object.freeze({
-        id: 'rose-pine',
-        label: 'Rosé Pine',
-        swatchHex: '#1f1d2e',
-        trackRgba: hexToRgba('#36334c', 0.96),
-        heroTrackRgba: hexToRgba('#333048', 1.0),
-        okFillRgba: hexToRgba('#8883a5', 1.0),
-        warnFillRgba: hexToRgba('#f6c177', 1.0),
-        critFillRgba: hexToRgba('#eb6f92', 1.0),
+    makeThemePreset({
+        id: 'kanagawa',
+        label: 'Kanagawa',
+        category: 'dark',
+        isLight: false,
+        swatchHex: '#1f1f28',
+        accentHex: '#7e9cd8',
+        bgHex: '#1f1f28',
+        fgHex: '#f2ecda',
+        mutedHex: '#b5b2a4',
+        trackHex: '#363646',
+        heroTrackHex: '#313140',
+        okFillHex: '#7e9cd8',
+        warnFillHex: '#dca561',
+        critFillHex: '#e82424',
     }),
-    Object.freeze({
+    makeThemePreset({
+        id: 'matte-black',
+        label: 'Matte Black',
+        category: 'dark',
+        isLight: false,
+        swatchHex: '#121212',
+        accentHex: '#e6e6e6',
+        bgHex: '#121212',
+        fgHex: '#f5f5f5',
+        mutedHex: '#a8a8a8',
+        trackHex: '#2c2c2c',
+        heroTrackHex: '#262626',
+        okFillHex: '#bdbdbd',
+        warnFillHex: '#f0b44c',
+        critFillHex: '#ff4d4d',
+    }),
+    makeThemePreset({
         id: 'nord',
         label: 'Nord',
+        category: 'dark',
+        isLight: false,
         swatchHex: '#2e3440',
-        trackRgba: hexToRgba('#464f62', 0.96),
-        heroTrackRgba: hexToRgba('#434c5e', 1.0),
-        okFillRgba: hexToRgba('#8895ab', 1.0),
-        warnFillRgba: hexToRgba('#ebcb8b', 1.0),
-        critFillRgba: hexToRgba('#ff4443', 1.0),
+        accentHex: '#88c0d0',
+        bgHex: '#2e3440',
+        fgHex: '#f2f5fa',
+        mutedHex: '#bac4d4',
+        trackHex: '#464f62',
+        heroTrackHex: '#414a5c',
+        okFillHex: '#88c0d0',
+        warnFillHex: '#ebcb8b',
+        critFillHex: '#ff5c67',
     }),
-    Object.freeze({
-        id: 'everforest',
-        label: 'Everforest Dark',
-        swatchHex: '#2d353b',
-        trackRgba: hexToRgba('#434f56', 0.96),
-        heroTrackRgba: hexToRgba('#3f4b52', 1.0),
-        okFillRgba: hexToRgba('#8f9c90', 1.0),
-        warnFillRgba: hexToRgba('#dbbc7f', 1.0),
-        critFillRgba: hexToRgba('#e67e80', 1.0),
+    makeThemePreset({
+        id: 'osaka-jade',
+        label: 'Osaka Jade',
+        category: 'dark',
+        isLight: false,
+        swatchHex: '#111c18',
+        accentHex: '#54c59f',
+        bgHex: '#111c18',
+        fgHex: '#e6f5ee',
+        mutedHex: '#9ec2b4',
+        trackHex: '#243b32',
+        heroTrackHex: '#1f342c',
+        okFillHex: '#54c59f',
+        warnFillHex: '#e5c065',
+        critFillHex: '#ff595e',
+    }),
+    makeThemePreset({
+        id: 'ristretto',
+        label: 'Ristretto',
+        category: 'dark',
+        isLight: false,
+        swatchHex: '#2c2525',
+        accentHex: '#f38d70',
+        bgHex: '#2c2525',
+        fgHex: '#f7eeec',
+        mutedHex: '#c6b5b3',
+        trackHex: '#473c3c',
+        heroTrackHex: '#423838',
+        okFillHex: '#f38d70',
+        warnFillHex: '#f9cc6c',
+        critFillHex: '#fd6883',
+    }),
+    makeThemePreset({
+        id: 'rose-pine',
+        label: 'Rosé Pine',
+        category: 'dark',
+        isLight: false,
+        swatchHex: '#1f1d2e',
+        accentHex: '#c4a7e7',
+        bgHex: '#1f1d2e',
+        fgHex: '#ebe9fa',
+        mutedHex: '#afaac7',
+        trackHex: '#36334c',
+        heroTrackHex: '#322f47',
+        okFillHex: '#9ccfd8',
+        warnFillHex: '#f6c177',
+        critFillHex: '#eb6f92',
+    }),
+    makeThemePreset({
+        id: 'ethereal',
+        label: 'Ethereal',
+        category: 'dark',
+        isLight: false,
+        swatchHex: '#0c1020',
+        accentHex: '#7daeff',
+        bgHex: '#0c1020',
+        fgHex: '#edf3ff',
+        mutedHex: '#9eb0d4',
+        trackHex: '#202945',
+        heroTrackHex: '#1b233b',
+        okFillHex: '#7daeff',
+        warnFillHex: '#ebb95e',
+        critFillHex: '#ff546b',
+    }),
+    makeThemePreset({
+        id: 'hackerman',
+        label: 'Hackerman',
+        category: 'dark',
+        isLight: false,
+        swatchHex: '#0b1110',
+        accentHex: '#39ff88',
+        bgHex: '#0b1110',
+        fgHex: '#e6fff0',
+        mutedHex: '#8fc7a6',
+        trackHex: '#1c3328',
+        heroTrackHex: '#182b22',
+        okFillHex: '#39ff88',
+        warnFillHex: '#edd053',
+        critFillHex: '#ff4d55',
+    }),
+    makeThemePreset({
+        id: 'miasma',
+        label: 'Miasma',
+        category: 'dark',
+        isLight: false,
+        swatchHex: '#222222',
+        accentHex: '#b4be82',
+        bgHex: '#222222',
+        fgHex: '#f2ede1',
+        mutedHex: '#b8b3a4',
+        trackHex: '#3a3934',
+        heroTrackHex: '#35342f',
+        okFillHex: '#b4be82',
+        warnFillHex: '#d9ae59',
+        critFillHex: '#de5d5d',
+    }),
+    makeThemePreset({
+        id: 'vantablack',
+        label: 'Vantablack',
+        category: 'dark',
+        isLight: false,
+        swatchHex: '#050507',
+        accentHex: '#8ab4f8',
+        bgHex: '#050507',
+        fgHex: '#f8f9fc',
+        mutedHex: '#9ea5b5',
+        trackHex: '#20222b',
+        heroTrackHex: '#1b1d25',
+        okFillHex: '#8ab4f8',
+        warnFillHex: '#ebb654',
+        critFillHex: '#ff4d57',
+    }),
+    makeThemePreset({
+        id: 'retro-82',
+        label: 'Retro 82',
+        category: 'dark',
+        isLight: false,
+        swatchHex: '#171128',
+        accentHex: '#ff6ad5',
+        bgHex: '#171128',
+        fgHex: '#faedff',
+        mutedHex: '#bdabdb',
+        trackHex: '#332552',
+        heroTrackHex: '#2d2048',
+        okFillHex: '#38e8ff',
+        warnFillHex: '#ffd15c',
+        critFillHex: '#ff4d7e',
     }),
 ]);
+
+export const SYSTEM_LIGHT_PALETTE = makeThemePreset({
+    id: 'system-light',
+    label: 'GNOME System (Light)',
+    category: 'glass',
+    isLight: true,
+    swatchHex: '#f8f9fc',
+    accentHex: '#1a5fb4',
+    bgHex: '#f8f9fc',
+    fgHex: '#12151c',
+    mutedHex: '#434b59',
+    trackHex: '#d2d8e3',
+    heroTrackHex: '#c8d0de',
+    okFillHex: '#1c71d8',
+    warnFillHex: '#c46800',
+    critFillHex: '#c92a2a',
+});
 
 export const THEME_BY_ID = Object.freeze(
     Object.fromEntries(THEME_PRESETS.map(t => [t.id, t]))
 );
 
 /**
- * Resolves a theme preset safely, defaulting to `midnight-slate`.
+ * Resolves a theme preset safely, supporting `'system-light'` when the host GNOME
+ * surface is light and defaulting unknown IDs to `midnight-slate`.
  *
  * @param {string} themeId
  */
 export function getThemePalette(themeId) {
+    if (themeId === 'system-light')
+        return SYSTEM_LIGHT_PALETTE;
     return THEME_BY_ID[themeId] ?? THEME_BY_ID['midnight-slate'];
+}
+
+/**
+ * Resolves whether the popover should render in single-column `'list'` (`352px`)
+ * or wide 2-column `'grid'` (`688px`) mode.
+ *
+ * @param {string} layoutSetting `'list' | 'auto-grid' | 'grid'`
+ * @param {number} visibleCount
+ * @param {number} [monitorWidth=1920]
+ * @returns {'list'|'grid'}
+ */
+export function resolveEffectivePopoverLayout(layoutSetting, visibleCount, monitorWidth = 1920) {
+    const count = Number(visibleCount) || 0;
+    const width = Number(monitorWidth) || 1920;
+    if (layoutSetting === 'grid')
+        return count >= 2 ? 'grid' : 'list';
+    if (layoutSetting === 'auto-grid')
+        return count >= 6 && width >= 760 ? 'grid' : 'list';
+    return 'list';
 }
 
 /**
@@ -502,6 +948,88 @@ export function computeBucketPace(bucket, nowEpoch = Math.floor(Date.now() / 100
 }
 
 /**
+ * Normalizes raw 7-day sparkline points (`[{ts, used}, ...]`) into sorted `[0, 1]`
+ * plot coordinates and summary statistics. Returns `null` when fewer than 2 valid
+ * points are present.
+ *
+ * @param {Array<{ts: number, used: number}>|null|undefined} rawPoints
+ * @param {'used'|'remaining'} [metricMode='used']
+ * @returns {{
+ *   points: Array<{ts: number, used: number, displayValue: number, xNorm: number, yNorm: number}>,
+ *   minDisplay: number,
+ *   maxDisplay: number,
+ *   firstDisplay: number,
+ *   latestDisplay: number,
+ *   latestUsed: number,
+ *   deltaDisplay: number,
+ *   spanSeconds: number,
+ *   severity: 'normal'|'warning'|'critical',
+ *   summaryText: string
+ * } | null}
+ */
+export function normalizeSparklinePoints(rawPoints, metricMode = 'used') {
+    if (!Array.isArray(rawPoints) || rawPoints.length < 2)
+        return null;
+
+    const byTs = new Map();
+    for (const item of rawPoints) {
+        if (!item || typeof item !== 'object')
+            continue;
+        const ts = Number(item.ts);
+        const usedRaw = Number(item.used);
+        if (!Number.isFinite(ts) || ts <= 0 || !Number.isFinite(usedRaw))
+            continue;
+        byTs.set(Math.floor(ts), clampPercent(usedRaw));
+    }
+
+    if (byTs.size < 2)
+        return null;
+
+    const sortedEntries = [...byTs.entries()].sort((a, b) => a[0] - b[0]);
+    const minTs = sortedEntries[0][0];
+    const maxTs = sortedEntries[sortedEntries.length - 1][0];
+    const span = Math.max(1, maxTs - minTs);
+    const isRemaining = metricMode === 'remaining';
+
+    let minDisplay = 100;
+    let maxDisplay = 0;
+
+    const points = sortedEntries.map(([ts, used]) => {
+        const displayValue = isRemaining ? Math.max(0, 100 - used) : used;
+        minDisplay = Math.min(minDisplay, displayValue);
+        maxDisplay = Math.max(maxDisplay, displayValue);
+        return {
+            ts,
+            used,
+            displayValue,
+            xNorm: (ts - minTs) / span,
+            yNorm: 1 - (displayValue / 100),
+        };
+    });
+
+    const firstDisplay = points[0].displayValue;
+    const latest = points[points.length - 1];
+    const deltaDisplay = latest.displayValue - firstDisplay;
+    const sign = deltaDisplay > 0 ? `+${deltaDisplay}%` : `${deltaDisplay}%`;
+    const spanHours = Math.max(1, Math.round(span / 3600));
+    const spanLabel = spanHours >= 24 ? `${Math.round(spanHours / 24)}d` : `${spanHours}h`;
+    const modeWord = isRemaining ? 'left' : 'used';
+
+    return {
+        points,
+        minDisplay,
+        maxDisplay,
+        firstDisplay,
+        latestDisplay: latest.displayValue,
+        latestUsed: latest.used,
+        deltaDisplay,
+        spanSeconds: span,
+        severity: getSeverityForUsedPercent(latest.used),
+        summaryText: `${latest.displayValue}% ${modeWord} (${sign} / ${spanLabel})`,
+    };
+}
+
+/**
  * Formats ordered buckets for the Detailed main popover card so every bucket
  * renders on its own dedicated full-width line with zero side-by-side truncation.
  *
@@ -656,6 +1184,175 @@ export function getActiveAccount(provider) {
 }
 
 /**
+ * Computes alert severity (`'normal' | 'warning' | 'critical'`) for a provider card,
+ * factoring in primary usage, bucket usage, auth sign-out, and collection errors.
+ *
+ * @param {object|null|undefined} provider
+ * @returns {'normal'|'warning'|'critical'}
+ */
+export function getProviderAlertSeverity(provider) {
+    if (!provider || typeof provider !== 'object')
+        return 'normal';
+
+    const activeAcc = getActiveAccount(provider);
+    let worstUsed = typeof provider.primary_used_percent === 'number'
+        ? clampPercent(provider.primary_used_percent)
+        : 0;
+
+    if (Array.isArray(activeAcc?.buckets)) {
+        for (const b of activeAcc.buckets) {
+            if (typeof b?.used_percent === 'number')
+                worstUsed = Math.max(worstUsed, clampPercent(b.used_percent));
+        }
+    }
+
+    let severity = getSeverityForUsedPercent(worstUsed);
+    if (activeAcc?.state === 'error' || activeAcc?.error) {
+        if (severity === 'normal')
+            severity = 'warning';
+    }
+    if (activeAcc?.state === 'signed_out') {
+        if (severity === 'normal')
+            severity = 'warning';
+    }
+    return severity;
+}
+
+/**
+ * Summarizes overflow providers (`6+` in compact list mode) for progressive disclosure:
+ * computes badge severity and renders `Show N more agents (OpenRouter · Copilot…) ▾`
+ * or `Show fewer ▴`.
+ *
+ * @param {Array<object>} overflowProviders
+ * @param {boolean} [expanded=false]
+ * @returns {{
+ *   count: number,
+ *   alertSeverity: 'normal'|'warning'|'critical',
+ *   hasAlert: boolean,
+ *   label: string
+ * }}
+ */
+export function summarizeOverflowProviders(overflowProviders, expanded = false) {
+    const items = Array.isArray(overflowProviders) ? overflowProviders.filter(Boolean) : [];
+    const count = items.length;
+    if (count === 0) {
+        return {
+            count: 0,
+            alertSeverity: 'normal',
+            hasAlert: false,
+            label: '',
+        };
+    }
+
+    let alertSeverity = 'normal';
+    for (const prov of items) {
+        const sev = getProviderAlertSeverity(prov);
+        if (sev === 'critical') {
+            alertSeverity = 'critical';
+            break;
+        }
+        if (sev === 'warning')
+            alertSeverity = 'warning';
+    }
+
+    if (expanded) {
+        return {
+            count,
+            alertSeverity,
+            hasAlert: alertSeverity !== 'normal',
+            label: 'Show fewer ▴',
+        };
+    }
+
+    const previewNames = items.slice(0, 2).map(p => {
+        const rawName = String(p.display_name || PROVIDER_BY_ID[p.id]?.displayName || p.id || 'Agent');
+        return rawName
+            .replace(/^GitHub\s+/i, '')
+            .replace(/\s+CLI$/i, '')
+            .trim();
+    });
+    const previewStr = previewNames.join(' · ') + (count > 2 ? '…' : '');
+    const noun = count === 1 ? 'agent' : 'agents';
+
+    return {
+        count,
+        alertSeverity,
+        hasAlert: alertSeverity !== 'normal',
+        label: `Show ${count} more ${noun} (${previewStr}) ▾`,
+    };
+}
+
+/**
+ * Formats a clean plain-text usage summary suitable for 1-click clipboard copying.
+ *
+ * @param {Array<object>} visibleProviders
+ * @param {'used'|'remaining'} [metricMode='used']
+ * @param {number} [nowEpoch]
+ * @returns {string}
+ */
+export function formatClipboardSummary(
+    visibleProviders,
+    metricMode = 'used',
+    nowEpoch = Math.floor(Date.now() / 1000)
+) {
+    const providers = Array.isArray(visibleProviders) ? visibleProviders.filter(Boolean) : [];
+    if (providers.length === 0)
+        return 'AI Agent Usage: No active AI agents detected';
+
+    const isRemaining = metricMode === 'remaining';
+    const modeSuffix = isRemaining ? 'left' : 'used';
+    const lines = [`AI Agent Usage (${isRemaining ? '% remaining' : '% used'})`];
+
+    for (const prov of providers) {
+        const name = prov.display_name || PROVIDER_BY_ID[prov.id]?.displayName || prov.id || 'Agent';
+        const activeAcc = getActiveAccount(prov);
+        const tier = prov.plan_badge || activeAcc?.plan_tier || '';
+        const head = tier ? `${name} (${tier})` : name;
+
+        if (activeAcc?.state === 'signed_out') {
+            lines.push(`- ${head}: Signed out`);
+            continue;
+        }
+
+        const buckets = Array.isArray(activeAcc?.buckets) ? activeAcc.buckets : [];
+        if (buckets.length > 0) {
+            const parts = buckets.map(b => {
+                const m = formatBucketMetric(b, metricMode);
+                const title = formatBucketDisplayLabel(b);
+                const reset = formatResetCountdown(b.resets_at_epoch, nowEpoch, {prefix: false});
+                const resetSuffix = reset && reset !== 'now' ? ` (resets in ${reset})` : '';
+                return `${title} ${m.percentText} ${modeSuffix}${resetSuffix}`;
+            });
+            const creditsNote = formatCompactAccountExtraNote(activeAcc, Boolean(tier));
+            if (creditsNote)
+                parts.push(creditsNote);
+            lines.push(`- ${head}: ${parts.join(' · ')}`);
+            continue;
+        }
+
+        if (typeof prov.primary_used_percent === 'number') {
+            const m = formatBucketMetric({
+                used_percent: prov.primary_used_percent,
+                remaining_percent: prov.primary_remaining_percent,
+            }, metricMode);
+            const reset = formatResetCountdown(prov.primary_reset_epoch, nowEpoch, {prefix: false});
+            const resetSuffix = reset && reset !== 'now' ? ` (resets in ${reset})` : '';
+            lines.push(`- ${head}: ${m.percentText} ${modeSuffix}${resetSuffix}`);
+            continue;
+        }
+
+        const fallback = formatCreditsSummary(activeAcc?.credits) ||
+            activeAcc?.extra_info ||
+            activeAcc?.error ||
+            activeAcc?.status_note ||
+            'Idle';
+        lines.push(`- ${head}: ${fallback}`);
+    }
+
+    return lines.join('\n');
+}
+
+/**
  * Normalizes a raw `StatusReport` (v2 or legacy v1) and applies live passive reset decay
  * (`nowEpoch >= resets_at_epoch => used_percent = 0, remaining_percent = 100`).
  *
@@ -730,6 +1427,7 @@ export function normalizeStatusReport(raw, nowEpoch = Math.floor(Date.now() / 10
                                 },
                             ]
                             : [],
+                        sparkline: [],
                         credits: null,
                     },
                 ],
@@ -761,9 +1459,19 @@ export function normalizeStatusReport(raw, nowEpoch = Math.floor(Date.now() / 10
                 };
             });
 
+            const sparkline = Array.isArray(acc?.sparkline)
+                ? acc.sparkline
+                    .filter(pt => pt && Number.isFinite(Number(pt.ts)) && Number.isFinite(Number(pt.used)))
+                    .map(pt => ({
+                        ts: Math.floor(Number(pt.ts)),
+                        used: clampPercent(Number(pt.used)),
+                    }))
+                : [];
+
             return {
                 ...acc,
                 buckets,
+                sparkline,
                 login_command: acc?.login_command || meta?.defaultLoginCommand || null,
             };
         });
@@ -962,13 +1670,6 @@ export function computePanelSummary(visibleProviders, metricMode = 'used', separ
 /**
  * Evaluates smart quota warning, critical, and reset notification transitions across
  * providers while mutating `bucketStates` in-place.
- *
- * - When `isInitialHydration` is `true`, seeds baseline bucket state across all providers
- *   and accounts without emitting any notifications.
- * - On live updates, evaluates each visible active provider's primary bucket:
- *   - Reset (`prev >= 80% -> curr < 20%` with clock or new-window boundary)
- *   - Critical (`prev < 90% -> curr >= 90%`, once per `(key, resets_at_epoch)` window)
- *   - Warning (`prev < 80% -> 80% <= curr < 90%`, once per `(key, resets_at_epoch)` window)
  *
  * @param {Map<string, object>} bucketStates
  * @param {object} report
@@ -1190,9 +1891,9 @@ export function buildConfigUpsertArgs(spec) {
 }
 
 /**
- * Returns the canonical deduplicated list of credential file paths watched via
+ * Returns the canonical deduplicated list of credential file/directory paths watched via
  * `Gio.FileMonitor` (filesystem events only — never read by the extension) so
- * completing `[Sign in]` in an external terminal triggers a live refresh.
+ * completing `[Sign in]` or configuring API keys triggers a live refresh.
  *
  * @param {string} homeDir
  * @param {string|null} [configDir=null]
@@ -1215,12 +1916,18 @@ export function defaultCredentialWatchPaths(homeDir, configDir = null) {
         `${defaultConfig}/gh/hosts.yml`,
         `${defaultConfig}/github-copilot/hosts.json`,
         `${cleanHome}/.gemini/oauth_creds.json`,
+        `${defaultConfig}/openrouter`,
+        `${defaultConfig}/Windsurf/User/globalStorage/state.vscdb`,
+        `${defaultConfig}/deepseek`,
     ];
 
     if (cleanConfig && cleanConfig !== defaultConfig) {
         candidates.push(
             `${cleanConfig}/gh/hosts.yml`,
-            `${cleanConfig}/github-copilot/hosts.json`
+            `${cleanConfig}/github-copilot/hosts.json`,
+            `${cleanConfig}/openrouter`,
+            `${cleanConfig}/Windsurf/User/globalStorage/state.vscdb`,
+            `${cleanConfig}/deepseek`
         );
     }
 
@@ -1320,7 +2027,7 @@ export function tokenizeLoginCommand(raw) {
 function quoteShellTokenSafe(token, quoteFn, homeDir, expandTilde) {
     const clean = String(token ?? '').replace(/\0/g, '');
     if (expandTilde && (clean === '~' || clean.startsWith('~/'))) {
-        const rest = clean.slice(1); // '' or '/...'
+        const rest = clean.slice(1);
         if (homeDir) {
             const trimmedHome = String(homeDir).replace(/\/+$/, '');
             return quoteFn(`${trimmedHome}${rest}`);

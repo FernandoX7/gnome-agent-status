@@ -9,6 +9,7 @@ import {
     getSettingStrvSafe,
 } from './compat.js';
 import {
+    DEFAULT_HIDDEN_PROVIDERS,
     DEFAULT_PROVIDER_ORDER,
     evaluateQuotaNotificationStep,
 } from './format.js';
@@ -86,7 +87,9 @@ export class QuotaNotificationTracker {
         const seedOnly = Boolean(isInitialHydration || !this._hasSeededBaseline);
         this._hasSeededBaseline = true;
 
-        const hiddenProviderIds = getSettingStrvSafe(this._settings, 'hidden-providers', []);
+        const hiddenProviderIds = this._settings
+            ? getSettingStrvSafe(this._settings, 'hidden-providers', DEFAULT_HIDDEN_PROVIDERS)
+            : [];
         const providerOrder = getSettingStrvSafe(
             this._settings,
             'provider-order',

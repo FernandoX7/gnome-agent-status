@@ -1,17 +1,30 @@
+import Meta from 'gi://Meta';
+import Shell from 'gi://Shell';
+
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
 import {BackendClient} from './backend.js';
+import {
+    connectSettingChangedSafe,
+    getSettingStrvSafe,
+    hasSettingKey,
+    initGettext,
+} from './compat.js';
 import {AgentStatusIndicator} from './indicator.js';
 import {QuotaNotificationTracker} from './notifications.js';
 import {PopoverController} from './popover/controller.js';
 
 const VALID_PANEL_BOXES = new Set(['left', 'center', 'right']);
+const KEYBINDING_TOGGLE_POPOVER = 'keybinding-toggle-popover';
 
 export default class AgentStatusExtension extends Extension {
     enable() {
+        initGettext(s => this.gettext(s));
+
         this._settings = this.getSettings();
         this._placementSigIds = [];
+        this._keybindingBound = false;
 
         this._backend = new BackendClient({
             settings: this._settings,
@@ -57,6 +70,54 @@ export default class AgentStatusExtension extends Extension {
             this._settings.connect('changed::panel-box', () => this._repositionIndicator()),
             this._settings.connect('changed::panel-position', () => this._repositionIndicator())
         );
+
+        this._syncKeybinding();
+        const kbSigId = connectSettingChangedSafe(
+            this._settings,
+            KEYBINDING_TOGGLE_POPOVER,
+            () => this._syncKeybinding()
+        );
+        if (kbSigId)
+            this._placementSigIds.push(kbSigId);
+    }
+
+    _unbindKeybinding() {
+        if (!this._keybindingBound)
+            return;
+        this._keybindingBound = false;
+        try {
+            Main.wm?.removeKeybinding?.(KEYBINDING_TOGGLE_POPOVER);
+        } catch (_e) {}
+    }
+
+    _syncKeybinding() {
+        this._unbindKeybinding();
+        if (!this._settings || !hasSettingKey(this._settings, KEYBINDING_TOGGLE_POPOVER))
+            return;
+
+        const accels = getSettingStrvSafe(this._settings, KEYBINDING_TOGGLE_POPOVER, []);
+        const hasValidAccel = accels.some(a => typeof a === 'string' && a.trim() !== '');
+        if (!hasValidAccel)
+            return;
+
+        try {
+            const actionModes =
+                (Shell.ActionMode?.NORMAL ?? 1) |
+                (Shell.ActionMode?.OVERVIEW ?? 2) |
+                (Shell.ActionMode?.POPUP ?? 32);
+            Main.wm?.addKeybinding?.(
+                KEYBINDING_TOGGLE_POPOVER,
+                this._settings,
+                Meta.KeyBindingFlags?.NONE ?? 0,
+                actionModes,
+                () => {
+                    this._indicator?.togglePrimaryMenu();
+                }
+            );
+            this._keybindingBound = true;
+        } catch (e) {
+            console.error(`[gnome-agent-status] Failed to bind global shortcut: ${e.message}`);
+        }
     }
 
     _getPanelBoxName() {
@@ -94,6 +155,8 @@ export default class AgentStatusExtension extends Extension {
     }
 
     disable() {
+        this._unbindKeybinding();
+
         if (this._settings && this._placementSigIds) {
             for (const sigId of this._placementSigIds)
                 this._settings.disconnect(sigId);
@@ -116,5 +179,6 @@ export default class AgentStatusExtension extends Extension {
         }
 
         this._settings = null;
+        initGettext(null);
     }
 }

@@ -9,14 +9,18 @@ import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
 import {
+    _,
     connectSettingChangedSafe,
     createHBox,
     getSettingStrvSafe,
 } from './compat.js';
 import {
+    DEFAULT_HIDDEN_PROVIDERS,
     DEFAULT_PROVIDER_ORDER,
     computePanelSummary,
     filterVisibleProviders,
+    formatClipboardSummary,
+    normalizeStatusReport,
     sortProvidersByOrder,
 } from './format.js';
 
@@ -52,6 +56,7 @@ class AgentStatusIndicator extends PanelMenu.Button {
         this._contextMenuManager = null;
         this._secondaryClickGesture = null;
         this._refreshMenuItem = null;
+        this._copySummaryMenuItem = null;
         this._settingsMenuItem = null;
         this._quitMenuItem = null;
         this._quitIdleId = 0;
@@ -142,7 +147,16 @@ class AgentStatusIndicator extends PanelMenu.Button {
             'icons',
             `${safeName}.svg`,
         ]);
-        const file = Gio.File.new_for_path(svgPath);
+        let file = Gio.File.new_for_path(svgPath);
+        if (!file.query_exists(null) && safeName !== 'agent-status-symbolic') {
+            file = Gio.File.new_for_path(
+                GLib.build_filenamev([
+                    this._extension.path,
+                    'icons',
+                    'agent-status-symbolic.svg',
+                ])
+            );
+        }
         const gicon = new Gio.FileIcon({file});
         this._iconCache.set(safeName, gicon);
         return gicon;
@@ -225,7 +239,7 @@ class AgentStatusIndicator extends PanelMenu.Button {
         this._contextMenu.actor.hide();
 
         this._refreshMenuItem = new PopupMenu.PopupImageMenuItem(
-            'Refresh Usage',
+            _('Refresh Usage'),
             'view-refresh-symbolic'
         );
         this._refreshMenuItem.connect('activate', () => {
@@ -233,8 +247,17 @@ class AgentStatusIndicator extends PanelMenu.Button {
                 void this._backend?.collect(true);
         });
 
+        this._copySummaryMenuItem = new PopupMenu.PopupImageMenuItem(
+            _('Copy Usage Summary'),
+            'edit-copy-symbolic'
+        );
+        this._copySummaryMenuItem.connect('activate', () => {
+            if (!this._destroyed)
+                this.copyUsageSummaryToClipboard();
+        });
+
         this._settingsMenuItem = new PopupMenu.PopupImageMenuItem(
-            'Settings…',
+            _('Settings…'),
             'preferences-system-symbolic'
         );
         this._settingsMenuItem.connect('activate', () => {
@@ -243,7 +266,7 @@ class AgentStatusIndicator extends PanelMenu.Button {
         });
 
         this._quitMenuItem = new PopupMenu.PopupImageMenuItem(
-            'Quit Agent Status',
+            _('Quit Agent Status'),
             'application-exit-symbolic'
         );
         this._quitMenuItem.connect('activate', () => {
@@ -267,6 +290,7 @@ class AgentStatusIndicator extends PanelMenu.Button {
         });
 
         this._contextMenu.addMenuItem(this._refreshMenuItem);
+        this._contextMenu.addMenuItem(this._copySummaryMenuItem);
         this._contextMenu.addMenuItem(this._settingsMenuItem);
         this._contextMenu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         this._contextMenu.addMenuItem(this._quitMenuItem);
@@ -555,9 +579,64 @@ class AgentStatusIndicator extends PanelMenu.Button {
         }
     }
 
+    /**
+     * Toggles the primary usage popover cleanly (invoked by the global keyboard shortcut).
+     */
+    togglePrimaryMenu() {
+        if (this._destroyed || !this.menu)
+            return;
+        if (this._contextMenu?.isOpen)
+            this._contextMenu.close(false);
+        this.menu.sourceActor = this;
+        this.menu.toggle();
+    }
+
+    /**
+     * Formats a plain-text usage summary of currently visible providers and copies it
+     * to the primary system clipboard (`St.ClipboardType.CLIPBOARD`).
+     *
+     * @returns {string}
+     */
+    copyUsageSummaryToClipboard() {
+        const nowEpoch = Math.floor(Date.now() / 1000);
+        const normalized = this._lastReport
+            ? normalizeStatusReport(this._lastReport, nowEpoch)
+            : null;
+        const hidden = getSettingStrvSafe(
+            this._settings,
+            'hidden-providers',
+            DEFAULT_HIDDEN_PROVIDERS
+        );
+        const orderIds = getSettingStrvSafe(
+            this._settings,
+            'provider-order',
+            DEFAULT_PROVIDER_ORDER
+        );
+        const visibleProviders = sortProvidersByOrder(
+            filterVisibleProviders(normalized?.providers ?? [], hidden),
+            orderIds
+        );
+        const metricMode = this._settings.get_string('metric-mode') === 'remaining'
+            ? 'remaining'
+            : 'used';
+        const text = formatClipboardSummary(visibleProviders, metricMode, nowEpoch);
+
+        try {
+            const clipboard = St.Clipboard.get_default?.();
+            clipboard?.set_text?.(St.ClipboardType.CLIPBOARD, text);
+        } catch (e) {
+            console.error(`[gnome-agent-status] Failed to copy summary: ${e.message}`);
+        }
+        return text;
+    }
+
     _getVisibleProviders() {
         const providers = this._lastReport?.providers ?? [];
-        const hidden = this._settings.get_strv('hidden-providers') ?? [];
+        const hidden = getSettingStrvSafe(
+            this._settings,
+            'hidden-providers',
+            DEFAULT_HIDDEN_PROVIDERS
+        );
         const orderIds = getSettingStrvSafe(
             this._settings,
             'provider-order',
@@ -828,6 +907,7 @@ class AgentStatusIndicator extends PanelMenu.Button {
             this._contextMenu = null;
         }
         this._refreshMenuItem = null;
+        this._copySummaryMenuItem = null;
         this._settingsMenuItem = null;
         this._quitMenuItem = null;
 

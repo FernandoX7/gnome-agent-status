@@ -3,6 +3,36 @@ import Gio from 'gi://Gio';
 import St from 'gi://St';
 
 const SUPPORTS_ORIENTATION = Boolean(St.BoxLayout.find_property?.('orientation'));
+const FALLBACK_STRING_STORE = new WeakMap();
+
+let _gettextFn = s => s;
+
+/**
+ * Initializes the active gettext translator function (called from `Extension.enable()`),
+ * or resets to the identity function on `Extension.disable()`.
+ *
+ * @param {((str: string) => string)|null|undefined} fn
+ */
+export function initGettext(fn) {
+    _gettextFn = typeof fn === 'function' ? fn : (s => s);
+}
+
+/**
+ * Translates a UI string using the extension's gettext domain, falling back safely
+ * to the original string when uninitialized or outside GNOME Shell.
+ *
+ * @param {string} str
+ * @returns {string}
+ */
+export function _(str) {
+    if (typeof str !== 'string' || str === '')
+        return '';
+    try {
+        return _gettextFn(str) || str;
+    } catch (_e) {
+        return str;
+    }
+}
 
 /**
  * Attaches a single child actor to an St.ScrollView across GNOME 45-50.
@@ -192,6 +222,61 @@ export function hasSettingKey(settings, key) {
     } catch (_e) {
         return false;
     }
+}
+
+/**
+ * Reads a string (`s`) GSettings key safely, returning `fallback` (or an in-memory
+ * fallback value if set via `setSettingStringSafe`) when the key is absent from
+ * an older compiled schema.
+ *
+ * @param {Gio.Settings|null|undefined} settings
+ * @param {string} key
+ * @param {string} [fallback='']
+ * @returns {string}
+ */
+export function getSettingStringSafe(settings, key, fallback = '') {
+    if (!settings || !key)
+        return fallback;
+    if (!hasSettingKey(settings, key)) {
+        const map = FALLBACK_STRING_STORE.get(settings);
+        return map?.has(key) ? map.get(key) : fallback;
+    }
+    try {
+        const val = settings.get_string(key);
+        return typeof val === 'string' && val !== '' ? val : fallback;
+    } catch (_e) {
+        return fallback;
+    }
+}
+
+/**
+ * Writes a string (`s`) GSettings key safely, degrading gracefully to an in-memory
+ * fallback map if the schema has not been recompiled yet.
+ *
+ * @param {Gio.Settings|null|undefined} settings
+ * @param {string} key
+ * @param {string} value
+ * @returns {boolean} `true` if persisted to GSettings, `false` if stored in memory fallback
+ */
+export function setSettingStringSafe(settings, key, value) {
+    if (!settings || !key)
+        return false;
+    const strVal = String(value ?? '');
+    if (hasSettingKey(settings, key)) {
+        try {
+            settings.set_string(key, strVal);
+            return true;
+        } catch (_e) {
+            // Fall through to in-memory fallback
+        }
+    }
+    let map = FALLBACK_STRING_STORE.get(settings);
+    if (!map) {
+        map = new Map();
+        FALLBACK_STRING_STORE.set(settings, map);
+    }
+    map.set(key, strVal);
+    return false;
 }
 
 /**

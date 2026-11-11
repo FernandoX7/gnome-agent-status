@@ -536,7 +536,7 @@ export class BackendClient {
      * Attaches `Gio.FileMonitor` filesystem event watchers to canonical provider
      * credential paths (`CHANGED` / `CHANGES_DONE_HINT` / `CREATED` / `DELETED`
      * events ONLY — credential file contents are NEVER read by the extension) so
-     * completing `[Sign in]` in a terminal refreshes the popover within ~`1.5s`.
+     * completing `[Sign in]` or configuring API keys refreshes the popover within ~`1.5s`.
      */
     _setupCredentialMonitors() {
         if (this._destroyed)
@@ -552,19 +552,108 @@ export class BackendClient {
         for (const credPath of watchPaths) {
             if (!credPath)
                 continue;
-            this._attachSingleCredentialFileMonitor(credPath);
 
-            // If the provider config directory (e.g. ~/.gemini) has not been created yet,
-            // also watch its directory entry so first-ever CLI sign-in triggers immediately.
+            if (GLib.file_test(credPath, GLib.FileTest.IS_DIR)) {
+                this._attachCredentialDirectoryMonitor(credPath);
+                continue;
+            }
+
+            const isDirTarget = credPath.endsWith('/openrouter') || credPath.endsWith('/deepseek');
             const parentDir = GLib.path_get_dirname(credPath);
+
+            if (isDirTarget) {
+                if (parentDir && GLib.file_test(parentDir, GLib.FileTest.IS_DIR))
+                    this._attachDirEntryCreationMonitor(credPath);
+                continue;
+            }
+
+            const parentExists = Boolean(parentDir && GLib.file_test(parentDir, GLib.FileTest.IS_DIR));
+            const fileExists = GLib.file_test(credPath, GLib.FileTest.EXISTS);
+
+            if (fileExists || parentExists) {
+                this._attachSingleCredentialFileMonitor(credPath);
+                continue;
+            }
+
+            // Only attach parent-creation watcher when the grandparent directory exists
+            // (e.g. `~/.gemini` under `~`), skipping deeply nested uninstalled IDE paths
+            // like `~/.config/Windsurf/User/globalStorage` when Windsurf is absent.
+            const grandParent = parentDir ? GLib.path_get_dirname(parentDir) : null;
             if (
                 parentDir &&
-                !watchedParentDirs.has(parentDir) &&
-                !GLib.file_test(parentDir, GLib.FileTest.IS_DIR)
+                grandParent &&
+                GLib.file_test(grandParent, GLib.FileTest.IS_DIR) &&
+                !watchedParentDirs.has(parentDir)
             ) {
                 watchedParentDirs.add(parentDir);
+                this._attachSingleCredentialFileMonitor(credPath);
                 this._attachParentDirCreationMonitor(parentDir, credPath);
             }
+        }
+    }
+
+    _attachCredentialDirectoryMonitor(dirPath) {
+        if (this._destroyed)
+            return;
+
+        try {
+            const monitor = Gio.File.new_for_path(dirPath).monitor_directory(
+                Gio.FileMonitorFlags.NONE,
+                null
+            );
+            const sigId = monitor.connect(
+                'changed',
+                (_mon, _file, _otherFile, eventType) => {
+                    if (this._destroyed)
+                        return;
+                    if (
+                        eventType !== Gio.FileMonitorEvent.CHANGED &&
+                        eventType !== Gio.FileMonitorEvent.CHANGES_DONE_HINT &&
+                        eventType !== Gio.FileMonitorEvent.CREATED &&
+                        eventType !== Gio.FileMonitorEvent.DELETED
+                    ) {
+                        return;
+                    }
+                    this._scheduleCredentialCollect();
+                }
+            );
+            this._credMonitors.push({monitor, sigId, path: dirPath});
+        } catch (_e) {
+            // Non-fatal if filesystem blocks directory monitor attachment
+        }
+    }
+
+    _attachDirEntryCreationMonitor(dirPath) {
+        if (this._destroyed)
+            return;
+
+        try {
+            const monitor = Gio.File.new_for_path(dirPath).monitor_file(
+                Gio.FileMonitorFlags.NONE,
+                null
+            );
+            let promoted = false;
+            const sigId = monitor.connect(
+                'changed',
+                (_mon, _file, _otherFile, eventType) => {
+                    if (this._destroyed || promoted)
+                        return;
+                    if (
+                        eventType !== Gio.FileMonitorEvent.CREATED &&
+                        eventType !== Gio.FileMonitorEvent.CHANGES_DONE_HINT
+                    ) {
+                        return;
+                    }
+                    if (GLib.file_test(dirPath, GLib.FileTest.IS_DIR)) {
+                        promoted = true;
+                        this._attachCredentialDirectoryMonitor(dirPath);
+                        this._scheduleCredentialCollect();
+                    }
+                }
+            );
+            this._credMonitors.push({monitor, sigId, path: dirPath});
+        } catch (_e) {
+            // Non-fatal fallback
         }
     }
 
