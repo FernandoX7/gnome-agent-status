@@ -7,7 +7,7 @@ Track usage quotas, rolling session caps, 7-day burn trends, pace projections, r
     <td align="center" valign="top" width="44%">
       <img src="docs/images/popover-detailed.png" alt="Default Top-5 Usage Popover with Progressive Disclosure and 16x16 Symbolic Robot" width="352" />
       <br />
-      <sub><b>Focused Top-5 Popover &amp; Progressive Disclosure</b> — Shows <i>Claude, Codex, Grok, Cursor, Antigravity</i> by default with 1-click <code>⎘</code> copy and <i>Show N more agents</i>.</sub>
+      <sub><b>Focused Top-5 Popover &amp; Progressive Disclosure</b> — Shows <i>Claude, Codex, Grok, Cursor, Antigravity</i> by default with 1-click copy summary and <i>Show N more agents</i>.</sub>
     </td>
     <td align="center" valign="top" width="56%">
       <img src="docs/images/bento-2col.png" alt="2-Column Wide 688px Bento Grid Showing All 10 AI Providers" width="480" />
@@ -57,7 +57,7 @@ By default, the popover surfaces the **Top 5** providers (**Claude**, **Codex**,
 
 - **Progressive Disclosure & 2-Column Wide Bento Grid**:
   - **In-Place Overflow Toggle** — Additional active providers collapse cleanly behind **`Show N more agents (…) ▾`** / **`Show fewer ▴`**, automatically surfacing a semantic warning/critical dot (and auto-expanding) whenever a collapsed provider crosses `80%`.
-  - **Three Popover Layouts (`popover-layout`)** — Switch instantaneously in Quick Options or Preferences between **Compact List** (`352px` single column), **Auto 2-Column** (widens automatically when 5+ providers are visible on monitors `>=760px`), and **2-Column Wide** (`688px` side-by-side Bento grid).
+  - **Three Popover Layouts (`popover-layout`)** — Switch instantaneously in Quick Options or Preferences between **Compact List** (`352px` single column), **Auto 2-Column** (widens automatically when 6+ providers are visible on monitors `>=760px`), and **2-Column Wide** (`688px` side-by-side Bento grid).
 - **24 High-Contrast Themes & Dedicated Theme Studio**:
   - **Glass & Adaptive (`3`)** — **GNOME System** (`system` — adapts dynamically to dark `#242429` and light `#f8f9fc` shell styles), Apple-inspired **Liquid Glass** (`liquid-glass`), and **Liquid Glass Light** (`liquid-glass-light`) with frosted translucent cards.
   - **Light Palettes (`5`)** — **Catppuccin Latte** (`catppuccin-latte`), **Flexoki Light** (`flexoki-light`), **Rosé Pine Dawn** (`rose-pine-dawn`), **Pure Daylight** (`daylight-white`), and **Lumon Ice** (`lumon`), using `#222634` dark-slate avatar medallions (`>=15:1` white-logo contrast).
@@ -67,7 +67,7 @@ By default, the popover surfaces the **Top 5** providers (**Claude**, **Codex**,
   - **7-Day Trend Sparkline** — Quantized hourly ring buffer (`168` samples over 7 days in `collector-cache.json`) rendered via a live Cairo `SparklineChart` inside each provider's drill-down Hero Card.
   - **Burn-Rate / Pace Indicator** — Computes live sustainable quota pacing (`Pace: Comfortable`, `Pace: On track · ~88% by reset`, `Pace: 1.9× sustainable · hits 100% before reset`) from window duration and remaining reset time.
 - **1-Click Copy Usage Summary & Global Keyboard Shortcut**:
-  - **Copy Usage Summary** — Click the `⎘` clipboard button in the popover header (with instant `✓` confirmation) or choose **Copy Usage Summary** from the top-bar right-click menu to copy a clean, secret-free multi-agent summary to the clipboard.
+  - **Copy Usage Summary** — Click the symbolic copy button (`edit-copy-symbolic`) in the popover header (with instant check confirmation) or choose **Copy Usage Summary** from the top-bar right-click menu to copy a clean, secret-free multi-agent summary to the clipboard.
   - **Global Toggle Shortcut (`keybinding-toggle-popover`)** — Bind `<Super><Shift>A` (or any custom accelerator via the GTK4 shortcut capture dialog in Preferences) to open/close the usage popover from anywhere.
 - **Smart Notifications & Zero-Daemon Auto-Refresh**:
   - Deduplicated per-window `80%` (*Warning*), `90%` (*Critical*), and *Quota Reset* desktop notifications, plus automatic refreshes on system wake (`PrepareForSleep`), network reconnect (`Gio.NetworkMonitor`), and credential sign-in (`Gio.FileMonitor`).

@@ -349,7 +349,7 @@ class ProviderCardWidget {
 
 /**
  * Page 1 (`Usage · all agents`):
- * - Header (`Usage`, `all agents`, `⎘` Copy Summary, `⚙` Quick Options, `↻` Refresh)
+ * - Header (`Usage`, `all agents`, `edit-copy-symbolic` Copy Summary, `⚙` Quick Options, `↻` Refresh)
  * - `Detailed` | `Compact` segmented toggle
  * - `St.ScrollView` (`max-height: 516px`, `overlay_scrollbars: true`) of reusable provider cards
  *   (single-column with `Show N more agents ▾` progressive disclosure OR 2-column wide Bento grid)
@@ -418,8 +418,9 @@ export class MainUsagePage {
             style_class: 'gas-header-subtitle',
         });
 
-        this._copyGlyph = new St.Label({
-            text: '⎘',
+        this._copyGlyph = new St.Icon({
+            icon_name: 'edit-copy-symbolic',
+            icon_size: 14,
             x_align: Clutter.ActorAlign.CENTER,
             y_align: Clutter.ActorAlign.CENTER,
             style_class: 'gas-icon-btn-glyph',
@@ -618,7 +619,7 @@ export class MainUsagePage {
         this._onCopySummary?.();
         this._clearCopyTimer();
         this._copiedFeedback = true;
-        this._copyGlyph.set_text('✓');
+        this._copyGlyph.icon_name = 'object-select-symbolic';
         this._copyBtn.add_style_class_name('is-copied');
         this._copyBtn.accessible_name = _('Copied!');
         this._tooltips?.refreshActiveText();
@@ -629,7 +630,7 @@ export class MainUsagePage {
             () => {
                 this._copyResetTimerId = 0;
                 this._copiedFeedback = false;
-                this._copyGlyph.set_text('⎘');
+                this._copyGlyph.icon_name = 'edit-copy-symbolic';
                 this._copyBtn.remove_style_class_name('is-copied');
                 this._copyBtn.accessible_name = _('Copy Usage Summary');
                 this._tooltips?.refreshActiveText();

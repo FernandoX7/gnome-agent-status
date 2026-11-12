@@ -29,7 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Dedicated searchable/filterable `Themes` page (`All` | `Dark` | `Light` | `Glass`) with live in-place preview and WCAG contrast verification (`>= 10.0:1` primary, `>= 5.8:1` secondary).
 - **2-Column Wide Bento & Progressive-Disclosure Popover**:
   - Configurable `popover-layout` (`Compact List` `352px` default with in-place `"Show N more agents"` / `"Show fewer"` disclosure after the top 5 cards, `Auto 2-Column` for 6+ visible agents, and `2-Column Wide` `688px` side-by-side Bento layout).
-  - Multi-page drill-down architecture (`MainUsagePage`, `ProviderDetailPage`, `QuickOptionsPage`, `ThemesPage`) with multi-account switcher, 1-click `[Sign in]` terminal launcher, `⎘` `Copy Usage Summary` clipboard button, global keyboard shortcut (`keybinding-toggle-popover`), arrow-key card navigation, and opacity-fade hover/focus tooltips.
+  - Multi-page drill-down architecture (`MainUsagePage`, `ProviderDetailPage`, `QuickOptionsPage`, `ThemesPage`) with multi-account switcher, 1-click `[Sign in]` terminal launcher, `Copy Usage Summary` clipboard button (`edit-copy-symbolic`), global keyboard shortcut (`keybinding-toggle-popover`), arrow-key card navigation, and opacity-fade hover/focus tooltips.
   - Right-click top-bar context menu (`Refresh Usage`, `Copy Usage Summary`, `Settings…`, `Quit Agent Status`).
 - **7-Day Burn Sparkline & Sustainable Pace Indicators**:
   - Hourly quantized 7-day (`168`-point) burn-rate ring buffer (`sparkline`) rendered via Cairo `SparklineChart` on provider hero cards alongside live window pace projections (`Pace: Comfortable`, `Pace: On track`, `Pace: Elevated`, `Pace: N× sustainable`).
