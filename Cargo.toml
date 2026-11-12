@@ -2,9 +2,12 @@
 name = "gnome-agent-status"
 version = "0.2.0"
 edition = "2021"
-description = "Multi-provider AI coding agent usage collector for GNOME Shell"
+description = "Multi-provider AI coding agent usage collector for GNOME Shell, Waybar, tmux, and the terminal"
 license = "Apache-2.0"
+readme = "README.md"
 repository = "https://github.com/ToxicBakery/gnome-agent-status"
+keywords = ["gnome", "gnome-shell", "waybar", "tmux", "cli"]
+categories = ["command-line-utilities"]
 
 [dependencies]
 aes = "0.9"

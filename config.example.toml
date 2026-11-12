@@ -15,8 +15,23 @@ separator = " | "
 # -----------------------------------------------------------------------------
 # Per-Provider Settings & Manual Account Locations
 # -----------------------------------------------------------------------------
-# Supported provider IDs (in default UI priority order):
-#   claude, codex, grok, cursor, agy, openrouter, copilot, gemini, windsurf, deepseek
+# Supported provider IDs (in canonical Top-5-first priority order):
+#   1. claude      (Shown in GNOME popover by default — Top 5)
+#   2. codex       (Shown in GNOME popover by default — Top 5)
+#   3. grok        (Shown in GNOME popover by default — Top 5)
+#   4. cursor      (Shown in GNOME popover by default — Top 5)
+#   5. agy         (Shown in GNOME popover by default — Top 5)
+#   6. openrouter  (Hidden in GNOME popover by default — ready to enable/reorder)
+#   7. copilot     (Hidden in GNOME popover by default — ready to enable/reorder)
+#   8. gemini      (Hidden in GNOME popover by default — ready to enable/reorder)
+#   9. windsurf    (Hidden in GNOME popover by default — ready to enable/reorder)
+#  10. deepseek    (Hidden in GNOME popover by default — ready to enable/reorder)
+#
+# Note: The first 5 providers (`claude`, `codex`, `grok`, `cursor`, `agy`) are
+# visible in the GNOME Shell popover by default to keep the primary view compact,
+# while all 10 built-in providers are collected when `enabled = true` and ready
+# to enable or reorder in GNOME Preferences (`gnome-extensions prefs
+# agent-status@gnome-agent-status`).
 #
 # Each [[providers.<id>.accounts]] table supports:
 #   id             = "work"                   # Stable slug identifier (required)
@@ -25,6 +40,8 @@ separator = " | "
 #   binary         = "/usr/local/bin/claude"  # Optional explicit CLI binary override
 #   poll_mode      = "active"                 # "active" (default) or "passive" (cache/hook only)
 #   switch_command = "my-switcher use work"   # Optional command run on `account select`
+
+# --- Default Top 5 (visible in the GNOME popover by default) ---
 
 [providers.claude]
 enabled = true
@@ -85,6 +102,8 @@ enabled = true
 # binary = "~/.local/bin/agy"
 # poll_mode = "passive"
 # switch_command = "agy-auth switch work"
+
+# --- Additional Built-in Providers (ready to enable/reorder in GNOME Preferences) ---
 
 [providers.openrouter]
 enabled = true

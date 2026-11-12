@@ -21,6 +21,13 @@ Track usage quotas, rolling session caps, 7-day burn trends, pace projections, r
   </tr>
   <tr>
     <td align="center" valign="top" colspan="2">
+      <img src="docs/images/liquid-glass.png" alt="Liquid Glass, Liquid Glass Light, and GNOME System Light Mode Surfaces with WCAG AAA Text and Dark Medallion Icon Contrast" width="820" />
+      <br />
+      <sub><b>Frosted Liquid Glass &amp; Adaptive Light Surfaces</b> — <i>Liquid Glass</i>, <i>Liquid Glass Light</i>, and <i>GNOME System (Light Mode)</i> with frosted translucent cards, WCAG AAA primary text (<code>&gt;=10:1</code>), and <code>#222634</code> slate avatar medallions.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" valign="top" colspan="2">
       <img src="docs/images/themes-studio.png" alt="Theme Studio Page 4 with 24 High-Contrast Dark, Light, and Liquid Glass Presets" width="760" />
       <br />
       <sub><b>Dedicated Theme Studio (24 Presets)</b> — Filter across <code>All | Dark | Light | Glass</code> with WCAG-verified typography and dark-medallion icon contrast on light surfaces.</sub>
@@ -32,7 +39,7 @@ Track usage quotas, rolling session caps, 7-day burn trends, pace projections, r
   </tr>
 </table>
 
-See [SECURITY.md](SECURITY.md) for the security & threat model and [CHANGELOG.md](CHANGELOG.md) for release notes.
+See [SECURITY.md](SECURITY.md) for the security & threat model, [CONTRIBUTING.md](CONTRIBUTING.md) for architecture & contributor guidelines, and [CHANGELOG.md](CHANGELOG.md) for release notes.
 
 ---
 
@@ -279,6 +286,8 @@ See [**SECURITY.md**](SECURITY.md) for the complete threat model and vulnerabili
 
 ## Packaging & Developer Verification
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full repository layout, GNOME Shell 45–50 & GTK4 process-boundary rules, and step-by-step guides for adding providers or WCAG-verified theme presets.
+
 ```bash
 # Run all 8 static guardrails (process boundaries, motion comfort, ClickGesture, JS/bash syntax, schema, secrets, brand hygiene)
 ./scripts/check-guardrails.sh
@@ -286,7 +295,7 @@ See [**SECURITY.md**](SECURITY.md) for the complete threat model and vulnerabili
 # Run pure-JS unit & 24-theme WCAG contrast tests (Node 22+ built-in test runner)
 node --test tests/*.test.mjs
 
-# Run Rust linter, 93-test hermetic suite, RustSec advisory audit, and cargo-deny policy check
+# Run Rust linter, 94-test hermetic suite, RustSec advisory audit, and cargo-deny policy check
 cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
 cargo audit
@@ -299,6 +308,7 @@ cargo deny check
 
 ## License & Changelog
 
+- **Contributing**: [CONTRIBUTING.md](CONTRIBUTING.md)
 - **Changelog**: [CHANGELOG.md](CHANGELOG.md)
 - **Security Policy**: [SECURITY.md](SECURITY.md)
 - **License**: Apache License 2.0 — see [LICENSE](LICENSE).

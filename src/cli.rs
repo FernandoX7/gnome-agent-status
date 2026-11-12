@@ -18,7 +18,7 @@ use std::time::Duration;
 #[command(
     name = "gnome-agent-status",
     version,
-    about = "Queries usage limits across configured AI coding agents in parallel and outputs JSON, Waybar/tmux status, or aligned text."
+    about = "Queries usage quotas, pace projections, and 7-day burn trends across 10 AI coding agent providers in parallel for GNOME Shell, Waybar, tmux, or aligned text."
 )]
 pub struct Cli {
     /// Path to configuration file (TOML or JSON).
@@ -67,7 +67,7 @@ pub enum Commands {
         provider: Option<String>,
     },
 
-    /// Read `state.json` / `collector-cache.json`, apply passive time-decay, and print JSON with zero network I/O.
+    /// Read `state.json` / `collector-cache.json`, apply passive time-decay, and print JSON, Waybar/tmux status, or text with zero network I/O.
     Cached,
 
     /// Manage active account selection for a provider.
@@ -88,7 +88,7 @@ pub enum Commands {
         target: IngestHookCommand,
     },
 
-    /// Run zero-secret diagnostics on config, cache permissions, GNOME extension schema, and provider discovery.
+    /// Run zero-secret diagnostics on config, 0600/0700 cache permissions, GNOME extension schema, and 10-provider discovery.
     Doctor {
         /// Print structured diagnostic JSON instead of human-readable text.
         #[arg(long)]
@@ -179,7 +179,7 @@ pub enum ConfigCommand {
 
 #[derive(Debug, Clone, Subcommand)]
 pub enum IngestHookCommand {
-    /// Read Claude Code `statusLine` JSON from `stdin` and atomically update passive `5h`/`wk` buckets.
+    /// Read Claude Code `statusLine` JSON from `stdin` and atomically update passive `5h`/`wk` buckets and 7-day sparklines.
     Claude {
         /// Optional Claude account ID or slug to target.
         #[arg(long)]
