@@ -1,7 +1,8 @@
 {
   "name": "Agent Usage Status",
-  "description": "Displays 7-day usage limits for configured AI coding agents (Antigravity, Claude) in the GNOME top bar.",
+  "description": "Displays usage quotas, reset countdowns, pace projections, 7-day sparklines, and multi-account status for AI coding agents (Claude, Codex, Grok, Cursor, Antigravity, OpenRouter, GitHub Copilot, Gemini CLI, Windsurf, DeepSeek) in the GNOME top bar. Quota collection runs via the companion gnome-agent-status CLI binary, and a user-initiated \"Copy Usage Summary\" action copies a plain-text usage summary to the clipboard.",
   "uuid": "agent-status@gnome-agent-status",
+  "gettext-domain": "agent-status@gnome-agent-status",
   "shell-version": [
     "45",
     "46",
@@ -10,5 +11,7 @@
     "49",
     "50"
   ],
-  "version": 1
+  "settings-schema": "org.gnome.shell.extensions.agent-status",
+  "url": "https://github.com/ToxicBakery/gnome-agent-status",
+  "version-name": "0.2.0"
 }

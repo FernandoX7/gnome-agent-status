@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+  <defs>
+    <linearGradient id="geminiSparkle" x1="3.4" y1="4.2" x2="20.6" y2="19.8" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4E86F5"/>
+      <stop offset="0.20" stop-color="#4E86F5"/>
+      <stop offset="0.55" stop-color="#9168C0"/>
+      <stop offset="0.88" stop-color="#D96570"/>
+      <stop offset="1" stop-color="#D96570"/>
+    </linearGradient>
+    <radialGradient id="geminiBlueCore" cx="6.2" cy="6.8" r="9.6" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4E86F5" stop-opacity="0.38"/>
+      <stop offset="1" stop-color="#4E86F5" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <g transform="translate(1.2 1.2) scale(0.90)">
+    <path fill="url(#geminiSparkle)" d="M11.469 0.400c0.184 -0.497 0.878 -0.497 1.062 0l0.540 1.500A14.82 14.82 0 0 0 22.100 10.929l1.500 0.540c0.497 0.184 0.497 0.878 0 1.062l-1.500 0.540A14.82 14.82 0 0 0 13.071 22.100l-0.540 1.500c-0.184 0.497 -0.878 0.497 -1.062 0l-0.540 -1.500A14.82 14.82 0 0 0 1.900 13.071l-1.500 -0.540c-0.497 -0.184 -0.497 -0.878 0 -1.062l1.500 -0.540A14.82 14.82 0 0 0 10.929 1.900l0.540 -1.500Z"/>
+    <path fill="url(#geminiBlueCore)" d="M11.469 0.400c0.184 -0.497 0.878 -0.497 1.062 0l0.540 1.500A14.82 14.82 0 0 0 22.100 10.929l1.500 0.540c0.497 0.184 0.497 0.878 0 1.062l-1.500 0.540A14.82 14.82 0 0 0 13.071 22.100l-0.540 1.500c-0.184 0.497 -0.878 0.497 -1.062 0l-0.540 -1.500A14.82 14.82 0 0 0 1.900 13.071l-1.500 -0.540c-0.497 -0.184 -0.497 -0.878 0 -1.062l1.500 -0.540A14.82 14.82 0 0 0 10.929 1.900l0.540 -1.500Z"/>
+  </g>
+</svg>
