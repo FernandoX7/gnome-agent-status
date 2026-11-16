@@ -1,0 +1,746 @@
+use crate::cache::{atomic_write_0600, CacheStore};
+use crate::config::{Config, PollMode, UpsertAccountRequest};
+use crate::model::{StatusReport, CANONICAL_PROVIDER_IDS};
+use crate::proc_exec::{self, CommandSpec};
+use crate::providers::{claude, CollectOptions, FetchContext, ProviderRegistry};
+use crate::text;
+use anyhow::{anyhow, bail, Context, Result};
+use chrono::{DateTime, Utc};
+use clap::{CommandFactory, Parser, Subcommand};
+use std::path::PathBuf;
+use std::time::Duration;
+
+/// Command-line interface for `gnome-agent-status` v0.2.
+///
+/// Running without a subcommand remains 100% backwards-compatible with v0.1:
+/// `gnome-agent-status [--config <path>] [--init-config] [--pretty] [--text] [--color] [--waybar] [--tmux]`
+#[derive(Debug, Clone, Parser)]
+#[command(
+    name = "gnome-agent-status",
+    version,
+    about = "Queries usage quotas, pace projections, and 7-day burn trends across 10 AI coding agent providers in parallel for GNOME Shell, Waybar, tmux, or aligned text."
+)]
+pub struct Cli {
+    /// Path to configuration file (TOML or JSON).
+    /// Defaults to `$XDG_CONFIG_HOME/gnome-agent-status/config.toml`.
+    #[arg(short, long, global = true)]
+    pub config: Option<PathBuf>,
+
+    /// Initialize default config file at `~/.config/gnome-agent-status/config.toml` if missing.
+    #[arg(long)]
+    pub init_config: bool,
+
+    /// Pretty-print JSON output.
+    #[arg(long, global = true)]
+    pub pretty: bool,
+
+    /// Print aligned plain-text table instead of JSON.
+    #[arg(long, global = true)]
+    pub text: bool,
+
+    /// Add ANSI colors to `--text` output.
+    #[arg(long, global = true)]
+    pub color: bool,
+
+    /// Print single-line Waybar custom-module JSON (`text`, `tooltip`, `class`, `percentage`).
+    #[arg(long, global = true, conflicts_with = "tmux")]
+    pub waybar: bool,
+
+    /// Print single-line `#[fg=...]` formatted status string for `tmux` `status-right`.
+    #[arg(long, global = true, conflicts_with = "waybar")]
+    pub tmux: bool,
+
+    #[command(subcommand)]
+    pub command: Option<Commands>,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum Commands {
+    /// Refresh expired accounts, atomically update `state.json`, and print `StatusReport` v2 JSON.
+    Collect {
+        /// Bypass normal TTL while honoring the 30s manual debounce and active HTTP 429 locks.
+        #[arg(long)]
+        force: bool,
+
+        /// Restrict live refresh to a single canonical provider ID (`claude`, `codex`, `grok`, `cursor`, `agy`, `openrouter`, `copilot`, `gemini`, `windsurf`, `deepseek`).
+        #[arg(long)]
+        provider: Option<String>,
+    },
+
+    /// Read `state.json` / `collector-cache.json`, apply passive time-decay, and print JSON, Waybar/tmux status, or text with zero network I/O.
+    Cached,
+
+    /// Manage active account selection for a provider.
+    Account {
+        #[command(subcommand)]
+        action: AccountCommand,
+    },
+
+    /// Inspect or safely update `config.toml` without losing comments.
+    Config {
+        #[command(subcommand)]
+        action: ConfigCommand,
+    },
+
+    /// Ingest passive usage telemetry piped from external CLI hooks on `stdin`.
+    IngestHook {
+        #[command(subcommand)]
+        target: IngestHookCommand,
+    },
+
+    /// Run zero-secret diagnostics on config, 0600/0700 cache permissions, GNOME extension schema, and 10-provider discovery.
+    Doctor {
+        /// Print structured diagnostic JSON instead of human-readable text.
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Generate shell completion script (`bash`, `zsh`, `fish`, `elvish`, `powershell`) to `stdout`.
+    Completions {
+        /// Target shell (`bash`, `zsh`, `fish`, `elvish`, `powershell`).
+        #[arg(value_enum)]
+        shell: clap_complete::Shell,
+    },
+
+    /// Render ROFF manual page (`gnome-agent-status(1)`) to `stdout`.
+    Manpage,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum AccountCommand {
+    /// Pin `<account_id>` (or `"default"`) as active for `<provider_id>`, run optional `switch_command`, and print updated `StatusReport` v2 JSON.
+    Select {
+        /// Canonical provider ID (`claude`, `codex`, `grok`, `cursor`, `agy`, `openrouter`, `copilot`, `gemini`, `windsurf`, `deepseek`).
+        provider_id: String,
+
+        /// Account ID (`<provider>:<slug>`, `<slug>`, or `"default"`).
+        account_id: String,
+    },
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum ConfigCommand {
+    /// Print JSON summary of current configuration and manual accounts.
+    Show,
+
+    /// Update top-level settings in `config.toml` and print updated `config show` JSON.
+    Set {
+        /// Enable or disable read-only local credential auto-discovery (`true` or `false`).
+        #[arg(long, value_name = "BOOL")]
+        auto_discover: Option<bool>,
+
+        /// Per-provider subprocess/HTTP timeout in seconds.
+        #[arg(long, value_name = "SECONDS")]
+        timeout_seconds: Option<u64>,
+    },
+
+    /// Create or update a `[[providers.<provider>.accounts]]` entry in `config.toml`.
+    UpsertAccount {
+        /// Canonical provider ID (`claude`, `codex`, `grok`, `cursor`, `agy`, `openrouter`, `copilot`, `gemini`, `windsurf`, `deepseek`).
+        #[arg(long)]
+        provider: String,
+
+        /// Short slug identifier for the account (e.g. `work`, `personal`).
+        #[arg(long)]
+        id: String,
+
+        /// Display label shown in UI and text output.
+        #[arg(long)]
+        label: String,
+
+        /// Optional custom profile directory or credential file path.
+        #[arg(long)]
+        path: Option<String>,
+
+        /// Optional custom CLI binary path.
+        #[arg(long)]
+        binary: Option<String>,
+
+        /// Polling mode (`active` or `passive`).
+        #[arg(long)]
+        poll_mode: Option<String>,
+
+        /// Optional shell command executed when switching to this account via `account select`.
+        #[arg(long)]
+        switch_command: Option<String>,
+    },
+
+    /// Remove a manual account entry from `config.toml`.
+    RemoveAccount {
+        /// Canonical provider ID (`claude`, `codex`, `grok`, `cursor`, `agy`, `openrouter`, `copilot`, `gemini`, `windsurf`, `deepseek`).
+        #[arg(long)]
+        provider: String,
+
+        /// Account slug ID to remove.
+        #[arg(long)]
+        id: String,
+    },
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum IngestHookCommand {
+    /// Read Claude Code `statusLine` JSON from `stdin` and atomically update passive `5h`/`wk` buckets and 7-day sparklines.
+    Claude {
+        /// Optional Claude account ID or slug to target.
+        #[arg(long)]
+        account: Option<String>,
+
+        /// Print the updated `StatusReport` v2 JSON to `stdout` (silent by default for `statusLine` TUI safety).
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+/// Optional runtime overrides used by hermetic tests to isolate cache, filesystem, and clock.
+pub struct CliRuntime<'a> {
+    pub cache_store: CacheStore,
+    pub fetch_ctx_override: Option<FetchContext>,
+    pub now: DateTime<Utc>,
+    pub stdin_data: Option<&'a str>,
+}
+
+impl Default for CliRuntime<'_> {
+    fn default() -> Self {
+        Self {
+            cache_store: CacheStore::from_env(),
+            fetch_ctx_override: None,
+            now: Utc::now(),
+            stdin_data: None,
+        }
+    }
+}
+
+/// Formats `report` according to `--waybar`, `--tmux`, `--text`, `--color`, and `--pretty`.
+pub fn format_report(report: &StatusReport, cli: &Cli) -> Result<String> {
+    if cli.waybar {
+        text::format_waybar(report)
+    } else if cli.tmux {
+        Ok(text::format_tmux(report))
+    } else if cli.text {
+        Ok(text::format_text(report, cli.color))
+    } else if cli.pretty {
+        Ok(serde_json::to_string_pretty(report)?)
+    } else {
+        Ok(serde_json::to_string(report)?)
+    }
+}
+
+/// Executes `cli` and returns any `stdout` payload to print.
+pub fn execute_cli(cli: &Cli, runtime: &CliRuntime<'_>) -> Result<Option<String>> {
+    if cli.init_config {
+        let target = Config::resolve_config_path(cli.config.as_deref());
+        if !target.exists() {
+            atomic_write_0600(&target, Config::sample_toml().as_bytes()).with_context(|| {
+                format!("Failed to write sample config to {}", target.display())
+            })?;
+            eprintln!("Created default config at {}", target.display());
+        } else {
+            eprintln!("Config already exists at {}", target.display());
+        }
+        return Ok(None);
+    }
+
+    match &cli.command {
+        Some(Commands::Config { action }) => {
+            let summary = match action {
+                ConfigCommand::Show => Config::show_summary(cli.config.as_deref())?,
+                ConfigCommand::Set {
+                    auto_discover,
+                    timeout_seconds,
+                } => Config::update_settings(
+                    cli.config.as_deref(),
+                    *auto_discover,
+                    *timeout_seconds,
+                )?,
+                ConfigCommand::UpsertAccount {
+                    provider,
+                    id,
+                    label,
+                    path,
+                    binary,
+                    poll_mode,
+                    switch_command,
+                } => {
+                    let parsed_mode = match poll_mode.as_deref().map(str::trim) {
+                        None | Some("") => None,
+                        Some(m) if m.eq_ignore_ascii_case("active") => Some(PollMode::Active),
+                        Some(m) if m.eq_ignore_ascii_case("passive") => Some(PollMode::Passive),
+                        Some(other) => {
+                            bail!("Invalid --poll-mode '{other}': expected 'active' or 'passive'")
+                        }
+                    };
+                    Config::upsert_account(
+                        cli.config.as_deref(),
+                        UpsertAccountRequest {
+                            provider: provider.clone(),
+                            id: id.clone(),
+                            label: label.clone(),
+                            path: path.clone(),
+                            binary: binary.clone(),
+                            poll_mode: parsed_mode,
+                            switch_command: switch_command.clone(),
+                        },
+                    )?
+                }
+                ConfigCommand::RemoveAccount { provider, id } => {
+                    Config::remove_account(cli.config.as_deref(), provider, id)?
+                }
+            };
+            Ok(Some(serde_json::to_string_pretty(&summary)?))
+        }
+
+        Some(Commands::Cached) => {
+            let separator = Config::load(cli.config.as_deref())
+                .map(|c| c.separator)
+                .unwrap_or_else(|_| " | ".to_string());
+            let report = runtime
+                .cache_store
+                .load_cached_report(&separator, runtime.now.timestamp());
+            Ok(Some(format_report(&report, cli)?))
+        }
+
+        Some(Commands::Account {
+            action:
+                AccountCommand::Select {
+                    provider_id,
+                    account_id,
+                },
+        }) => {
+            let provider_norm = provider_id.trim().to_ascii_lowercase();
+            if !CANONICAL_PROVIDER_IDS.contains(&provider_norm.as_str()) {
+                bail!(
+                    "Unsupported provider '{}': expected one of {}",
+                    provider_norm,
+                    CANONICAL_PROVIDER_IDS.join(", ")
+                );
+            }
+
+            let cfg = Config::load(cli.config.as_deref())?;
+            let target_acct = account_id.trim();
+
+            if !target_acct.is_empty() && target_acct != "default" {
+                let (_, manual_accounts) = cfg.effective_provider_accounts(&provider_norm);
+                let switch_cmd = manual_accounts
+                    .iter()
+                    .find(|m| {
+                        m.id == target_acct || format!("{provider_norm}:{}", m.id) == target_acct
+                    })
+                    .and_then(|m| m.switch_command.as_deref())
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty());
+
+                if let Some(cmd) = switch_cmd {
+                    let spec = CommandSpec::new(
+                        "/bin/sh",
+                        Duration::from_secs(cfg.timeout_seconds.max(1)),
+                    )
+                    .args(["-c", cmd]);
+                    let output = proc_exec::run_command(&spec)
+                        .with_context(|| format!("Failed to execute switch_command '{cmd}'"))?;
+                    if !output.status.success() {
+                        return Err(anyhow!(
+                            "switch_command '{}' exited with status {:?}: {}",
+                            crate::http::redact_secrets(cmd),
+                            output.status.code(),
+                            crate::http::redact_secrets(output.combined_text().trim())
+                        ));
+                    }
+                }
+            }
+
+            let report = runtime.cache_store.select_active_account(
+                &provider_norm,
+                target_acct,
+                &cfg.separator,
+                runtime.now.timestamp(),
+            )?;
+            Ok(Some(format_report(&report, cli)?))
+        }
+
+        Some(Commands::IngestHook {
+            target: IngestHookCommand::Claude { account, json },
+        }) => {
+            let Some(stdin_buf) = runtime.stdin_data else {
+                return Ok(None);
+            };
+            if stdin_buf.trim().is_empty() {
+                return Ok(None);
+            }
+
+            let cfg = Config::load(cli.config.as_deref()).unwrap_or_default();
+            let hook_home = match &runtime.fetch_ctx_override {
+                Some(ctx) => ctx.home_dir.clone(),
+                None => crate::config::home_dir(),
+            };
+            let report = claude::ingest_claude_statusline_with_home(
+                &cfg,
+                &runtime.cache_store,
+                account.as_deref(),
+                stdin_buf,
+                runtime.now,
+                hook_home.as_deref(),
+            )?;
+            if *json || cli.pretty || cli.text || cli.waybar || cli.tmux {
+                Ok(Some(format_report(&report, cli)?))
+            } else {
+                Ok(None)
+            }
+        }
+
+        Some(Commands::Doctor { json }) => {
+            let report = crate::doctor::run_doctor(cli.config.as_deref(), runtime);
+            if *json {
+                Ok(Some(crate::doctor::format_doctor_json(&report, true)?))
+            } else {
+                Ok(Some(crate::doctor::format_doctor_text(&report)))
+            }
+        }
+
+        Some(Commands::Completions { shell }) => {
+            let mut cmd = Cli::command();
+            let mut buf = Vec::new();
+            clap_complete::generate(*shell, &mut cmd, "gnome-agent-status", &mut buf);
+            let rendered = String::from_utf8(buf)
+                .context("Generated shell completion script was not valid UTF-8")?;
+            Ok(Some(
+                rendered.strip_suffix('\n').unwrap_or(&rendered).to_string(),
+            ))
+        }
+
+        Some(Commands::Manpage) => {
+            let cmd = Cli::command();
+            let man = clap_mangen::Man::new(cmd);
+            let mut buf = Vec::new();
+            man.render(&mut buf)
+                .context("Failed to render ROFF manual page")?;
+            let rendered =
+                String::from_utf8(buf).context("Rendered ROFF manual page was not valid UTF-8")?;
+            Ok(Some(
+                rendered.strip_suffix('\n').unwrap_or(&rendered).to_string(),
+            ))
+        }
+
+        Some(Commands::Collect { force, provider }) => run_collect(
+            cli,
+            runtime,
+            CollectOptions {
+                force: *force,
+                provider_filter: provider.clone(),
+            },
+        ),
+
+        None => run_collect(cli, runtime, CollectOptions::default()),
+    }
+}
+
+fn run_collect(
+    cli: &Cli,
+    runtime: &CliRuntime<'_>,
+    opts: CollectOptions,
+) -> Result<Option<String>> {
+    let now_epoch = runtime.now.timestamp();
+    let cfg = match Config::load(cli.config.as_deref()) {
+        Ok(c) => c,
+        Err(err) => {
+            // Emit valid StatusReport v2 JSON even when config fails to parse so the GNOME top bar renders the error cleanly.
+            let fallback = StatusReport::config_error(format!("{:#}", err), now_epoch);
+            return Ok(Some(format_report(&fallback, cli)?));
+        }
+    };
+
+    for warning in cfg.unknown_provider_warnings() {
+        eprintln!("Warning: {}", crate::http::redact_secrets(&warning));
+    }
+
+    let mut ctx = runtime
+        .fetch_ctx_override
+        .clone()
+        .unwrap_or_else(|| FetchContext::from_config(&cfg));
+    ctx.now = runtime.now;
+
+    let report = ProviderRegistry::builtin().collect(&cfg, &runtime.cache_store, &opts, &ctx)?;
+    Ok(Some(format_report(&report, cli)?))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_legacy_default_flags() {
+        let cli = Cli::try_parse_from([
+            "gnome-agent-status",
+            "--config",
+            "/tmp/custom.toml",
+            "--pretty",
+            "--text",
+            "--color",
+        ])
+        .expect("parse legacy flags");
+
+        assert_eq!(cli.config, Some(PathBuf::from("/tmp/custom.toml")));
+        assert!(cli.pretty);
+        assert!(cli.text);
+        assert!(cli.color);
+        assert!(cli.command.is_none());
+    }
+
+    #[test]
+    fn test_parse_collect_cached_and_account_select() {
+        let collect_cli = Cli::try_parse_from([
+            "gnome-agent-status",
+            "--config",
+            "/tmp/cfg.toml",
+            "collect",
+            "--force",
+            "--provider",
+            "claude",
+            "--pretty",
+        ])
+        .expect("parse collect");
+
+        assert_eq!(collect_cli.config, Some(PathBuf::from("/tmp/cfg.toml")));
+        assert!(collect_cli.pretty);
+        match collect_cli.command {
+            Some(Commands::Collect { force, provider }) => {
+                assert!(force);
+                assert_eq!(provider.as_deref(), Some("claude"));
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+
+        let cached_cli = Cli::try_parse_from(["gnome-agent-status", "cached", "--pretty"])
+            .expect("parse cached");
+        assert!(matches!(cached_cli.command, Some(Commands::Cached)));
+        assert!(cached_cli.pretty);
+
+        let top_wb = Cli::try_parse_from(["gnome-agent-status", "--waybar"]).expect("top waybar");
+        assert!(top_wb.waybar);
+        assert!(top_wb.command.is_none());
+
+        let cached_wb = Cli::try_parse_from(["gnome-agent-status", "cached", "--waybar"])
+            .expect("cached waybar");
+        assert!(cached_wb.waybar);
+        assert!(matches!(cached_wb.command, Some(Commands::Cached)));
+
+        let top_tmux = Cli::try_parse_from(["gnome-agent-status", "--tmux"]).expect("top tmux");
+        assert!(top_tmux.tmux);
+        assert!(top_tmux.command.is_none());
+
+        let cached_tmux =
+            Cli::try_parse_from(["gnome-agent-status", "cached", "--tmux"]).expect("cached tmux");
+        assert!(cached_tmux.tmux);
+        assert!(matches!(cached_tmux.command, Some(Commands::Cached)));
+
+        assert!(
+            Cli::try_parse_from(["gnome-agent-status", "--waybar", "--tmux"]).is_err(),
+            "--waybar and --tmux should be mutually exclusive"
+        );
+
+        let acct_cli = Cli::try_parse_from([
+            "gnome-agent-status",
+            "account",
+            "select",
+            "claude",
+            "claude:work",
+        ])
+        .expect("parse account select");
+        match acct_cli.command {
+            Some(Commands::Account {
+                action:
+                    AccountCommand::Select {
+                        provider_id,
+                        account_id,
+                    },
+            }) => {
+                assert_eq!(provider_id, "claude");
+                assert_eq!(account_id, "claude:work");
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_config_and_ingest_hook_subcommands() {
+        let set_cli = Cli::try_parse_from([
+            "gnome-agent-status",
+            "config",
+            "set",
+            "--auto-discover",
+            "false",
+            "--timeout-seconds",
+            "45",
+        ])
+        .expect("parse config set");
+        match set_cli.command {
+            Some(Commands::Config {
+                action:
+                    ConfigCommand::Set {
+                        auto_discover,
+                        timeout_seconds,
+                    },
+            }) => {
+                assert_eq!(auto_discover, Some(false));
+                assert_eq!(timeout_seconds, Some(45));
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+
+        let upsert_cli = Cli::try_parse_from([
+            "gnome-agent-status",
+            "config",
+            "upsert-account",
+            "--provider",
+            "claude",
+            "--id",
+            "work",
+            "--label",
+            "Work Claude",
+            "--path",
+            "~/.claude-work",
+            "--poll-mode",
+            "passive",
+            "--switch-command",
+            "claude-switch work",
+        ])
+        .expect("parse config upsert-account");
+        match upsert_cli.command {
+            Some(Commands::Config {
+                action:
+                    ConfigCommand::UpsertAccount {
+                        provider,
+                        id,
+                        label,
+                        path,
+                        binary,
+                        poll_mode,
+                        switch_command,
+                    },
+            }) => {
+                assert_eq!(provider, "claude");
+                assert_eq!(id, "work");
+                assert_eq!(label, "Work Claude");
+                assert_eq!(path.as_deref(), Some("~/.claude-work"));
+                assert!(binary.is_none());
+                assert_eq!(poll_mode.as_deref(), Some("passive"));
+                assert_eq!(switch_command.as_deref(), Some("claude-switch work"));
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+
+        let remove_cli = Cli::try_parse_from([
+            "gnome-agent-status",
+            "config",
+            "remove-account",
+            "--provider",
+            "claude",
+            "--id",
+            "work",
+        ])
+        .expect("parse config remove-account");
+        assert!(matches!(
+            remove_cli.command,
+            Some(Commands::Config {
+                action: ConfigCommand::RemoveAccount { .. }
+            })
+        ));
+
+        let hook_cli = Cli::try_parse_from([
+            "gnome-agent-status",
+            "ingest-hook",
+            "claude",
+            "--account",
+            "work",
+        ])
+        .expect("parse ingest-hook claude");
+        match hook_cli.command {
+            Some(Commands::IngestHook {
+                target: IngestHookCommand::Claude { account, json },
+            }) => {
+                assert_eq!(account.as_deref(), Some("work"));
+                assert!(!json);
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_doctor_completions_and_manpage_subcommands() {
+        use crate::http::{EndpointOverrides, HttpClient};
+        use std::collections::BTreeMap;
+
+        let tmp = std::env::temp_dir().join(format!(
+            "gas-cli-doc-test-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        let runtime = CliRuntime {
+            cache_store: CacheStore::new(tmp.join("cache")),
+            fetch_ctx_override: Some(FetchContext {
+                http: HttpClient::new(Duration::from_secs(1)),
+                timeout: Duration::from_secs(1),
+                now: Utc::now(),
+                home_dir: Some(tmp.join("home")),
+                xdg_config_dir: Some(tmp.join("home/.config")),
+                proc_root: tmp.join("proc"),
+                endpoints: EndpointOverrides::default(),
+                env_overrides: Some(BTreeMap::new()),
+            }),
+            now: Utc::now(),
+            stdin_data: None,
+        };
+
+        // 1. `doctor` text & `doctor --json`
+        let doc_text_cli = Cli::try_parse_from(["gnome-agent-status", "doctor"]).unwrap();
+        let doc_text = execute_cli(&doc_text_cli, &runtime)
+            .unwrap()
+            .expect("doctor text output");
+        assert!(doc_text.contains("gnome-agent-status"));
+        assert!(doc_text.contains("Providers (zero-secret summary):"));
+        assert!(doc_text.contains("openrouter"));
+        assert!(doc_text.contains("windsurf"));
+        assert!(doc_text.contains("deepseek"));
+
+        let doc_json_cli = Cli::try_parse_from(["gnome-agent-status", "doctor", "--json"]).unwrap();
+        let doc_json_raw = execute_cli(&doc_json_cli, &runtime)
+            .unwrap()
+            .expect("doctor json output");
+        let parsed: serde_json::Value = serde_json::from_str(&doc_json_raw).unwrap();
+        assert_eq!(parsed["binary"]["name"], "gnome-agent-status");
+        assert_eq!(parsed["providers"].as_array().unwrap().len(), 10);
+
+        // 2. `completions bash`, `completions zsh`, `completions fish`
+        for (shell_name, marker) in [
+            ("bash", "complete -F _gnome"),
+            ("zsh", "#compdef gnome-agent-status"),
+            ("fish", "complete -c gnome-agent-status"),
+        ] {
+            let comp_cli =
+                Cli::try_parse_from(["gnome-agent-status", "completions", shell_name]).unwrap();
+            let comp_out = execute_cli(&comp_cli, &runtime)
+                .unwrap()
+                .expect("completions output");
+            assert!(
+                comp_out.contains(marker),
+                "{shell_name} completions missing marker '{marker}'"
+            );
+            assert!(comp_out.contains("doctor"));
+            assert!(comp_out.contains("manpage"));
+        }
+
+        // 3. `manpage` ROFF generation
+        let man_cli = Cli::try_parse_from(["gnome-agent-status", "manpage"]).unwrap();
+        let man_out = execute_cli(&man_cli, &runtime)
+            .unwrap()
+            .expect("manpage output");
+        assert!(man_out.contains(".TH gnome-agent-status 1"));
+        assert!(man_out.contains("SUBCOMMANDS"));
+        assert!(man_out.contains("doctor"));
+        assert!(man_out.contains("completions"));
+        assert!(man_out.contains("manpage"));
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+}
