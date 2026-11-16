@@ -1,7 +1,7 @@
 use chrono::{DateTime, Local, TimeZone, Utc};
 
+use crate::model::{AgentStatusResult, StatusReport};
 use crate::reset;
-use crate::runner::{AgentStatusResult, StatusReport};
 
 const MAX_MESSAGE_CHARS: usize = 80;
 
@@ -215,9 +215,12 @@ mod tests {
 
     fn sample_report(agents: Vec<AgentStatusResult>) -> StatusReport {
         StatusReport {
+            schema_version: crate::model::SCHEMA_VERSION,
             label: String::new(),
-            status: "ok".to_string(),
+            status: crate::model::OverallStatus::Ok,
             updated_at_epoch: 1_700_000_000,
+            summary: crate::model::SummaryStats::default(),
+            providers: Vec::new(),
             agents,
         }
     }
