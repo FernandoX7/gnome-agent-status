@@ -1,0 +1,208 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Optional version label for manual dry-run bundles (e.g. v0.2.0)'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-binaries:
+    name: Build Release Binary (${{ matrix.target }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            cross: false
+          - target: aarch64-unknown-linux-gnu
+            cross: true
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install cross-compilation toolchain (aarch64)
+        if: matrix.cross
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake \
+            gcc-aarch64-linux-gnu \
+            libc6-dev-arm64-cross
+
+      - name: Install stable Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache Cargo registry and target
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+
+      - name: Build release binary for ${{ matrix.target }}
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+          CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
+        run: cargo build --release --locked --target "${{ matrix.target }}"
+
+      - name: Upload target binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bin-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/gnome-agent-status
+          if-no-files-found: error
+
+  package-and-release:
+    name: Package Assets, Attest Provenance & Publish Release
+    needs: [build-binaries]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 50
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install schema, gettext, and archive tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libglib2.0-bin gettext zip unzip
+
+      - name: Run static guardrails before packaging
+        run: ./scripts/check-guardrails.sh
+
+      - name: Download built release binaries
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: bin-*
+
+      - name: Resolve release version label
+        id: meta
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            ver="${GITHUB_REF#refs/tags/}"
+          elif [[ -n "${{ inputs.tag }}" ]]; then
+            ver="${{ inputs.tag }}"
+          else
+            ver="v$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["package"]["version"])')-${GITHUB_SHA::7}"
+          fi
+          echo "version=${ver}" >> "${GITHUB_OUTPUT}"
+
+      - name: Assemble release tarballs, EGO zip, and SHA256SUMS
+        shell: bash
+        run: |
+          set -euo pipefail
+          VER="${{ steps.meta.outputs.version }}"
+          mkdir -p dist aux-assets/completions aux-assets/man
+
+          chmod 0755 \
+            artifacts/bin-x86_64-unknown-linux-gnu/gnome-agent-status \
+            artifacts/bin-aarch64-unknown-linux-gnu/gnome-agent-status
+
+          NATIVE_BIN="artifacts/bin-x86_64-unknown-linux-gnu/gnome-agent-status"
+          "${NATIVE_BIN}" --version
+
+          HAS_COMPLETIONS=0
+          if "${NATIVE_BIN}" completions bash >/dev/null 2>&1; then
+            "${NATIVE_BIN}" completions bash > aux-assets/completions/gnome-agent-status.bash
+            "${NATIVE_BIN}" completions zsh > aux-assets/completions/_gnome-agent-status
+            "${NATIVE_BIN}" completions fish > aux-assets/completions/gnome-agent-status.fish
+            HAS_COMPLETIONS=1
+          fi
+
+          HAS_MANPAGE=0
+          if "${NATIVE_BIN}" manpage >/dev/null 2>&1; then
+            "${NATIVE_BIN}" manpage > aux-assets/man/gnome-agent-status.1
+            HAS_MANPAGE=1
+          fi
+
+          for target in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu; do
+            pkg_name="gnome-agent-status-${VER}-${target}"
+            stage="stage-tar/${pkg_name}"
+            mkdir -p "${stage}"
+
+            install -m 0755 "artifacts/bin-${target}/gnome-agent-status" "${stage}/gnome-agent-status"
+
+            for doc in README.md LICENSE CHANGELOG.md SECURITY.md config.example.toml; do
+              if [[ -f "${doc}" ]]; then
+                install -m 0644 "${doc}" "${stage}/${doc}"
+              fi
+            done
+
+            if [[ -d contrib/systemd ]]; then
+              mkdir -p "${stage}/systemd"
+              cp -f contrib/systemd/* "${stage}/systemd/"
+            fi
+
+            if [[ "${HAS_COMPLETIONS}" -eq 1 ]]; then
+              mkdir -p "${stage}/completions"
+              cp -f aux-assets/completions/* "${stage}/completions/"
+            fi
+
+            if [[ "${HAS_MANPAGE}" -eq 1 ]]; then
+              mkdir -p "${stage}/man"
+              cp -f aux-assets/man/* "${stage}/man/"
+            fi
+
+            tar -C stage-tar -czf "dist/${pkg_name}.tar.gz" "${pkg_name}"
+          done
+
+          ./scripts/pack-extension.sh --out-dir dist
+
+          (
+            cd dist
+            sha256sum \
+              "gnome-agent-status-${VER}-x86_64-unknown-linux-gnu.tar.gz" \
+              "gnome-agent-status-${VER}-aarch64-unknown-linux-gnu.tar.gz" \
+              "agent-status@gnome-agent-status.shell-extension.zip" \
+              > SHA256SUMS
+            sha256sum -c SHA256SUMS
+          )
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/*.shell-extension.zip
+            dist/SHA256SUMS
+
+      - name: Upload release bundle workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-bundle-${{ steps.meta.outputs.version }}
+          path: dist/*
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/*.tar.gz
+            dist/agent-status@gnome-agent-status.shell-extension.zip
+            dist/SHA256SUMS
