@@ -22,7 +22,8 @@ use crate::reset;
 use aes::cipher::{block_padding::Pkcs7, BlockModeDecrypt, KeyIvInit};
 use anyhow::{anyhow, Context, Result};
 use base64::Engine;
-use chrono::{DateTime, Local, TimeZone, Utc};
+use jiff::tz::TimeZone;
+use jiff::Timestamp;
 use rusqlite::{Connection, OpenFlags};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -191,7 +192,7 @@ impl UsageProvider for CursorProvider {
 
         match ctx.http.post_json(usage_url, &headers, "{}") {
             Ok(resp) if resp.is_success() => {
-                match parse_cursor_usage_json(&resp.body, ctx.now, &Local) {
+                match parse_cursor_usage_json(&resp.body, ctx.now, &TimeZone::system()) {
                     Ok(parsed) => AccountFetchOutcome::Success(AccountReport {
                         id: account.id.clone(),
                         label: resolved_label,
@@ -968,14 +969,11 @@ pub struct ParsedCursorUsage {
 /// 1. `Cursor Models` (`autoPercentUsed`, `inline_pair`, `is_primary: false`)
 /// 2. `Other Models` (`apiPercentUsed`, `inline_pair`, `is_primary: false`)
 /// 3. `31d` (`totalPercentUsed`, `inline_pair`, `is_primary: true`)
-pub fn parse_cursor_usage_json<T: TimeZone>(
+pub fn parse_cursor_usage_json(
     raw: &str,
-    now: DateTime<Utc>,
-    tz: &T,
-) -> Result<ParsedCursorUsage>
-where
-    T::Offset: std::fmt::Display,
-{
+    now: Timestamp,
+    tz: &TimeZone,
+) -> Result<ParsedCursorUsage> {
     let val: serde_json::Value =
         serde_json::from_str(raw).context("Failed to parse Cursor usage JSON")?;
 
@@ -1090,14 +1088,11 @@ where
     })
 }
 
-fn extract_cursor_cycle_end<T: TimeZone>(
+fn extract_cursor_cycle_end(
     val: &serde_json::Value,
-    now: DateTime<Utc>,
-    tz: &T,
-) -> Option<(i64, String)>
-where
-    T::Offset: std::fmt::Display,
-{
+    now: Timestamp,
+    tz: &TimeZone,
+) -> Option<(i64, String)> {
     let candidates = [val.get("billingCycleEnd"), val.pointer("/billingCycle/end")];
     for cand in candidates.into_iter().flatten() {
         if let Some(ts) = cand.as_i64() {
@@ -1124,7 +1119,7 @@ mod tests {
 
     #[test]
     fn test_parse_cursor_usage_buckets_and_plan_badges() {
-        let now = Utc.with_ymd_and_hms(2026, 11, 10, 18, 0, 0).unwrap();
+        let now = crate::reset::utc_ts(2026, 11, 10, 18, 0, 0);
         let raw = r#"{
           "membershipType": "ultra",
           "billingCycleEnd": 1794528000000,
@@ -1141,7 +1136,7 @@ mod tests {
           }
         }"#;
 
-        let parsed = parse_cursor_usage_json(raw, now, &Utc).expect("parse cursor usage");
+        let parsed = parse_cursor_usage_json(raw, now, &TimeZone::UTC).expect("parse cursor usage");
         assert_eq!(parsed.plan_tier.as_deref(), Some("Ultra"));
         assert_eq!(parsed.buckets.len(), 3);
 
@@ -1434,7 +1429,7 @@ mod tests {
         let empty_ctx = FetchContext {
             http: crate::http::HttpClient::new(Duration::from_secs(3)),
             timeout: Duration::from_secs(3),
-            now: Utc.with_ymd_and_hms(2026, 11, 15, 12, 0, 0).unwrap(),
+            now: crate::reset::utc_ts(2026, 11, 15, 12, 0, 0),
             home_dir: Some(home.clone()),
             xdg_config_dir: Some(xdg.clone()),
             proc_root: tmp.join("proc"),

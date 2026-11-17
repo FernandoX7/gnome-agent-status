@@ -23,7 +23,8 @@ use crate::providers::{
 };
 use crate::reset;
 use anyhow::{anyhow, Result};
-use chrono::{DateTime, Local, TimeZone, Utc};
+use jiff::tz::TimeZone;
+use jiff::Timestamp;
 use rusqlite::{Connection, OpenFlags};
 use std::collections::HashSet;
 use std::fs;
@@ -195,7 +196,7 @@ impl UsageProvider for WindsurfProvider {
 
         // Tier 2: Read-only SQLite `state.vscdb` (or JSON metadata file) fallback
         if let Some(ref db_path) = account.path {
-            match read_windsurf_vscdb_metadata(db_path, ctx.now, &Local) {
+            match read_windsurf_vscdb_metadata(db_path, ctx.now, &TimeZone::system()) {
                 Ok(Some(meta)) => {
                     let resolved_label = sanitize_windsurf_label(
                         Some(&account.label),
@@ -493,7 +494,9 @@ fn query_local_windsurf_rpc(ctx: &FetchContext) -> Option<WindsurfStatusSummary>
         ];
         if let Ok(resp) = ctx.http.post_loopback_json(override_url, &headers, body) {
             if resp.is_success() {
-                if let Some(parsed) = parse_windsurf_user_status_json(&resp.body, ctx.now, &Local) {
+                if let Some(parsed) =
+                    parse_windsurf_user_status_json(&resp.body, ctx.now, &TimeZone::system())
+                {
                     return Some(parsed);
                 }
             }
@@ -512,9 +515,11 @@ fn query_local_windsurf_rpc(ctx: &FetchContext) -> Option<WindsurfStatusSummary>
                 );
                 if let Ok(resp) = ctx.http.post_loopback_json(&url, &headers, body) {
                     if resp.is_success() {
-                        if let Some(parsed) =
-                            parse_windsurf_user_status_json(&resp.body, ctx.now, &Local)
-                        {
+                        if let Some(parsed) = parse_windsurf_user_status_json(
+                            &resp.body,
+                            ctx.now,
+                            &TimeZone::system(),
+                        ) {
                             return Some(parsed);
                         }
                     }
@@ -526,27 +531,21 @@ fn query_local_windsurf_rpc(ctx: &FetchContext) -> Option<WindsurfStatusSummary>
     None
 }
 
-pub fn parse_windsurf_user_status_json<T: TimeZone>(
+pub fn parse_windsurf_user_status_json(
     raw_json: &str,
-    now: DateTime<Utc>,
-    tz: &T,
-) -> Option<WindsurfStatusSummary>
-where
-    T::Offset: std::fmt::Display,
-{
+    now: Timestamp,
+    tz: &TimeZone,
+) -> Option<WindsurfStatusSummary> {
     let root: serde_json::Value = serde_json::from_str(raw_json).ok()?;
     parse_windsurf_value(&root, now, tz, true)
 }
 
-fn parse_windsurf_value<T: TimeZone>(
+fn parse_windsurf_value(
     root: &serde_json::Value,
-    now: DateTime<Utc>,
-    tz: &T,
+    now: Timestamp,
+    tz: &TimeZone,
     require_buckets: bool,
-) -> Option<WindsurfStatusSummary>
-where
-    T::Offset: std::fmt::Display,
-{
+) -> Option<WindsurfStatusSummary> {
     let user_status = root.get("userStatus").unwrap_or(root);
 
     let email = extract_clean_string(user_status, &["email", "userEmail"]);
@@ -786,14 +785,11 @@ pub fn normalize_windsurf_plan(raw: &str) -> Option<String> {
 /// Opens Windsurf's `state.vscdb` (or manual JSON metadata file) strictly read-only via bundled
 /// `rusqlite` (`file:<uri>?mode=ro&immutable=1` + `PRAGMA query_only = ON`) without ever locking
 /// Windsurf or surfacing `apiKey` (`sk-ws-*`).
-pub fn read_windsurf_vscdb_metadata<T: TimeZone>(
+pub fn read_windsurf_vscdb_metadata(
     path: &Path,
-    now: DateTime<Utc>,
-    tz: &T,
-) -> Result<Option<WindsurfStatusSummary>>
-where
-    T::Offset: std::fmt::Display,
-{
+    now: Timestamp,
+    tz: &TimeZone,
+) -> Result<Option<WindsurfStatusSummary>> {
     let target = resolve_windsurf_target(path)?;
     let ext = target
         .extension()
@@ -1010,7 +1006,7 @@ mod tests {
         fs::create_dir_all(&xdg).unwrap();
 
         let provider = WindsurfProvider::new();
-        let now = Utc.with_ymd_and_hms(2026, 11, 11, 16, 0, 0).unwrap();
+        let now = crate::reset::utc_ts(2026, 11, 11, 16, 0, 0);
 
         // 1. Uninstalled Windsurf -> omitted cleanly (`discover_accounts` == `[]`)
         let empty_ctx = FetchContext {

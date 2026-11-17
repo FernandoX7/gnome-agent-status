@@ -1,40 +1,32 @@
 //! Converts reset timestamps from provider APIs and CLI output into `(epoch, ISO 8601)`.
 
-use chrono::{
-    DateTime, Datelike, Duration, Local, LocalResult, NaiveDate, NaiveTime, TimeZone, Utc,
-};
-use chrono_tz::Tz;
+use jiff::civil::{Date, Time};
+use jiff::tz::{AmbiguousOffset, TimeZone};
+use jiff::Timestamp;
 use regex::Regex;
 
 /// The output format: ISO 8601 with the UTC offset, for example `2026-11-07T07:56:12-08:00`.
 const ISO_FORMAT: &str = "%Y-%m-%dT%H:%M:%S%:z";
 
 /// Normalizes a raw reset string into `(unix_epoch_seconds, local_iso_8601)` in `target`.
-pub fn normalize_reset<T: TimeZone>(
-    raw: &str,
-    now: DateTime<Utc>,
-    target: &T,
-) -> Option<(i64, String)>
-where
-    T::Offset: std::fmt::Display,
-{
-    let utc = parse_reset(raw.trim(), now)?;
-    let epoch = utc.timestamp();
-    let iso = utc.with_timezone(target).format(ISO_FORMAT).to_string();
+pub fn normalize_reset(raw: &str, now: Timestamp, target: &TimeZone) -> Option<(i64, String)> {
+    let ts = parse_reset(raw.trim(), now)?;
+    let epoch = ts.as_second();
+    let iso = ts
+        .to_zoned_datetime(target.clone())
+        .strftime(ISO_FORMAT)
+        .to_string();
     Some((epoch, iso))
 }
 
-/// Normalizes a raw reset string using `Utc::now()` and the machine's `Local` time zone.
+/// Normalizes a raw reset string using `Timestamp::now()` and the machine's system time zone.
 pub fn normalize_reset_local(raw: &str) -> Option<(i64, String)> {
-    normalize_reset(raw, Utc::now(), &Local)
+    normalize_reset(raw, Timestamp::now(), &TimeZone::system())
 }
 
 /// Normalizes a Unix timestamp (seconds, or milliseconds if `>= 1_000_000_000_000`)
 /// into `(unix_epoch_seconds, iso_8601)` in `target`.
-pub fn normalize_epoch<T: TimeZone>(raw_ts: i64, target: &T) -> Option<(i64, String)>
-where
-    T::Offset: std::fmt::Display,
-{
+pub fn normalize_epoch(raw_ts: i64, target: &TimeZone) -> Option<(i64, String)> {
     if raw_ts <= 0 {
         return None;
     }
@@ -43,14 +35,17 @@ where
     } else {
         raw_ts
     };
-    let utc = Utc.timestamp_opt(epoch_secs, 0).single()?;
-    let iso = utc.with_timezone(target).format(ISO_FORMAT).to_string();
+    let ts = Timestamp::from_second(epoch_secs).ok()?;
+    let iso = ts
+        .to_zoned_datetime(target.clone())
+        .strftime(ISO_FORMAT)
+        .to_string();
     Some((epoch_secs, iso))
 }
 
 /// Normalizes a Unix timestamp (seconds or milliseconds) into `(epoch, local_iso_8601)`.
 pub fn normalize_epoch_local(raw_ts: i64) -> Option<(i64, String)> {
-    normalize_epoch(raw_ts, &Local)
+    normalize_epoch(raw_ts, &TimeZone::system())
 }
 
 /// Converts a reset time to ISO 8601 in the time zone `target`.
@@ -62,19 +57,30 @@ pub fn normalize_epoch_local(raw_ts: i64) -> Option<(i64, String)> {
 /// - Text from claude, for example `resets Nov 10, 7am (America/Los_Angeles)`.
 ///   This text has no year. The function uses the year that puts the date nearest to `now`.
 ///   If the text has no date, the function uses the next occurrence of the time.
-pub fn to_iso<T: TimeZone>(raw: &str, now: DateTime<Utc>, target: &T) -> Option<String>
-where
-    T::Offset: std::fmt::Display,
-{
+pub fn to_iso(raw: &str, now: Timestamp, target: &TimeZone) -> Option<String> {
     normalize_reset(raw, now, target).map(|(_, iso)| iso)
 }
 
-fn parse_reset(raw: &str, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
+#[cfg(test)]
+pub(crate) fn utc_ts(year: i16, month: i8, day: i8, hour: i8, min: i8, sec: i8) -> Timestamp {
+    Date::new(year, month, day)
+        .expect("valid test date")
+        .at(hour, min, sec, 0)
+        .to_zoned_datetime(TimeZone::UTC)
+        .expect("valid UTC timestamp")
+        .timestamp()
+}
+
+fn parse_reset(raw: &str, now: Timestamp) -> Option<Timestamp> {
     if raw.is_empty() {
         return None;
     }
-    if let Ok(dt) = DateTime::parse_from_rfc3339(raw) {
-        return Some(dt.with_timezone(&Utc));
+    // Require an explicit time component ('T', 't', or ' ') before delegating to Timestamp::parse
+    // so plain date-only strings without offsets do not parse unintentionally.
+    if (raw.contains(['T', 't']) || raw.contains(' ')) && raw.len() >= 10 {
+        if let Ok(ts) = raw.parse::<Timestamp>() {
+            return Some(ts);
+        }
     }
     // Support plain integer epoch seconds or milliseconds (>= year 2001).
     if raw.bytes().all(|b| b.is_ascii_digit()) {
@@ -85,56 +91,64 @@ fn parse_reset(raw: &str, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
                 } else {
                     val
                 };
-                return Utc.timestamp_opt(secs, 0).single();
+                return Timestamp::from_second(secs).ok();
             }
         }
     }
     parse_claude_reset(raw, now)
 }
 
-fn parse_claude_reset(raw: &str, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
+fn parse_claude_reset(raw: &str, now: Timestamp) -> Option<Timestamp> {
     let re = Regex::new(
         r"(?i)^(?:resets(?:\s+at|\s+on)?\s+)?(?:(?P<mon>[a-z]{3})[a-z]*\.?\s+(?P<day>\d{1,2})(?:,|\s+at)?\s+)?(?P<hour>\d{1,2})(?::(?P<min>\d{2}))?\s*(?P<ampm>am|pm)(?:\s*\((?P<tz>[^)]+)\))?$",
     )
     .expect("valid claude reset regex");
     let caps = re.captures(raw)?;
 
-    let tz: Tz = match caps.name("tz") {
-        Some(m) => m.as_str().trim().parse().ok()?,
-        None => Tz::UTC,
+    let tz = match caps.name("tz") {
+        Some(m) => {
+            let name = m.as_str().trim();
+            if name.eq_ignore_ascii_case("UTC") {
+                TimeZone::UTC
+            } else {
+                TimeZone::get(name).ok()?
+            }
+        }
+        None => TimeZone::UTC,
     };
 
-    let hour12: u32 = caps["hour"].parse().ok()?;
-    let minute: u32 = caps
+    let hour12: u8 = caps["hour"].parse().ok()?;
+    let minute: u8 = caps
         .name("min")
         .map_or(Some(0), |m| m.as_str().parse().ok())?;
-    if !(1..=12).contains(&hour12) {
+    if !(1..=12).contains(&hour12) || minute >= 60 {
         return None;
     }
     let is_pm = caps["ampm"].eq_ignore_ascii_case("pm");
     let hour = (hour12 % 12) + if is_pm { 12 } else { 0 };
-    let time = NaiveTime::from_hms_opt(hour, minute, 0)?;
+    let time = Time::new(hour as i8, minute as i8, 0, 0).ok()?;
 
-    let now_in_tz = now.with_timezone(&tz);
+    let now_in_tz = now.to_zoned_datetime(tz.clone());
 
     match (caps.name("mon"), caps.name("day")) {
         (Some(mon), Some(day)) => {
             let month = month_number(mon.as_str())?;
-            let day: u32 = day.as_str().parse().ok()?;
+            let day: i8 = day.as_str().parse().ok()?;
             // Use the year that puts the date nearest to now.
             (now_in_tz.year() - 1..=now_in_tz.year() + 1)
-                .filter_map(|year| NaiveDate::from_ymd_opt(year, month, day))
+                .filter_map(|year| Date::new(year, month, day).ok())
                 .filter_map(|date| resolve(&tz, date, time))
-                .min_by_key(|dt| (*dt - now).num_seconds().abs())
+                .min_by_key(|ts| ts.as_second().abs_diff(now.as_second()))
         }
         _ => {
             // Only a time: use the next occurrence of that time.
-            let today = now_in_tz.date_naive();
+            let today = now_in_tz.date();
             let first = resolve(&tz, today, time)?;
             if first >= now {
                 Some(first)
             } else {
-                resolve(&tz, today + Duration::days(1), time)
+                let tomorrow = today.tomorrow().ok()?;
+                resolve(&tz, tomorrow, time)
             }
         }
     }
@@ -142,33 +156,34 @@ fn parse_claude_reset(raw: &str, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
 
 /// Converts a wall-clock date and time in `tz` to UTC.
 /// For a time that occurs two times (end of daylight saving time), use the first occurrence.
-fn resolve(tz: &Tz, date: NaiveDate, time: NaiveTime) -> Option<DateTime<Utc>> {
-    match tz.from_local_datetime(&date.and_time(time)) {
-        LocalResult::Single(dt) => Some(dt.with_timezone(&Utc)),
-        LocalResult::Ambiguous(first, _) => Some(first.with_timezone(&Utc)),
-        LocalResult::None => None,
+fn resolve(tz: &TimeZone, date: Date, time: Time) -> Option<Timestamp> {
+    let amb = tz.to_ambiguous_timestamp(date.to_datetime(time));
+    if matches!(amb.offset(), AmbiguousOffset::Gap { .. }) {
+        None
+    } else {
+        amb.earlier().ok()
     }
 }
 
-fn month_number(name: &str) -> Option<u32> {
+fn month_number(name: &str) -> Option<i8> {
     let months = [
         "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec",
     ];
     let key = name.get(..3)?.to_ascii_lowercase();
-    months.iter().position(|m| *m == key).map(|i| i as u32 + 1)
+    months.iter().position(|m| *m == key).map(|i| i as i8 + 1)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::FixedOffset;
+    use jiff::tz::offset;
 
-    fn now() -> DateTime<Utc> {
-        Utc.with_ymd_and_hms(2026, 11, 6, 16, 0, 0).unwrap()
+    fn now() -> Timestamp {
+        utc_ts(2026, 11, 6, 16, 0, 0)
     }
 
-    fn pst() -> FixedOffset {
-        FixedOffset::west_opt(8 * 3600).unwrap()
+    fn pst() -> TimeZone {
+        TimeZone::fixed(offset(-8))
     }
 
     #[test]
@@ -176,20 +191,12 @@ mod tests {
         let (epoch, iso) =
             normalize_reset("2026-11-07T15:56:12Z", now(), &pst()).expect("normalize rfc3339");
         assert_eq!(iso, "2026-11-07T07:56:12-08:00");
-        assert_eq!(
-            epoch,
-            Utc.with_ymd_and_hms(2026, 11, 7, 15, 56, 12)
-                .unwrap()
-                .timestamp()
-        );
+        assert_eq!(epoch, utc_ts(2026, 11, 7, 15, 56, 12).as_second());
     }
 
     #[test]
     fn test_epoch_seconds_and_milliseconds() {
-        let expected_ts = Utc
-            .with_ymd_and_hms(2026, 11, 7, 15, 56, 12)
-            .unwrap()
-            .timestamp();
+        let expected_ts = utc_ts(2026, 11, 7, 15, 56, 12).as_second();
         let (e1, iso1) = normalize_epoch(expected_ts, &pst()).expect("secs");
         let (e2, iso2) = normalize_epoch(expected_ts * 1000 + 450, &pst()).expect("millis");
         assert_eq!(e1, expected_ts);
@@ -217,7 +224,7 @@ mod tests {
 
     #[test]
     fn test_claude_text_to_other_zone() {
-        let cet = FixedOffset::east_opt(3600).unwrap();
+        let cet = TimeZone::fixed(offset(1));
         assert_eq!(
             to_iso("resets Nov 10, 7am (America/Los_Angeles)", now(), &cet).as_deref(),
             Some("2026-11-10T16:00:00+01:00")
@@ -234,9 +241,9 @@ mod tests {
 
     #[test]
     fn test_claude_text_uses_next_year_at_year_end() {
-        let late_dec = Utc.with_ymd_and_hms(2026, 12, 30, 12, 0, 0).unwrap();
+        let late_dec = utc_ts(2026, 12, 30, 12, 0, 0);
         assert_eq!(
-            to_iso("resets Jan 2, 7am (UTC)", late_dec, &Utc).as_deref(),
+            to_iso("resets Jan 2, 7am (UTC)", late_dec, &TimeZone::UTC).as_deref(),
             Some("2027-01-02T07:00:00+00:00")
         );
     }

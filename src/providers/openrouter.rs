@@ -16,7 +16,9 @@ use crate::providers::{
     AccountDescriptor, AccountFetchOutcome, FetchContext, ProviderMeta, UsageProvider,
 };
 use anyhow::{anyhow, Context, Result};
-use chrono::{Datelike, Duration as ChronoDuration, TimeZone, Utc};
+use jiff::civil::Date;
+use jiff::tz::TimeZone;
+use jiff::{Timestamp, ToSpan};
 use serde::Deserialize;
 use sha1::{Digest, Sha1};
 use std::fs;
@@ -433,43 +435,46 @@ pub fn parse_openrouter_credits_json(raw: &str) -> Result<OpenRouterCreditsData>
     Ok(env.data)
 }
 
-fn compute_openrouter_reset(
-    limit_reset: Option<&str>,
-    now: chrono::DateTime<Utc>,
-) -> Option<(i64, String)> {
+fn compute_openrouter_reset(limit_reset: Option<&str>, now: Timestamp) -> Option<(i64, String)> {
     let kind = limit_reset?.trim().to_ascii_lowercase();
-    let today_start = Utc
-        .with_ymd_and_hms(now.year(), now.month(), now.day(), 0, 0, 0)
-        .single()?;
-    let target = match kind.as_str() {
-        "daily" => today_start + ChronoDuration::days(1),
+    let today = now.to_zoned_datetime(TimeZone::UTC).date();
+    let target_date = match kind.as_str() {
+        "daily" => today.tomorrow().ok()?,
         "weekly" => {
-            let days_until_monday = (7 - now.weekday().num_days_from_monday() as i64).rem_euclid(7);
+            let days_from_monday = i64::from(today.weekday().to_monday_zero_offset());
+            let days_until_monday = (7 - days_from_monday).rem_euclid(7);
             let delta = if days_until_monday == 0 {
                 7
             } else {
                 days_until_monday
             };
-            today_start + ChronoDuration::days(delta)
+            today.checked_add(delta.days()).ok()?
         }
         "monthly" => {
-            let (ny, nm) = if now.month() == 12 {
-                (now.year() + 1, 1)
+            let (ny, nm) = if today.month() == 12 {
+                (today.year() + 1, 1)
             } else {
-                (now.year(), now.month() + 1)
+                (today.year(), today.month() + 1)
             };
-            Utc.with_ymd_and_hms(ny, nm, 1, 0, 0, 0).single()?
+            Date::new(ny, nm, 1).ok()?
         }
         _ => return None,
     };
-    Some((target.timestamp(), target.to_rfc3339()))
+    let target = target_date
+        .at(0, 0, 0, 0)
+        .to_zoned_datetime(TimeZone::UTC)
+        .ok()?;
+    Some((
+        target.timestamp().as_second(),
+        target.strftime("%Y-%m-%dT%H:%M:%S%:z").to_string(),
+    ))
 }
 
 pub fn build_openrouter_report(
     account: &AccountDescriptor,
     key_data: &OpenRouterKeyData,
     credits_data: Option<&OpenRouterCreditsData>,
-    now: chrono::DateTime<Utc>,
+    now: Timestamp,
 ) -> AccountReport {
     let label = sanitize_openrouter_label(Some(&account.label), key_data.label.as_deref());
     let usage = key_data.usage.unwrap_or(0.0).max(0.0);
@@ -541,7 +546,7 @@ pub fn build_openrouter_report(
             extra_info: Some(format!("${period_usage:.2} / ${limit:.2} key limit used")),
             error: None,
             login_command: account.login_command.clone(),
-            updated_at_epoch: Some(now.timestamp()),
+            updated_at_epoch: Some(now.as_second()),
             buckets: vec![bucket],
             credits: Some(CreditSummary {
                 label: "Key Limit".to_string(),
@@ -588,7 +593,7 @@ pub fn build_openrouter_report(
             extra_info: Some(format!("${balance:.2} remaining of ${total_credits:.2}")),
             error: None,
             login_command: account.login_command.clone(),
-            updated_at_epoch: Some(now.timestamp()),
+            updated_at_epoch: Some(now.as_second()),
             buckets: vec![bucket],
             credits: Some(CreditSummary {
                 label: "Prepaid Credits".to_string(),
@@ -627,7 +632,7 @@ pub fn build_openrouter_report(
         extra_info: Some(note),
         error: None,
         login_command: account.login_command.clone(),
-        updated_at_epoch: Some(now.timestamp()),
+        updated_at_epoch: Some(now.as_second()),
         buckets: vec![bucket],
         credits: Some(CreditSummary {
             label: "Pay-as-you-go".to_string(),
@@ -653,7 +658,7 @@ mod tests {
 
     #[test]
     fn test_openrouter_limit_windows_prepaid_credits_and_payg_fallback() {
-        let now = Utc.with_ymd_and_hms(2026, 11, 11, 16, 0, 0).unwrap();
+        let now = crate::reset::utc_ts(2026, 11, 11, 16, 0, 0);
         let masked_secret_label = format!("{}abcd...9999", concat!("sk-", "or-v1-"));
         let desc = AccountDescriptor {
             provider_id: "openrouter".to_string(),
@@ -767,7 +772,7 @@ mod tests {
         let empty_ctx = FetchContext {
             http: HttpClient::new(Duration::from_secs(3)),
             timeout: Duration::from_secs(3),
-            now: Utc.with_ymd_and_hms(2026, 11, 11, 16, 0, 0).unwrap(),
+            now: crate::reset::utc_ts(2026, 11, 11, 16, 0, 0),
             home_dir: Some(home.clone()),
             xdg_config_dir: Some(xdg.clone()),
             proc_root: tmp.join("proc"),

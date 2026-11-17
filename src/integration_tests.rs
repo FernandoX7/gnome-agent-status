@@ -7,10 +7,11 @@ use crate::config::ConfigShowSummary;
 use crate::http::{EndpointOverrides, HttpClient};
 use crate::model::{AccountState, OverallStatus, StatusReport};
 use crate::providers::FetchContext;
+use crate::reset::utc_ts;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
-use chrono::{TimeZone, Utc};
 use clap::Parser;
+use jiff::SignedDuration;
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -722,7 +723,7 @@ fn test_all_7_providers_cli_workflow_dedup_429_decay_switch_and_hook() {
         "--init-config",
     ]);
     let cache_store = CacheStore::new(cache_dir.clone());
-    let base_now = Utc.with_ymd_and_hms(2026, 11, 10, 18, 0, 0).unwrap();
+    let base_now = utc_ts(2026, 11, 10, 18, 0, 0);
 
     execute_cli(
         &init_cli,
@@ -1044,7 +1045,7 @@ fn test_all_7_providers_cli_workflow_dedup_429_decay_switch_and_hook() {
 
     // Step 4: Verify HTTP 429 `Retry-After: 0` backoff preserves cached buckets and blocks `--force`!
     server.rate_limit_claude.store(true, Ordering::SeqCst);
-    let after_debounce = base_now + chrono::Duration::seconds(45);
+    let after_debounce = base_now + SignedDuration::from_secs(45);
     let force_cli = Cli::parse_from([
         "gnome-agent-status",
         "--config",
@@ -1082,7 +1083,7 @@ fn test_all_7_providers_cli_workflow_dedup_429_decay_switch_and_hook() {
     let hits_after_429 = server.claude_hits.load(Ordering::SeqCst);
 
     // Calling `--force` again 60s later MUST NOT hit the HTTP server while 300s+ lock is active!
-    let during_lock = after_debounce + chrono::Duration::seconds(60);
+    let during_lock = after_debounce + SignedDuration::from_secs(60);
     execute_cli(
         &force_cli,
         &CliRuntime {
@@ -1166,7 +1167,7 @@ fn test_all_7_providers_cli_workflow_dedup_429_decay_switch_and_hook() {
         .any(|b| b.id == "fable" && b.used_percent == 46));
 
     // Advance clock past all reset epochs -> passive time-decay resets buckets to 0% used / 100% remaining!
-    let future_after_resets = Utc.with_ymd_and_hms(2026, 12, 5, 0, 0, 0).unwrap();
+    let future_after_resets = utc_ts(2026, 12, 5, 0, 0, 0);
     let cached_decayed_out = execute_cli(
         &cached_cli,
         &CliRuntime {
@@ -1319,7 +1320,7 @@ fn test_copilot_gh_404_noise_free_omission_and_gemini_passive_expiry_e2e() {
     )
     .unwrap();
     let cache_store = CacheStore::new(sandbox.join("cache"));
-    let t0 = Utc.with_ymd_and_hms(2026, 11, 10, 18, 0, 0).unwrap();
+    let t0 = utc_ts(2026, 11, 10, 18, 0, 0);
 
     let fetch_ctx = FetchContext {
         http: HttpClient::new(Duration::from_secs(5)),
@@ -1367,7 +1368,7 @@ fn test_copilot_gh_404_noise_free_omission_and_gemini_passive_expiry_e2e() {
 
     // 2. Now write valid `~/.gemini/oauth_creds.json` -> `collect` fetches active 22% quota
     let creds_path = home.join(".gemini").join("oauth_creds.json");
-    let expiry_ms = (t0.timestamp() + 3600) * 1000;
+    let expiry_ms = (t0.as_second() + 3600) * 1000;
     let valid_creds = format!(
         r#"{{"access_token":"mock-ya29-valid","refresh_token":"mock-1//ref","expiry_date":{expiry_ms}}}"#
     );
@@ -1397,7 +1398,7 @@ fn test_copilot_gh_404_noise_free_omission_and_gemini_passive_expiry_e2e() {
     // 3. Advance clock past `expiry_date` (`1794339600` = `t0 + 3600s`):
     //    `collect` must NOT rotate `refresh_token` or hit `retrieveUserQuota` again,
     //    leaving `oauth_creds.json` byte-for-byte untouched and degrading to `PassiveCached`!
-    let t_expired = t0 + chrono::Duration::seconds(4000);
+    let t_expired = t0 + SignedDuration::from_secs(4000);
     let mut expired_ctx = fetch_ctx.clone();
     expired_ctx.now = t_expired;
 
@@ -1560,7 +1561,7 @@ fn test_all_10_providers_priority_sparkline_waybar_tmux_and_doctor_e2e() {
     );
 
     let cache_store = CacheStore::new(sandbox.join("cache"));
-    let t0 = Utc.with_ymd_and_hms(2026, 11, 10, 18, 0, 0).unwrap();
+    let t0 = utc_ts(2026, 11, 10, 18, 0, 0);
 
     let make_ctx = |now| FetchContext {
         http: HttpClient::new(Duration::from_secs(5)),
@@ -1632,7 +1633,7 @@ fn test_all_10_providers_priority_sparkline_waybar_tmux_and_doctor_e2e() {
     assert_eq!(server.deepseek_hits.load(Ordering::SeqCst), 1);
 
     // 2. Collect `--force` 1 hour later (`t0 + 3600s`) and verify 2-point quantized sparkline on `cached`
-    let t1 = t0 + chrono::Duration::seconds(3600);
+    let t1 = t0 + SignedDuration::from_secs(3600);
     let force_cli = Cli::parse_from([
         "gnome-agent-status",
         "--config",

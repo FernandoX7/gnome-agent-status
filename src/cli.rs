@@ -5,8 +5,8 @@ use crate::proc_exec::{self, CommandSpec};
 use crate::providers::{claude, CollectOptions, FetchContext, ProviderRegistry};
 use crate::text;
 use anyhow::{anyhow, bail, Context, Result};
-use chrono::{DateTime, Utc};
 use clap::{CommandFactory, Parser, Subcommand};
+use jiff::Timestamp;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -195,7 +195,7 @@ pub enum IngestHookCommand {
 pub struct CliRuntime<'a> {
     pub cache_store: CacheStore,
     pub fetch_ctx_override: Option<FetchContext>,
-    pub now: DateTime<Utc>,
+    pub now: Timestamp,
     pub stdin_data: Option<&'a str>,
 }
 
@@ -204,7 +204,7 @@ impl Default for CliRuntime<'_> {
         Self {
             cache_store: CacheStore::from_env(),
             fetch_ctx_override: None,
-            now: Utc::now(),
+            now: Timestamp::now(),
             stdin_data: None,
         }
     }
@@ -296,7 +296,7 @@ pub fn execute_cli(cli: &Cli, runtime: &CliRuntime<'_>) -> Result<Option<String>
                 .unwrap_or_else(|_| " | ".to_string());
             let report = runtime
                 .cache_store
-                .load_cached_report(&separator, runtime.now.timestamp());
+                .load_cached_report(&separator, runtime.now.as_second());
             Ok(Some(format_report(&report, cli)?))
         }
 
@@ -357,7 +357,7 @@ pub fn execute_cli(cli: &Cli, runtime: &CliRuntime<'_>) -> Result<Option<String>
                 &provider_norm,
                 target_acct,
                 &cfg.separator,
-                runtime.now.timestamp(),
+                runtime.now.as_second(),
             )?;
             Ok(Some(format_report(&report, cli)?))
         }
@@ -443,7 +443,7 @@ fn run_collect(
     runtime: &CliRuntime<'_>,
     opts: CollectOptions,
 ) -> Result<Option<String>> {
-    let now_epoch = runtime.now.timestamp();
+    let now_epoch = runtime.now.as_second();
     let cfg = match Config::load(cli.config.as_deref()) {
         Ok(c) => c,
         Err(err) => {
@@ -677,7 +677,7 @@ mod tests {
         let tmp = std::env::temp_dir().join(format!(
             "gas-cli-doc-test-{}-{}",
             std::process::id(),
-            Utc::now().timestamp_nanos_opt().unwrap_or(0)
+            Timestamp::now().as_nanosecond()
         ));
         std::fs::create_dir_all(&tmp).unwrap();
 
@@ -686,14 +686,14 @@ mod tests {
             fetch_ctx_override: Some(FetchContext {
                 http: HttpClient::new(Duration::from_secs(1)),
                 timeout: Duration::from_secs(1),
-                now: Utc::now(),
+                now: Timestamp::now(),
                 home_dir: Some(tmp.join("home")),
                 xdg_config_dir: Some(tmp.join("home/.config")),
                 proc_root: tmp.join("proc"),
                 endpoints: EndpointOverrides::default(),
                 env_overrides: Some(BTreeMap::new()),
             }),
-            now: Utc::now(),
+            now: Timestamp::now(),
             stdin_data: None,
         };
 

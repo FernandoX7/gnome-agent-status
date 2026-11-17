@@ -789,7 +789,7 @@ mod tests {
     use super::*;
     use crate::cache::CacheStore;
     use crate::http::{EndpointOverrides, HttpClient};
-    use chrono::Utc;
+    use jiff::Timestamp;
     use std::collections::BTreeMap;
     use std::time::Duration;
 
@@ -816,7 +816,7 @@ mod tests {
         let tmp = std::env::temp_dir().join(format!(
             "gas-doctor-test-{}-{}",
             std::process::id(),
-            Utc::now().timestamp_nanos_opt().unwrap_or(0)
+            Timestamp::now().as_nanosecond()
         ));
         let home = tmp.join("home");
         let xdg_cfg = home.join(".config");
@@ -899,7 +899,7 @@ path = "~/.config/openrouter/api_key"
         let ctx = FetchContext {
             http: HttpClient::new(Duration::from_secs(2)),
             timeout: Duration::from_secs(2),
-            now: Utc::now(),
+            now: Timestamp::now(),
             home_dir: Some(home.clone()),
             xdg_config_dir: Some(xdg_cfg.clone()),
             proc_root: tmp.join("empty-proc"),
@@ -909,7 +909,7 @@ path = "~/.config/openrouter/api_key"
         let runtime = CliRuntime {
             cache_store,
             fetch_ctx_override: Some(ctx),
-            now: Utc::now(),
+            now: Timestamp::now(),
             stdin_data: None,
         };
 
@@ -968,7 +968,7 @@ path = "~/.config/openrouter/api_key"
         let tmp = std::env::temp_dir().join(format!(
             "gas-doctor-badcfg-{}-{}",
             std::process::id(),
-            Utc::now().timestamp_nanos_opt().unwrap_or(0)
+            Timestamp::now().as_nanosecond()
         ));
         fs::create_dir_all(&tmp).unwrap();
         let bad_cfg = tmp.join("config.toml");
@@ -985,14 +985,14 @@ path = "~/.config/openrouter/api_key"
             fetch_ctx_override: Some(FetchContext {
                 http: HttpClient::new(Duration::from_secs(1)),
                 timeout: Duration::from_secs(1),
-                now: Utc::now(),
+                now: Timestamp::now(),
                 home_dir: Some(tmp.clone()),
                 xdg_config_dir: Some(tmp.join(".config")),
                 proc_root: tmp.join("proc"),
                 endpoints: EndpointOverrides::default(),
                 env_overrides: Some(BTreeMap::new()),
             }),
-            now: Utc::now(),
+            now: Timestamp::now(),
             stdin_data: None,
         };
 

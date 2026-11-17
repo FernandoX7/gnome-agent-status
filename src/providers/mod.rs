@@ -19,7 +19,7 @@ use crate::config::{home_dir, xdg_config_dir, Config, ManualAccountConfig, PollM
 use crate::http::{redact_secrets, EndpointOverrides, HttpClient};
 use crate::model::{AccountReport, AccountState, ProviderReport, StatusReport};
 use anyhow::Result;
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::thread;
@@ -58,7 +58,7 @@ pub struct AccountDescriptor {
 pub struct FetchContext {
     pub http: HttpClient,
     pub timeout: Duration,
-    pub now: DateTime<Utc>,
+    pub now: Timestamp,
     pub home_dir: Option<PathBuf>,
     pub xdg_config_dir: Option<PathBuf>,
     pub proc_root: PathBuf,
@@ -75,7 +75,7 @@ impl FetchContext {
         Self {
             http: HttpClient::new(timeout),
             timeout,
-            now: Utc::now(),
+            now: Timestamp::now(),
             home_dir: home,
             xdg_config_dir: xdg,
             proc_root: PathBuf::from("/proc"),
@@ -85,7 +85,7 @@ impl FetchContext {
     }
 
     pub fn now_epoch(&self) -> i64 {
-        self.now.timestamp()
+        self.now.as_second()
     }
 
     pub fn env_var(&self, key: &str) -> Option<String> {
@@ -1065,7 +1065,7 @@ mod tests {
         let ctx = FetchContext {
             http: HttpClient::new(Duration::from_secs(2)),
             timeout: Duration::from_secs(2),
-            now: Utc::now(),
+            now: Timestamp::now(),
             home_dir: Some(clean_home),
             xdg_config_dir: Some(clean_xdg),
             proc_root: sandbox.join("empty-proc"),

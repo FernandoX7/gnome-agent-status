@@ -15,7 +15,7 @@ use crate::providers::{
     AccountDescriptor, AccountFetchOutcome, FetchContext, ProviderMeta, UsageProvider,
 };
 use anyhow::{anyhow, Context, Result};
-use chrono::Utc;
+use jiff::Timestamp;
 use serde::Deserialize;
 use sha1::{Digest, Sha1};
 use std::fs;
@@ -375,7 +375,7 @@ fn parse_amount(v: &serde_json::Value) -> f64 {
 pub fn parse_deepseek_balance_json(
     raw: &str,
     account: &AccountDescriptor,
-    now: chrono::DateTime<Utc>,
+    now: Timestamp,
 ) -> Result<AccountReport> {
     let parsed: DeepSeekBalanceResponse =
         serde_json::from_str(raw).context("Failed to parse DeepSeek /user/balance JSON")?;
@@ -476,7 +476,7 @@ pub fn parse_deepseek_balance_json(
         extra_info: Some(extra_info),
         error: None,
         login_command: account.login_command.clone(),
-        updated_at_epoch: Some(now.timestamp()),
+        updated_at_epoch: Some(now.as_second()),
         buckets: vec![bucket],
         credits: Some(CreditSummary {
             label: credit_label,
@@ -493,7 +493,7 @@ pub fn parse_deepseek_balance_json(
 mod tests {
     use super::*;
     use crate::http::{EndpointOverrides, HttpClient};
-    use chrono::TimeZone;
+    use crate::reset::utc_ts;
     use std::collections::BTreeMap;
     use std::io::{Read, Write};
     use std::net::TcpListener;
@@ -502,7 +502,7 @@ mod tests {
 
     #[test]
     fn test_deepseek_balance_usd_preference_cny_fallback_and_depletion() {
-        let now = Utc.with_ymd_and_hms(2026, 11, 11, 16, 0, 0).unwrap();
+        let now = utc_ts(2026, 11, 11, 16, 0, 0);
         let desc = AccountDescriptor {
             provider_id: "deepseek".to_string(),
             id: "deepseek:default".to_string(),
@@ -585,7 +585,7 @@ mod tests {
         let empty_ctx = FetchContext {
             http: HttpClient::new(Duration::from_secs(3)),
             timeout: Duration::from_secs(3),
-            now: Utc.with_ymd_and_hms(2026, 11, 11, 16, 0, 0).unwrap(),
+            now: utc_ts(2026, 11, 11, 16, 0, 0),
             home_dir: Some(home.clone()),
             xdg_config_dir: Some(xdg.clone()),
             proc_root: tmp.join("proc"),

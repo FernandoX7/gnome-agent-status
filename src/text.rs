@@ -1,4 +1,5 @@
-use chrono::{DateTime, Local, TimeZone, Utc};
+use jiff::tz::TimeZone;
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
@@ -37,17 +38,14 @@ pub struct WaybarOutput {
 /// Formats `report` as single-line compact Waybar custom-module JSON
 /// (`{"text":"...","tooltip":"...","class":"normal|warning|critical|error","percentage":<u8>}`).
 pub fn format_waybar(report: &StatusReport) -> anyhow::Result<String> {
-    format_waybar_in(report, Utc::now(), &Local)
+    format_waybar_in(report, Timestamp::now(), &TimeZone::system())
 }
 
-fn format_waybar_in<T: TimeZone>(
+fn format_waybar_in(
     report: &StatusReport,
-    now: DateTime<Utc>,
-    tz: &T,
-) -> anyhow::Result<String>
-where
-    T::Offset: std::fmt::Display,
-{
+    now: Timestamp,
+    tz: &TimeZone,
+) -> anyhow::Result<String> {
     let class = waybar_class(report.status).to_string();
     let percentage = report.summary.max_used_percent.min(100);
     let text = escape_pango_markup(&build_waybar_text(report));
@@ -157,10 +155,7 @@ fn build_waybar_text(report: &StatusReport) -> String {
     "AI --".to_string()
 }
 
-fn build_waybar_tooltip<T: TimeZone>(report: &StatusReport, now: DateTime<Utc>, tz: &T) -> String
-where
-    T::Offset: std::fmt::Display,
-{
+fn build_waybar_tooltip(report: &StatusReport, now: Timestamp, tz: &TimeZone) -> String {
     let mut tooltip = format_text_in(report, false, now, tz);
     let mut extras: Vec<String> = Vec::new();
     for prov in &report.providers {
@@ -251,19 +246,11 @@ fn escape_tmux_text(input: &str) -> String {
 /// and secondary bucket/credit summaries) when `report.providers` is populated, and falls back
 /// to the legacy `agents` table when `report.providers` is empty.
 pub fn format_text(report: &StatusReport, color: bool) -> String {
-    format_text_in(report, color, Utc::now(), &Local)
+    format_text_in(report, color, Timestamp::now(), &TimeZone::system())
 }
 
 /// Formats a status report with reset times in the time zone `tz`.
-fn format_text_in<T: TimeZone>(
-    report: &StatusReport,
-    color: bool,
-    now: DateTime<Utc>,
-    tz: &T,
-) -> String
-where
-    T::Offset: std::fmt::Display,
-{
+fn format_text_in(report: &StatusReport, color: bool, now: Timestamp, tz: &TimeZone) -> String {
     if report.providers.is_empty() && report.agents.is_empty() {
         return "No agents configured".to_string();
     }
@@ -318,10 +305,7 @@ where
         .join("\n")
 }
 
-fn build_provider_row<T: TimeZone>(provider: &ProviderReport, now: DateTime<Utc>, tz: &T) -> RowData
-where
-    T::Offset: std::fmt::Display,
-{
+fn build_provider_row(provider: &ProviderReport, now: Timestamp, tz: &TimeZone) -> RowData {
     let active = provider.active_account();
     let name = format_provider_title(provider, active);
 
@@ -448,10 +432,7 @@ fn format_account_buckets_and_credits(
     }
 }
 
-fn build_legacy_row<T: TimeZone>(agent: &AgentStatusResult, now: DateTime<Utc>, tz: &T) -> RowData
-where
-    T::Offset: std::fmt::Display,
-{
+fn build_legacy_row(agent: &AgentStatusResult, now: Timestamp, tz: &TimeZone) -> RowData {
     let name = collapse_line(&agent.name);
     let pct = match agent.used_percent {
         Some(value) => format!("{value}%"),
@@ -578,12 +559,13 @@ mod tests {
     use super::*;
     use crate::model::{BucketLayout, OverallStatus, SummaryStats, SCHEMA_VERSION};
     use crate::parser::strip_ansi;
-    use chrono::FixedOffset;
+    use crate::reset::utc_ts;
+    use jiff::tz::offset;
 
     /// Formats in a fixed zone (UTC-8), so that the result does not change with the machine zone.
     fn format_text(report: &StatusReport, color: bool) -> String {
-        let now = Utc.with_ymd_and_hms(2026, 11, 6, 16, 0, 0).unwrap();
-        let pst = FixedOffset::west_opt(8 * 3600).unwrap();
+        let now = utc_ts(2026, 11, 6, 16, 0, 0);
+        let pst = TimeZone::fixed(offset(-8));
         format_text_in(report, color, now, &pst)
     }
 
@@ -907,8 +889,8 @@ mod tests {
 
     #[test]
     fn test_waybar_json_classes_tooltip_and_single_line_contract() {
-        let now = Utc.with_ymd_and_hms(2026, 11, 6, 16, 0, 0).unwrap();
-        let pst = FixedOffset::west_opt(8 * 3600).unwrap();
+        let now = utc_ts(2026, 11, 6, 16, 0, 0);
+        let pst = TimeZone::fixed(offset(-8));
 
         // Empty report -> `normal`, `0%`, `"AI --"`
         let empty = sample_report(vec![]);
@@ -1124,8 +1106,8 @@ mod tests {
 
     #[test]
     fn test_all_10_canonical_provider_short_codes_in_waybar_and_tmux() {
-        let now = Utc.with_ymd_and_hms(2026, 11, 6, 16, 0, 0).unwrap();
-        let pst = FixedOffset::west_opt(8 * 3600).unwrap();
+        let now = utc_ts(2026, 11, 6, 16, 0, 0);
+        let pst = TimeZone::fixed(offset(-8));
 
         let providers: Vec<ProviderReport> = crate::model::CANONICAL_PROVIDER_IDS
             .iter()

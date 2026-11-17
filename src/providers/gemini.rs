@@ -22,7 +22,8 @@ use crate::providers::{
 };
 use crate::reset;
 use anyhow::{anyhow, Context, Result};
-use chrono::{DateTime, Local, TimeZone, Utc};
+use jiff::tz::TimeZone;
+use jiff::Timestamp;
 use serde::Deserialize;
 use sha1::{Digest, Sha1};
 use std::fs;
@@ -259,7 +260,7 @@ impl UsageProvider for GeminiProvider {
 
         match ctx.http.post_json(quota_url, &headers, &quota_body) {
             Ok(resp) if resp.is_success() => {
-                match parse_gemini_quota_json(&resp.body, ctx.now, &Local) {
+                match parse_gemini_quota_json(&resp.body, ctx.now, &TimeZone::system()) {
                     Ok(buckets) => AccountFetchOutcome::Success(AccountReport {
                         id: account.id.clone(),
                         label: resolved_label,
@@ -733,14 +734,11 @@ impl GeminiBucketFamily {
 }
 
 /// Parses `v1internal:retrieveUserQuota` JSON into clean grouped daily `UsageBucket`s.
-pub fn parse_gemini_quota_json<T: TimeZone>(
+pub fn parse_gemini_quota_json(
     raw: &str,
-    now: DateTime<Utc>,
-    tz: &T,
-) -> Result<Vec<UsageBucket>>
-where
-    T::Offset: std::fmt::Display,
-{
+    now: Timestamp,
+    tz: &TimeZone,
+) -> Result<Vec<UsageBucket>> {
     let parsed: RetrieveUserQuotaResponse =
         serde_json::from_str(raw).context("Failed to parse Gemini retrieveUserQuota JSON")?;
 
@@ -831,9 +829,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::reset::utc_ts;
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     use base64::Engine;
-    use chrono::FixedOffset;
 
     #[test]
     fn test_never_autodiscovers_antigravity_without_oauth_creds_json() {
@@ -853,7 +851,7 @@ mod tests {
         let ctx = FetchContext {
             http: crate::http::HttpClient::new(std::time::Duration::from_secs(3)),
             timeout: std::time::Duration::from_secs(3),
-            now: Utc.with_ymd_and_hms(2026, 11, 11, 16, 0, 0).unwrap(),
+            now: utc_ts(2026, 11, 11, 16, 0, 0),
             home_dir: Some(home.clone()),
             xdg_config_dir: Some(home.join(".config")),
             proc_root: tmp.join("proc"),
@@ -898,8 +896,8 @@ mod tests {
 
     #[test]
     fn test_parse_gemini_retrieve_user_quota_and_load_code_assist() {
-        let tz = FixedOffset::east_opt(0).unwrap();
-        let now = Utc.with_ymd_and_hms(2026, 11, 11, 16, 0, 0).unwrap();
+        let tz = TimeZone::UTC;
+        let now = utc_ts(2026, 11, 11, 16, 0, 0);
 
         let quota_json = r#"{
             "buckets": [
@@ -983,7 +981,7 @@ mod tests {
         let ctx = FetchContext {
             http: crate::http::HttpClient::new(std::time::Duration::from_secs(3)),
             timeout: std::time::Duration::from_secs(3),
-            now: Utc.with_ymd_and_hms(2026, 11, 11, 16, 0, 0).unwrap(),
+            now: utc_ts(2026, 11, 11, 16, 0, 0),
             home_dir: Some(tmp.clone()),
             xdg_config_dir: Some(tmp.join(".config")),
             proc_root: tmp.join("proc"),
@@ -1106,7 +1104,7 @@ mod tests {
         let empty_ctx = FetchContext {
             http: crate::http::HttpClient::new(std::time::Duration::from_secs(3)),
             timeout: std::time::Duration::from_secs(3),
-            now: Utc.with_ymd_and_hms(2026, 11, 15, 12, 0, 0).unwrap(),
+            now: utc_ts(2026, 11, 15, 12, 0, 0),
             home_dir: Some(hermetic_home.clone()),
             xdg_config_dir: Some(hermetic_home.join(".config")),
             proc_root: sandbox.join("proc"),

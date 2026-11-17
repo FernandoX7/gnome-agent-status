@@ -15,7 +15,8 @@ use crate::providers::{
 };
 use crate::reset;
 use anyhow::{anyhow, Context, Result};
-use chrono::{DateTime, Local, TimeZone, Utc};
+use jiff::tz::TimeZone;
+use jiff::Timestamp;
 use serde::Deserialize;
 use std::fs;
 use std::path::Path;
@@ -228,7 +229,7 @@ impl UsageProvider for GrokProvider {
 
                 match ctx.http.get(billing_url, &headers) {
                     Ok(resp) if resp.is_success() => {
-                        match parse_grok_billing_json(&resp.body, ctx.now, &Local) {
+                        match parse_grok_billing_json(&resp.body, ctx.now, &TimeZone::system()) {
                             Ok((buckets, credits)) => {
                                 return AccountFetchOutcome::Success(AccountReport {
                                     id: account.id.clone(),
@@ -326,9 +327,9 @@ pub struct GrokAuthCredentials {
 }
 
 impl GrokAuthCredentials {
-    pub fn is_expired(&self, now: DateTime<Utc>) -> bool {
+    pub fn is_expired(&self, now: Timestamp) -> bool {
         self.expires_at_epoch
-            .is_some_and(|exp| now.timestamp() >= exp.saturating_sub(60))
+            .is_some_and(|exp| now.as_second() >= exp.saturating_sub(60))
     }
 
     pub fn dedup_identity(&self) -> Option<String> {
@@ -398,8 +399,8 @@ pub fn parse_grok_auth_json(raw: &str) -> Option<GrokAuthCredentials> {
             creds.refresh_token = Some(rt.to_string());
         }
         if let Some(exp_str) = inner.get("expires_at").and_then(|v| v.as_str()) {
-            if let Ok(dt) = DateTime::parse_from_rfc3339(exp_str.trim()) {
-                creds.expires_at_epoch = Some(dt.timestamp());
+            if let Ok(ts) = exp_str.trim().parse::<Timestamp>() {
+                creds.expires_at_epoch = Some(ts.as_second());
             }
         }
         if let Some(uid) = inner
@@ -559,14 +560,11 @@ struct GrokValWrapper {
 
 /// Parses Grok `/v1/billing?format=credits` JSON, safely handling xAI's protobuf serialization
 /// quirk where `creditUsagePercent` is omitted entirely at `0%` usage!
-pub fn parse_grok_billing_json<T: TimeZone>(
+pub fn parse_grok_billing_json(
     raw: &str,
-    now: DateTime<Utc>,
-    tz: &T,
-) -> Result<(Vec<UsageBucket>, Option<CreditSummary>)>
-where
-    T::Offset: std::fmt::Display,
-{
+    now: Timestamp,
+    tz: &TimeZone,
+) -> Result<(Vec<UsageBucket>, Option<CreditSummary>)> {
     let env: GrokBillingEnvelope =
         serde_json::from_str(raw).context("Failed to parse Grok billing JSON")?;
 
@@ -665,7 +663,7 @@ fn fetch_via_grok_stdio(
     }
 
     let line = run_jsonrpc_line_query(&spec, 2)?;
-    parse_grok_billing_json(&line, ctx.now, &Local)
+    parse_grok_billing_json(&line, ctx.now, &TimeZone::system())
 }
 
 #[cfg(test)]
@@ -698,7 +696,7 @@ mod tests {
 
     #[test]
     fn test_parse_grok_billing_normal_and_protobuf_omitted_zero() {
-        let now = Utc.with_ymd_and_hms(2026, 11, 10, 18, 0, 0).unwrap();
+        let now = crate::reset::utc_ts(2026, 11, 10, 18, 0, 0);
 
         let normal_json = r#"{
           "config": {
@@ -713,8 +711,8 @@ mod tests {
             "prepaidBalance": { "val": 25 }
           }
         }"#;
-        let (buckets, credits) =
-            parse_grok_billing_json(normal_json, now, &Utc).expect("parse normal billing");
+        let (buckets, credits) = parse_grok_billing_json(normal_json, now, &TimeZone::UTC)
+            .expect("parse normal billing");
         assert_eq!(buckets.len(), 1);
         assert_eq!(buckets[0].id, "wk");
         assert_eq!(buckets[0].used_percent, 10);
@@ -732,7 +730,7 @@ mod tests {
             "onDemandCap": { "val": 100 }
           }
         }"#;
-        let (zero_buckets, _) = parse_grok_billing_json(zero_omitted_json, now, &Utc)
+        let (zero_buckets, _) = parse_grok_billing_json(zero_omitted_json, now, &TimeZone::UTC)
             .expect("omitted protobuf zero must parse as 0%");
         assert_eq!(zero_buckets[0].used_percent, 0);
         assert_eq!(zero_buckets[0].remaining_percent, 100);
@@ -797,7 +795,7 @@ mod tests {
         let empty_ctx = FetchContext {
             http: crate::http::HttpClient::new(std::time::Duration::from_secs(3)),
             timeout: std::time::Duration::from_secs(3),
-            now: Utc.with_ymd_and_hms(2026, 11, 15, 12, 0, 0).unwrap(),
+            now: crate::reset::utc_ts(2026, 11, 15, 12, 0, 0),
             home_dir: Some(home.clone()),
             xdg_config_dir: Some(xdg),
             proc_root: tmp.join("proc"),

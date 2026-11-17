@@ -20,7 +20,8 @@ use crate::providers::{
 };
 use crate::reset;
 use anyhow::{anyhow, Context, Result};
-use chrono::{DateTime, Local, TimeZone, Utc};
+use jiff::tz::TimeZone;
+use jiff::Timestamp;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -201,7 +202,7 @@ impl UsageProvider for ClaudeProvider {
 
         // Tier 1B: Direct OAuth Usage API when a valid `claudeAiOauth` token is present
         if let Some(mut oauth) = creds {
-            let now_ms = ctx.now.timestamp_millis();
+            let now_ms = ctx.now.as_millisecond();
             let mut token_expired = oauth
                 .expires_at_ms()
                 .is_some_and(|exp_ms| now_ms >= exp_ms.saturating_sub(30_000));
@@ -273,7 +274,11 @@ impl UsageProvider for ClaudeProvider {
 
                 match ctx.http.get(usage_url, &headers) {
                     Ok(resp) if resp.is_success() => {
-                        match parse_claude_oauth_usage_json(&resp.body, ctx.now, &Local) {
+                        match parse_claude_oauth_usage_json(
+                            &resp.body,
+                            ctx.now,
+                            &TimeZone::system(),
+                        ) {
                             Ok((buckets, credits)) => {
                                 return AccountFetchOutcome::Success(AccountReport {
                                     id: account.id.clone(),
@@ -638,14 +643,11 @@ struct ClaudeExtraUsage {
 
 /// Parses Anthropic `/api/oauth/usage` JSON into normalized `UsageBucket`s (`wk`, `5h`,
 /// `Sonnet`, `Opus`, `Cowork`, plus dynamic flattened buckets such as `Fable`) and `extra_usage`.
-pub fn parse_claude_oauth_usage_json<T: TimeZone>(
+pub fn parse_claude_oauth_usage_json(
     raw: &str,
-    now: DateTime<Utc>,
-    tz: &T,
-) -> Result<(Vec<UsageBucket>, Option<CreditSummary>)>
-where
-    T::Offset: std::fmt::Display,
-{
+    now: Timestamp,
+    tz: &TimeZone,
+) -> Result<(Vec<UsageBucket>, Option<CreditSummary>)> {
     let parsed: ClaudeUsageApiResponse =
         serde_json::from_str(raw).context("Failed to parse Claude OAuth usage JSON")?;
 
@@ -852,14 +854,11 @@ pub struct ParsedClaudeCliOutput {
 
 /// Parses multi-bucket text output from `claude -p /usage` (`Current week (all models)`,
 /// `Current session`, `Current week (<Model>)`, `Extra usage`, and SSO expiry `Warning:` banners).
-pub fn parse_claude_cli_multi_bucket<T: TimeZone>(
+pub fn parse_claude_cli_multi_bucket(
     raw: &str,
-    now: DateTime<Utc>,
-    tz: &T,
-) -> Result<ParsedClaudeCliOutput>
-where
-    T::Offset: std::fmt::Display,
-{
+    now: Timestamp,
+    tz: &TimeZone,
+) -> Result<ParsedClaudeCliOutput> {
     let cleaned = strip_ansi(raw);
 
     let warning = cleaned
@@ -1026,7 +1025,7 @@ fn fetch_via_claude_cli(
     };
 
     let combined = output.combined_text();
-    match parse_claude_cli_multi_bucket(&combined, ctx.now, &Local) {
+    match parse_claude_cli_multi_bucket(&combined, ctx.now, &TimeZone::system()) {
         Ok(parsed) => {
             let state = if parsed.warning.is_some() {
                 AccountState::ExpiringSoon
@@ -1100,14 +1099,11 @@ struct StatusLineWindow {
     resets_at: Option<serde_json::Value>,
 }
 
-fn parse_statusline_reset<T: TimeZone>(
+fn parse_statusline_reset(
     val: Option<&serde_json::Value>,
-    now: DateTime<Utc>,
-    tz: &T,
-) -> Option<(i64, String)>
-where
-    T::Offset: std::fmt::Display,
-{
+    now: Timestamp,
+    tz: &TimeZone,
+) -> Option<(i64, String)> {
     let v = val?;
     if let Some(ts) = v.as_i64() {
         return reset::normalize_epoch(ts, tz);
@@ -1128,7 +1124,7 @@ pub fn ingest_claude_statusline(
     cache_store: &CacheStore,
     account_hint: Option<&str>,
     raw_stdin: &str,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> Result<StatusReport> {
     let default_ctx = FetchContext::from_config(cfg);
     ingest_claude_statusline_with_home(
@@ -1147,22 +1143,23 @@ pub fn ingest_claude_statusline_with_home(
     cache_store: &CacheStore,
     account_hint: Option<&str>,
     raw_stdin: &str,
-    now: DateTime<Utc>,
+    now: Timestamp,
     home_dir: Option<&Path>,
 ) -> Result<StatusReport> {
     let payload: StatusLinePayload = serde_json::from_str(raw_stdin.trim())
         .context("Invalid Claude statusLine JSON on stdin")?;
     let Some(limits) = payload.rate_limits else {
         // Not all statusLine events carry rate_limits; return current cached state cleanly.
-        return Ok(cache_store.load_cached_report(&cfg.separator, now.timestamp()));
+        return Ok(cache_store.load_cached_report(&cfg.separator, now.as_second()));
     };
 
+    let local_tz = TimeZone::system();
     let mut new_wk: Option<UsageBucket> = None;
     let mut new_5h: Option<UsageBucket> = None;
 
     if let Some(ref sd) = limits.seven_day {
         if let Some(pct) = sd.used_percentage {
-            let norm = parse_statusline_reset(sd.resets_at.as_ref(), now, &Local);
+            let norm = parse_statusline_reset(sd.resets_at.as_ref(), now, &local_tz);
             new_wk = Some(UsageBucket::new(
                 "wk",
                 "Weekly",
@@ -1176,7 +1173,7 @@ pub fn ingest_claude_statusline_with_home(
     }
     if let Some(ref fh) = limits.five_hour {
         if let Some(pct) = fh.used_percentage {
-            let norm = parse_statusline_reset(fh.resets_at.as_ref(), now, &Local);
+            let norm = parse_statusline_reset(fh.resets_at.as_ref(), now, &local_tz);
             new_5h = Some(UsageBucket::new(
                 "5h",
                 "5-Hour",
@@ -1190,10 +1187,10 @@ pub fn ingest_claude_statusline_with_home(
     }
 
     if new_wk.is_none() && new_5h.is_none() {
-        return Ok(cache_store.load_cached_report(&cfg.separator, now.timestamp()));
+        return Ok(cache_store.load_cached_report(&cfg.separator, now.as_second()));
     }
 
-    let now_epoch = now.timestamp();
+    let now_epoch = now.as_second();
     let _lock = cache_store.lock()?;
     let mut collector_state = cache_store.load_collector_cache();
 
@@ -1399,7 +1396,8 @@ fn resolve_hook_target_account_key(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::FixedOffset;
+    use crate::reset::utc_ts;
+    use jiff::tz::offset;
 
     const SAMPLE_CLAUDE_OAUTH_JSON: &str = r#"{
       "five_hour": {
@@ -1431,8 +1429,8 @@ mod tests {
 
     #[test]
     fn test_parse_claude_oauth_usage_with_dynamic_fable_and_extra_usage() {
-        let now = Utc.with_ymd_and_hms(2026, 11, 10, 18, 0, 0).unwrap();
-        let pst = FixedOffset::west_opt(8 * 3600).unwrap();
+        let now = utc_ts(2026, 11, 10, 18, 0, 0);
+        let pst = TimeZone::fixed(offset(-8));
 
         let (buckets, credits) = parse_claude_oauth_usage_json(SAMPLE_CLAUDE_OAUTH_JSON, now, &pst)
             .expect("parse claude oauth json");
@@ -1497,9 +1495,9 @@ mod tests {
             "utilization": null
           }
         }"#;
-        let now = Utc.with_ymd_and_hms(2026, 11, 10, 18, 0, 0).unwrap();
-        let (buckets, credits) =
-            parse_claude_oauth_usage_json(raw, now, &Utc).expect("parse v2.1.322 oauth usage");
+        let now = utc_ts(2026, 11, 10, 18, 0, 0);
+        let (buckets, credits) = parse_claude_oauth_usage_json(raw, now, &TimeZone::UTC)
+            .expect("parse v2.1.322 oauth usage");
         assert!(credits.is_none());
         assert_eq!(buckets.len(), 2);
         assert_eq!(buckets[0].id, "wk");
@@ -1518,9 +1516,9 @@ Current week (Fable): 46% used · resets Nov 10, 7am (UTC)
 Current week (Sonnet only): 15% used · resets Nov 10, 7am (UTC)
 Extra usage: $14.50 / $100.00
 "#;
-        let now = Utc.with_ymd_and_hms(2026, 11, 6, 16, 0, 0).unwrap();
-        let parsed =
-            parse_claude_cli_multi_bucket(raw, now, &Utc).expect("parse multi-bucket claude cli");
+        let now = utc_ts(2026, 11, 6, 16, 0, 0);
+        let parsed = parse_claude_cli_multi_bucket(raw, now, &TimeZone::UTC)
+            .expect("parse multi-bucket claude cli");
 
         assert!(parsed
             .warning
@@ -1555,7 +1553,7 @@ Extra usage: $14.50 / $100.00
         ));
         let store = CacheStore::new(tmp_dir.clone());
         let cfg = Config::default();
-        let now = Utc.with_ymd_and_hms(2026, 11, 10, 18, 0, 0).unwrap();
+        let now = utc_ts(2026, 11, 10, 18, 0, 0);
 
         // Seed cache with an existing `fable` model bucket on `claude:work`
         let mut init_cache = crate::cache::CollectorState::default();
@@ -1620,7 +1618,7 @@ Extra usage: $14.50 / $100.00
         assert_eq!(
             acct.sparkline,
             vec![crate::model::SparklinePoint {
-                ts: crate::cache::quantize_sparkline_hour(now.timestamp()),
+                ts: crate::cache::quantize_sparkline_hour(now.as_second()),
                 used: 81
             }]
         );

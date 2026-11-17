@@ -11,7 +11,8 @@ use crate::providers::{
 };
 use crate::reset;
 use anyhow::{anyhow, Context, Result};
-use chrono::{DateTime, Local, TimeZone, Utc};
+use jiff::tz::TimeZone;
+use jiff::Timestamp;
 use serde::Deserialize;
 use std::collections::HashSet;
 use std::fs;
@@ -420,8 +421,9 @@ fn fetch_via_agy_cli(account: &AccountDescriptor, ctx: &FetchContext) -> Result<
     }
 
     let output = run_command(&spec)?;
+    let local_tz = TimeZone::system();
     if !output.stdout.trim().is_empty() {
-        if let Ok(buckets) = parse_agy_4buckets(&output.stdout, ctx.now, &Local) {
+        if let Ok(buckets) = parse_agy_4buckets(&output.stdout, ctx.now, &local_tz) {
             return Ok(buckets);
         }
     }
@@ -433,7 +435,7 @@ fn fetch_via_agy_cli(account: &AccountDescriptor, ctx: &FetchContext) -> Result<
             combined.lines().next().unwrap_or("unknown error")
         ));
     }
-    parse_agy_4buckets(&combined, ctx.now, &Local)
+    parse_agy_4buckets(&combined, ctx.now, &local_tz)
 }
 
 // ---------------------------------------------------------------------------
@@ -528,14 +530,7 @@ const AGY_BUCKET_SPECS: [CanonicalAgySpec; 4] = [
 
 /// Parses all 4 quota buckets (`Gemini · Weekly`, `Gemini · 5h`, `Claude & GPT · Weekly`,
 /// `Claude & GPT · 5h`) from `agy -p /usage --output-format json`.
-pub fn parse_agy_4buckets<T: TimeZone>(
-    raw: &str,
-    now: DateTime<Utc>,
-    tz: &T,
-) -> Result<Vec<UsageBucket>>
-where
-    T::Offset: std::fmt::Display,
-{
+pub fn parse_agy_4buckets(raw: &str, now: Timestamp, tz: &TimeZone) -> Result<Vec<UsageBucket>> {
     let trimmed = raw.trim();
     let json_slice = match (trimmed.find('{'), trimmed.rfind('}')) {
         (Some(start), Some(end)) if start < end => &trimmed[start..=end],
@@ -1124,7 +1119,9 @@ fn query_local_rpc_status(ctx: &FetchContext) -> Option<RpcUserStatusSummary> {
         ];
         if let Ok(resp) = ctx.http.post_loopback_json(override_url, &headers, body) {
             if resp.is_success() {
-                if let Some(parsed) = parse_rpc_user_status(&resp.body, ctx.now, &Local) {
+                if let Some(parsed) =
+                    parse_rpc_user_status(&resp.body, ctx.now, &TimeZone::system())
+                {
                     return Some(parsed);
                 }
             }
@@ -1152,7 +1149,9 @@ fn query_local_rpc_status(ctx: &FetchContext) -> Option<RpcUserStatusSummary> {
             );
             if let Ok(resp) = ctx.http.post_loopback_json(&url, &headers, body) {
                 if resp.is_success() {
-                    if let Some(parsed) = parse_rpc_user_status(&resp.body, ctx.now, &Local) {
+                    if let Some(parsed) =
+                        parse_rpc_user_status(&resp.body, ctx.now, &TimeZone::system())
+                    {
                         return Some(parsed);
                     }
                 }
@@ -1174,7 +1173,9 @@ fn query_local_rpc_status(ctx: &FetchContext) -> Option<RpcUserStatusSummary> {
                 );
                 if let Ok(resp) = ctx.http.post_loopback_json(&url, &headers, body) {
                     if resp.is_success() {
-                        if let Some(parsed) = parse_rpc_user_status(&resp.body, ctx.now, &Local) {
+                        if let Some(parsed) =
+                            parse_rpc_user_status(&resp.body, ctx.now, &TimeZone::system())
+                        {
                             return Some(parsed);
                         }
                     }
@@ -1186,14 +1187,11 @@ fn query_local_rpc_status(ctx: &FetchContext) -> Option<RpcUserStatusSummary> {
     None
 }
 
-fn parse_rpc_user_status<T: TimeZone>(
+fn parse_rpc_user_status(
     raw_json: &str,
-    now: DateTime<Utc>,
-    tz: &T,
-) -> Option<RpcUserStatusSummary>
-where
-    T::Offset: std::fmt::Display,
-{
+    now: Timestamp,
+    tz: &TimeZone,
+) -> Option<RpcUserStatusSummary> {
     let root: serde_json::Value = serde_json::from_str(raw_json).ok()?;
     let user_status = root.get("userStatus").unwrap_or(&root);
 
@@ -1374,7 +1372,8 @@ fn normalize_agy_tier_badge(raw: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::FixedOffset;
+    use crate::reset::utc_ts;
+    use jiff::tz::offset;
     use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::thread;
@@ -1383,8 +1382,8 @@ mod tests {
 
     #[test]
     fn test_parse_all_4_agy_buckets_and_labels() {
-        let now = Utc.with_ymd_and_hms(2026, 11, 6, 0, 0, 0).unwrap();
-        let pst = FixedOffset::west_opt(8 * 3600).unwrap();
+        let now = utc_ts(2026, 11, 6, 0, 0, 0);
+        let pst = TimeZone::fixed(offset(-8));
 
         let buckets =
             parse_agy_4buckets(SAMPLE_AGY_4BUCKET_JSON, now, &pst).expect("parse 4 buckets");

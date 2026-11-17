@@ -13,7 +13,8 @@ use crate::providers::{
 };
 use crate::reset;
 use anyhow::{anyhow, Context, Result};
-use chrono::{DateTime, Local, TimeZone, Utc};
+use jiff::tz::TimeZone;
+use jiff::Timestamp;
 use serde::Deserialize;
 use std::fs;
 use std::io::{BufRead, BufReader, Read};
@@ -174,7 +175,7 @@ impl UsageProvider for CodexProvider {
         // If JWT is expired, re-read once from disk in case an active `codex` CLI already refreshed it.
         if auth_info
             .as_ref()
-            .is_some_and(|a| a.is_expired(ctx.now.timestamp()))
+            .is_some_and(|a| a.is_expired(ctx.now.as_second()))
         {
             auth_info = profile_path.as_deref().and_then(read_codex_auth_info);
         }
@@ -190,7 +191,7 @@ impl UsageProvider for CodexProvider {
         // Tier 1A: Direct WHAM Usage HTTP call when a valid non-expired `access_token` exists
         if let Some(ref auth) = auth_info {
             if let Some(ref access_token) = auth.access_token {
-                if !access_token.is_empty() && !auth.is_expired(ctx.now.timestamp()) {
+                if !access_token.is_empty() && !auth.is_expired(ctx.now.as_second()) {
                     let wham_url = ctx
                         .endpoints
                         .codex_wham_url
@@ -210,7 +211,7 @@ impl UsageProvider for CodexProvider {
 
                     match ctx.http.get(wham_url, &headers) {
                         Ok(resp) if resp.is_success() => {
-                            match parse_codex_wham_usage(&resp.body, &Local) {
+                            match parse_codex_wham_usage(&resp.body, &TimeZone::system()) {
                                 Ok(parsed) => {
                                     let final_label =
                                         if account.label == "Codex" || account.label == "default" {
@@ -291,7 +292,7 @@ impl UsageProvider for CodexProvider {
 
         // Tier 2: Offline session rollout JSONL backward scanner (`$CODEX_HOME/sessions/**/*.jsonl`)
         if let Some(ref p) = profile_path {
-            if let Some(buckets) = scan_codex_rollout_sessions(p, ctx.now, &Local) {
+            if let Some(buckets) = scan_codex_rollout_sessions(p, ctx.now, &TimeZone::system()) {
                 return AccountFetchOutcome::Success(AccountReport {
                     id: account.id.clone(),
                     label: base_label,
@@ -582,10 +583,7 @@ struct WhamCredits {
     balance: Option<serde_json::Value>,
 }
 
-pub fn parse_codex_wham_usage<T: TimeZone>(raw: &str, tz: &T) -> Result<ParsedCodexUsage>
-where
-    T::Offset: std::fmt::Display,
-{
+pub fn parse_codex_wham_usage(raw: &str, tz: &TimeZone) -> Result<ParsedCodexUsage> {
     let parsed: WhamUsageResponse =
         serde_json::from_str(raw).context("Failed to parse Codex wham/usage JSON")?;
 
@@ -735,16 +733,10 @@ fn fetch_via_codex_app_server(
     }
 
     let line = run_jsonrpc_line_query(&spec, 2)?;
-    parse_codex_app_server_response(&line, &Local)
+    parse_codex_app_server_response(&line, &TimeZone::system())
 }
 
-pub fn parse_codex_app_server_response<T: TimeZone>(
-    raw_line: &str,
-    tz: &T,
-) -> Result<ParsedCodexUsage>
-where
-    T::Offset: std::fmt::Display,
-{
+pub fn parse_codex_app_server_response(raw_line: &str, tz: &TimeZone) -> Result<ParsedCodexUsage> {
     let val: serde_json::Value =
         serde_json::from_str(raw_line).context("Invalid Codex app-server JSON-RPC response")?;
     if let Some(err) = val.get("error") {
@@ -849,14 +841,11 @@ where
 // Tier 2: Offline Session Rollout JSONL Scanner
 // ---------------------------------------------------------------------------
 
-pub fn scan_codex_rollout_sessions<T: TimeZone>(
+pub fn scan_codex_rollout_sessions(
     profile_path: &Path,
-    now: DateTime<Utc>,
-    tz: &T,
-) -> Option<Vec<UsageBucket>>
-where
-    T::Offset: std::fmt::Display,
-{
+    now: Timestamp,
+    tz: &TimeZone,
+) -> Option<Vec<UsageBucket>> {
     let base_dir = if profile_path.is_file() {
         profile_path.parent()?
     } else {
@@ -987,15 +976,12 @@ fn collect_rollout_files(
     }
 }
 
-pub fn parse_codex_rollout_jsonl<T: TimeZone>(
+pub fn parse_codex_rollout_jsonl(
     raw: &str,
-    now: DateTime<Utc>,
-    tz: &T,
-) -> Option<Vec<UsageBucket>>
-where
-    T::Offset: std::fmt::Display,
-{
-    let now_epoch = now.timestamp();
+    now: Timestamp,
+    tz: &TimeZone,
+) -> Option<Vec<UsageBucket>> {
+    let now_epoch = now.as_second();
     for line in raw.lines().rev() {
         let trimmed = line.trim();
         if !trimmed.contains("token_count") {
@@ -1020,8 +1006,8 @@ where
         let event_epoch = val
             .get("timestamp")
             .and_then(|v| v.as_str())
-            .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
-            .map(|dt| dt.timestamp())
+            .and_then(|s| s.parse::<Timestamp>().ok())
+            .map(|ts| ts.as_second())
             .unwrap_or(now_epoch);
 
         let mut buckets = Vec::new();
@@ -1126,7 +1112,7 @@ mod tests {
           }
         }"#;
 
-        let parsed = parse_codex_wham_usage(raw, &Utc).expect("parse wham");
+        let parsed = parse_codex_wham_usage(raw, &TimeZone::UTC).expect("parse wham");
         assert_eq!(parsed.email.as_deref(), Some("dev@example.com"));
         assert_eq!(parsed.plan_tier.as_deref(), Some("Pro"));
         assert_eq!(parsed.buckets.len(), 2);
@@ -1141,7 +1127,8 @@ mod tests {
     #[test]
     fn test_parse_codex_app_server_and_rollout_jsonl() {
         let rpc_line = r#"{"id":2,"result":{"rateLimits":{"primary":{"usedPercent":19,"windowDurationMins":300,"resetsAt":1794371186},"secondary":{"usedPercent":44,"windowDurationMins":10080,"resetsAt":1794941186}},"planType":"plus","credits":{"hasCredits":false,"balance":"0"}}}"#;
-        let parsed = parse_codex_app_server_response(rpc_line, &Utc).expect("parse app-server");
+        let parsed =
+            parse_codex_app_server_response(rpc_line, &TimeZone::UTC).expect("parse app-server");
         assert_eq!(parsed.plan_tier.as_deref(), Some("Plus"));
         assert_eq!(parsed.buckets[0].used_percent, 44);
         assert_eq!(parsed.buckets[1].used_percent, 19);
@@ -1152,8 +1139,9 @@ mod tests {
             "{\"timestamp\":\"2026-11-10T20:05:00Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"rate_limits\":null}}\n"
         );
         // At 21:30 UTC (past the 1h primary reset, before the weekly reset), primary decays to 0%!
-        let now = Utc.with_ymd_and_hms(2026, 11, 10, 21, 30, 0).unwrap();
-        let buckets = parse_codex_rollout_jsonl(jsonl, now, &Utc).expect("scan rollout jsonl");
+        let now = crate::reset::utc_ts(2026, 11, 10, 21, 30, 0);
+        let buckets =
+            parse_codex_rollout_jsonl(jsonl, now, &TimeZone::UTC).expect("scan rollout jsonl");
         assert_eq!(buckets.len(), 2);
         assert_eq!(buckets[0].id, "wk");
         assert_eq!(buckets[0].used_percent, 35);
@@ -1174,7 +1162,8 @@ mod tests {
             "secondary_window": null
           }
         }"#;
-        let parsed = parse_codex_wham_usage(pro_wham, &Utc).expect("parse Pro single-window wham");
+        let parsed =
+            parse_codex_wham_usage(pro_wham, &TimeZone::UTC).expect("parse Pro single-window wham");
         assert_eq!(parsed.buckets.len(), 1);
         assert_eq!(parsed.buckets[0].id, "wk");
         assert_eq!(parsed.buckets[0].label, "Weekly");
@@ -1200,8 +1189,8 @@ mod tests {
         );
         fs::write(day_dir.join("rollout-test.jsonl.zst"), compressed).unwrap();
 
-        let now = Utc.with_ymd_and_hms(2026, 11, 10, 21, 0, 0).unwrap();
-        let scanned = scan_codex_rollout_sessions(&tmp_dir, now, &Utc)
+        let now = crate::reset::utc_ts(2026, 11, 10, 21, 0, 0);
+        let scanned = scan_codex_rollout_sessions(&tmp_dir, now, &TimeZone::UTC)
             .expect("scan .jsonl.zst rollout session");
         assert_eq!(scanned.len(), 1);
         assert_eq!(scanned[0].id, "wk");
