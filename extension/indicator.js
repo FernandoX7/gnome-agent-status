@@ -24,6 +24,20 @@ import {
     sortProvidersByOrder,
 } from './format.js';
 
+const BUNDLED_ICON_NAMES = new Set([
+    'agent-status-symbolic',
+    'provider-agy',
+    'provider-claude',
+    'provider-codex',
+    'provider-copilot',
+    'provider-cursor',
+    'provider-deepseek',
+    'provider-gemini',
+    'provider-grok',
+    'provider-openrouter',
+    'provider-windsurf',
+]);
+
 export const AgentStatusIndicator = GObject.registerClass(
 class AgentStatusIndicator extends PanelMenu.Button {
     _init({extension, settings, backend, buildFallbackMenu = false}) {
@@ -136,7 +150,10 @@ class AgentStatusIndicator extends PanelMenu.Button {
      * @returns {Gio.Icon}
      */
     getIcon(iconName) {
-        const safeName = iconName || 'agent-status-symbolic';
+        const requested = iconName || 'agent-status-symbolic';
+        const safeName = BUNDLED_ICON_NAMES.has(requested)
+            ? requested
+            : 'agent-status-symbolic';
         if (this._iconCache.has(safeName))
             return this._iconCache.get(safeName);
 
@@ -145,16 +162,7 @@ class AgentStatusIndicator extends PanelMenu.Button {
             'icons',
             `${safeName}.svg`,
         ]);
-        let file = Gio.File.new_for_path(svgPath);
-        if (!file.query_exists(null) && safeName !== 'agent-status-symbolic') {
-            file = Gio.File.new_for_path(
-                GLib.build_filenamev([
-                    this._extension.path,
-                    'icons',
-                    'agent-status-symbolic.svg',
-                ])
-            );
-        }
+        const file = Gio.File.new_for_path(svgPath);
         const gicon = new Gio.FileIcon({file});
         this._iconCache.set(safeName, gicon);
         return gicon;
@@ -201,10 +209,21 @@ class AgentStatusIndicator extends PanelMenu.Button {
         // GNOME Shell 49/50 PanelMenu.Button binds `this._clickGesture` with
         // `required_button = 0` (any button). Restrict it to primary left-click
         // and add a dedicated secondary right-click gesture for the context menu.
-        if (this._clickGesture && typeof this._clickGesture.set_required_button === 'function')
-            this._clickGesture.set_required_button(Clutter.BUTTON_PRIMARY);
+        // On GNOME 45-48 (including 47/48 where Clutter.ClickGesture exists in Mutter
+        // while PanelMenu.Button still uses `vfunc_event`), intercept secondary clicks
+        // via `captured-event` so `vfunc_event` does not toggle `this.menu`.
+        const primaryGesture = this._clickGesture ??
+            this.get_actions?.().find(
+                a => typeof Clutter.ClickGesture === 'function' && a instanceof Clutter.ClickGesture
+            ) ??
+            null;
 
-        if (typeof Clutter.ClickGesture === 'function') {
+        if (
+            primaryGesture &&
+            typeof primaryGesture.set_required_button === 'function' &&
+            typeof Clutter.ClickGesture === 'function'
+        ) {
+            primaryGesture.set_required_button(Clutter.BUTTON_PRIMARY);
             this._secondaryClickGesture = new Clutter.ClickGesture({
                 required_button: Clutter.BUTTON_SECONDARY,
                 recognize_on_press: true,
@@ -213,7 +232,7 @@ class AgentStatusIndicator extends PanelMenu.Button {
                 this._toggleContextMenu();
             });
             this.add_action(this._secondaryClickGesture);
-        } else if (!this._clickGesture) {
+        } else {
             this._selfSigIds.push(
                 this.connect('captured-event', (_actor, event) => {
                     if (
@@ -399,15 +418,8 @@ class AgentStatusIndicator extends PanelMenu.Button {
                     if (this._destroyed)
                         return;
                     if (isOpen) {
-                        // Temporarily hide `this.menu` as a sourceActor match while the
-                        // secondary context menu is open so PopupMenuManager hover-sliding
-                        // resolves `this._contextMenu` rather than flipping to `this.menu`.
-                        if (this.menu)
-                            this.menu.sourceActor = null;
                         this.add_style_pseudo_class('active');
                     } else {
-                        if (this.menu)
-                            this.menu.sourceActor = this;
                         if (!this.menu?.isOpen)
                             this.remove_style_pseudo_class('active');
                         this._updateAutoHideVisibility();
@@ -422,6 +434,15 @@ class AgentStatusIndicator extends PanelMenu.Button {
                     if (this._destroyed || !this._contextMenu?.isOpen)
                         return Clutter.EVENT_PROPAGATE;
 
+                    // Suppress PopupMenuManager hover-sliding on ENTER over our own indicator
+                    // while `_contextMenu` is open without ever mutating `this.menu.sourceActor`.
+                    if (
+                        event.type() === Clutter.EventType.ENTER &&
+                        this._isEventOnIndicator(event, actor)
+                    ) {
+                        return Clutter.EVENT_STOP;
+                    }
+
                     if (
                         event.type() === Clutter.EventType.BUTTON_PRESS &&
                         this._isEventOnIndicator(event, actor)
@@ -429,10 +450,7 @@ class AgentStatusIndicator extends PanelMenu.Button {
                         const btn = event.get_button();
                         if (btn === Clutter.BUTTON_PRIMARY) {
                             this._contextMenu.close(false);
-                            if (this.menu) {
-                                this.menu.sourceActor = this;
-                                this.menu.open(true);
-                            }
+                            this.menu?.open(true);
                             return Clutter.EVENT_STOP;
                         }
                         if (btn === Clutter.BUTTON_SECONDARY) {
@@ -559,7 +577,6 @@ class AgentStatusIndicator extends PanelMenu.Button {
             return;
         if (this._contextMenu?.isOpen)
             this._contextMenu.close(false);
-        this.menu.sourceActor = this;
         this.menu.toggle();
     }
 
@@ -779,9 +796,6 @@ class AgentStatusIndicator extends PanelMenu.Button {
         if (this._destroyed)
             return;
         this._destroyed = true;
-
-        if (this.menu)
-            this.menu.sourceActor = this;
 
         for (const sigId of this._settingsSigIds)
             this._settings.disconnect(sigId);

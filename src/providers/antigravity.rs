@@ -180,7 +180,7 @@ impl UsageProvider for AntigravityProvider {
         });
         let has_agy_cli = account.binary.is_some() || ctx.resolve_binary("agy", None).is_file();
 
-        let cli_result = if rpc_result.is_some() && (cached_4buckets_fresh || !has_agy_cli) {
+        let cli_result = if !has_agy_cli || (rpc_result.is_some() && cached_4buckets_fresh) {
             None
         } else {
             Some(fetch_via_agy_cli(account, ctx))
@@ -275,24 +275,34 @@ impl UsageProvider for AntigravityProvider {
                     sparkline: Vec::new(),
                 })
             }
-            (None, Some(Ok(cli_buckets))) => AccountFetchOutcome::Success(AccountReport {
-                id: account.id.clone(),
-                label: account.label.clone(),
-                source_label: account.source_label.clone(),
-                is_system_default: account.is_system_default,
-                is_active: false,
-                plan_tier: cached.and_then(|c| c.plan_tier.clone()),
-                state: AccountState::ActiveOk,
-                is_stale: false,
-                status_note: None,
-                extra_info: None,
-                error: None,
-                login_command: account.login_command.clone(),
-                updated_at_epoch: Some(now_epoch),
-                buckets: cli_buckets,
-                credits: None,
-                sparkline: Vec::new(),
-            }),
+            (None, Some(Ok(cli_buckets))) => {
+                let preserved_id = cached
+                    .filter(|c| account.is_system_default && !c.account_id.is_empty())
+                    .map(|c| c.account_id.clone())
+                    .unwrap_or_else(|| account.id.clone());
+                let preserved_label = cached
+                    .filter(|c| account.is_system_default && !c.label.is_empty())
+                    .map(|c| c.label.clone())
+                    .unwrap_or_else(|| account.label.clone());
+                AccountFetchOutcome::Success(AccountReport {
+                    id: preserved_id,
+                    label: preserved_label,
+                    source_label: account.source_label.clone(),
+                    is_system_default: account.is_system_default,
+                    is_active: false,
+                    plan_tier: cached.and_then(|c| c.plan_tier.clone()),
+                    state: AccountState::ActiveOk,
+                    is_stale: false,
+                    status_note: None,
+                    extra_info: None,
+                    error: None,
+                    login_command: account.login_command.clone(),
+                    updated_at_epoch: Some(now_epoch),
+                    buckets: cli_buckets,
+                    credits: None,
+                    sparkline: Vec::new(),
+                })
+            }
             (None, Some(Err(err))) => {
                 let msg = format!("{:#}", err);
                 let lower = msg.to_ascii_lowercase();
@@ -311,9 +321,17 @@ impl UsageProvider for AntigravityProvider {
                     AccountFetchOutcome::Error { message: msg }
                 }
             }
-            (None, None) => AccountFetchOutcome::Error {
-                message: "No Antigravity transport available".to_string(),
-            },
+            (None, None) => {
+                if let Some(c) = cached {
+                    let mut passive = c.to_account_report(false, now_epoch);
+                    passive.state = AccountState::PassiveCached;
+                    passive.is_stale = !passive.buckets.is_empty();
+                    passive.status_note = Some("Updates when Antigravity runs".to_string());
+                    AccountFetchOutcome::Passive(passive)
+                } else {
+                    AccountFetchOutcome::Omit
+                }
+            }
         }
     }
 }
@@ -700,7 +718,9 @@ pub fn discover_daemon_hub_servers(
     let Some(home) = home_dir else {
         return Vec::new();
     };
-    if !proc_root.is_dir() {
+    let has_proc = proc_root.is_dir();
+    #[cfg(not(target_os = "macos"))]
+    if !has_proc {
         return Vec::new();
     }
     let daemon_dir = home.join(".gemini/antigravity/daemon");
@@ -741,15 +761,65 @@ pub fn discover_daemon_hub_servers(
             continue;
         }
 
-        if !verify_pid_is_language_server(proc_root, parsed.pid, target_uid) {
+        if has_proc {
+            if !verify_pid_is_language_server(proc_root, parsed.pid, target_uid) {
+                continue;
+            }
+        } else {
+            #[cfg(target_os = "macos")]
+            {
+                let Ok(pid_t) = libc::pid_t::try_from(parsed.pid) else {
+                    continue;
+                };
+                // SAFETY: `kill(pid, 0)` sends no signal and only checks whether `pid` is alive and owned by us.
+                if pid_t <= 1 || unsafe { libc::kill(pid_t, 0) } != 0 {
+                    continue;
+                }
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                continue;
+            }
+        }
+
+        let mut http_port = parsed.http_port.filter(|&p| p > 0);
+        let mut https_port = parsed.https_port.filter(|&p| p > 0);
+        if has_proc {
+            let pid_fd_dir = proc_root.join(parsed.pid.to_string()).join("fd");
+            let tcp4_path = proc_root.join("net/tcp");
+            if pid_fd_dir.is_dir() && tcp4_path.is_file() {
+                let mut inodes = HashSet::new();
+                if let Ok(fd_entries) = fs::read_dir(&pid_fd_dir) {
+                    for fd_entry in fd_entries.filter_map(Result::ok) {
+                        if let Ok(link_target) = fs::read_link(fd_entry.path()) {
+                            if let Some(s) = link_target.to_str().and_then(parse_socket_inode_link)
+                            {
+                                inodes.insert(s);
+                            }
+                        }
+                    }
+                }
+                if !inodes.is_empty() {
+                    let tcp4 = fs::read_to_string(&tcp4_path).unwrap_or_default();
+                    let tcp6 = fs::read_to_string(proc_root.join("net/tcp6")).unwrap_or_default();
+                    let mut owned_ports = parse_proc_net_tcp(&tcp4, &inodes);
+                    owned_ports.extend(parse_proc_net_tcp(&tcp6, &inodes));
+                    if !owned_ports.is_empty() {
+                        http_port = http_port.filter(|p| owned_ports.contains(p));
+                        https_port = https_port.filter(|p| owned_ports.contains(p));
+                    }
+                }
+            }
+        }
+        if http_port.is_none() && https_port.is_none() {
             continue;
         }
 
         out.push(DaemonHubEndpoint {
             pid: parsed.pid,
             csrf_token,
-            http_port: parsed.http_port.filter(|&p| p > 0),
-            https_port: parsed.https_port.filter(|&p| p > 0),
+            http_port,
+            https_port,
         });
     }
     out
@@ -1013,9 +1083,11 @@ pub fn discover_local_servers_in(
                 ports.push(p6);
             }
         }
-        if let Some(ext_port) = parsed_args.extension_server_port {
-            if ext_port > 0 && !ports.contains(&ext_port) {
-                ports.push(ext_port);
+        if ports.is_empty() {
+            if let Some(ext_port) = parsed_args.extension_server_port {
+                if ext_port > 0 {
+                    ports.push(ext_port);
+                }
             }
         }
 
@@ -1535,6 +1607,7 @@ mod tests {
         let mut ctx = FetchContext::from_config(&crate::config::Config::default());
         ctx.home_dir = Some(mock_home);
         ctx.proc_root = mock_proc;
+        ctx.env_overrides = Some(std::collections::BTreeMap::new());
 
         let provider = AntigravityProvider::new();
         let desc = AccountDescriptor {

@@ -696,7 +696,7 @@ export class ProviderDetailPage {
 
         const activeAcc = getActiveAccount(provider);
         const updatedEpoch = activeAcc?.updated_at_epoch || reportUpdatedEpoch || 0;
-        this._updatedLabel.set_text(_(formatRelativeUpdated(updatedEpoch, nowEpoch)));
+        this._updatedLabel.set_text(formatRelativeUpdated(updatedEpoch, nowEpoch, _));
 
         // Hero Card
         this._heroAccountLabel.set_text(activeAcc?.label || _('System default'));
@@ -722,7 +722,7 @@ export class ProviderDetailPage {
             });
             slot.usedCaption.set_text(metric.heroCaption);
             slot.resetCaption.set_text(
-                _(formatResetCountdown(b.resets_at_epoch, nowEpoch, {prefix: true}))
+                formatResetCountdown(b.resets_at_epoch, nowEpoch, {prefix: true, translate: _})
             );
             const pace = computeBucketPace(b, nowEpoch);
             if (pace) {
@@ -767,7 +767,7 @@ export class ProviderDetailPage {
 
         // Account Switcher Table
         this._colAccountHeader.set_text(_('%s Account').replace('%s', displayName));
-        this._colMetricHeader.set_text(metricMode === 'remaining' ? _('Left') : _('Used'));
+        this._colMetricHeader.set_text(metricMode === 'remaining' ? _('% Left') : _('Used'));
         this._colResetHeader.set_text(_('Reset'));
 
         const allAccounts = Array.isArray(provider.accounts) ? provider.accounts : [];

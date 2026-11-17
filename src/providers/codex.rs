@@ -883,33 +883,68 @@ where
 }
 
 fn read_rollout_token_count_lines(file_path: &Path) -> Option<String> {
+    use std::collections::VecDeque;
+    use std::io::{Seek, SeekFrom};
+
+    const MAX_PLAIN_TAIL_BYTES: u64 = 16 * 1024 * 1024;
+    const MAX_ZST_STREAM_BYTES: u64 = 256 * 1024 * 1024;
+    const MAX_MATCHED_LINES: usize = 64;
+
     let is_zst = file_path
         .extension()
         .and_then(|e| e.to_str())
         .is_some_and(|e| e.eq_ignore_ascii_case("zst"));
 
+    let mut recent_matches: VecDeque<String> = VecDeque::with_capacity(MAX_MATCHED_LINES);
+
     if !is_zst {
-        return fs::read_to_string(file_path).ok();
-    }
-
-    let file = fs::File::open(file_path).ok()?;
-    let decoder = ruzstd::decoding::StreamingDecoder::new(file).ok()?;
-    let reader = BufReader::new(decoder.take(64 * 1024 * 1024));
-
-    let mut matched = String::new();
-    for line in reader.lines() {
-        let Ok(line) = line else {
-            break;
-        };
-        if line.contains("token_count") {
-            matched.push_str(&line);
-            matched.push('\n');
+        let mut file = fs::File::open(file_path).ok()?;
+        let len = file.metadata().ok()?.len();
+        if len > MAX_PLAIN_TAIL_BYTES {
+            let _ = file.seek(SeekFrom::End(-(MAX_PLAIN_TAIL_BYTES as i64)));
+        }
+        let mut reader = BufReader::new(file.take(MAX_PLAIN_TAIL_BYTES));
+        if len > MAX_PLAIN_TAIL_BYTES {
+            let mut partial = String::new();
+            let _ = reader.read_line(&mut partial);
+        }
+        for line in reader.lines() {
+            let Ok(line) = line else {
+                break;
+            };
+            if line.contains("token_count") {
+                if recent_matches.len() >= MAX_MATCHED_LINES {
+                    recent_matches.pop_front();
+                }
+                recent_matches.push_back(line);
+            }
+        }
+    } else {
+        let file = fs::File::open(file_path).ok()?;
+        let decoder = ruzstd::decoding::StreamingDecoder::new(file).ok()?;
+        let reader = BufReader::new(decoder.take(MAX_ZST_STREAM_BYTES));
+        for line in reader.lines() {
+            let Ok(line) = line else {
+                break;
+            };
+            if line.contains("token_count") {
+                if recent_matches.len() >= MAX_MATCHED_LINES {
+                    recent_matches.pop_front();
+                }
+                recent_matches.push_back(line);
+            }
         }
     }
-    if matched.is_empty() {
+
+    if recent_matches.is_empty() {
         None
     } else {
-        Some(matched)
+        let mut out = String::new();
+        for l in recent_matches {
+            out.push_str(&l);
+            out.push('\n');
+        }
+        Some(out)
     }
 }
 
@@ -918,20 +953,30 @@ fn collect_rollout_files(
     out: &mut Vec<(std::time::SystemTime, PathBuf)>,
     depth: usize,
 ) {
-    if depth > 5 {
+    const MAX_SCANNED_ROLLOUT_FILES: usize = 512;
+    if depth > 5 || out.len() >= MAX_SCANNED_ROLLOUT_FILES {
         return;
     }
     let Ok(entries) = fs::read_dir(dir) else {
         return;
     };
     for entry in entries.filter_map(Result::ok) {
+        if out.len() >= MAX_SCANNED_ROLLOUT_FILES {
+            break;
+        }
+        let Ok(ft) = entry.file_type() else {
+            continue;
+        };
+        if ft.is_symlink() {
+            continue;
+        }
         let p = entry.path();
-        if p.is_dir() {
+        if ft.is_dir() {
             collect_rollout_files(&p, out, depth + 1);
-        } else if p
-            .file_name()
-            .and_then(|n| n.to_str())
-            .is_some_and(|n| n.ends_with(".jsonl") || n.ends_with(".jsonl.zst"))
+        } else if ft.is_file()
+            && p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.ends_with(".jsonl") || n.ends_with(".jsonl.zst"))
         {
             let mtime = entry
                 .metadata()

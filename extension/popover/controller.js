@@ -140,9 +140,11 @@ export class PopoverController {
             },
             onOpenDashboard: url => {
                 this._menu?.close();
+                if (typeof url !== 'string' || !/^https?:\/\//i.test(url.trim()))
+                    return;
                 try {
                     const ctx = global.create_app_launch_context?.(0, -1) ?? null;
-                    Gio.AppInfo.launch_default_for_uri(url, ctx);
+                    Gio.AppInfo.launch_default_for_uri(url.trim(), ctx);
                 } catch (e) {
                     console.error(`[gnome-agent-status] Failed to open dashboard URL: ${e.message}`);
                 }

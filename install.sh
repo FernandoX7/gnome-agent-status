@@ -44,11 +44,12 @@ CONFIG_HOME="${XDG_CONFIG_HOME:-${HOME}/.config}"
 EXT_DEST="${DATA_HOME}/gnome-shell/extensions/${EXT_UUID}"
 
 echo "==> Building gnome-agent-status (release)..."
-cargo build --release --manifest-path "${SCRIPT_DIR}/Cargo.toml"
+TARGET_DIR="${CARGO_TARGET_DIR:-${SCRIPT_DIR}/target}"
+cargo build --release --locked --manifest-path "${SCRIPT_DIR}/Cargo.toml" --target-dir "${TARGET_DIR}"
 
 echo "==> Installing binary to ${BIN_DEST}..."
 mkdir -p "${BIN_DIR}"
-install -m 0755 "${SCRIPT_DIR}/target/release/gnome-agent-status" "${BIN_DEST}"
+install -m 0755 "${TARGET_DIR}/release/gnome-agent-status" "${BIN_DEST}"
 
 echo "==> Initializing config (if not already present)..."
 if "${BIN_DEST}" --init-config 2>/dev/null; then
@@ -116,6 +117,7 @@ fi
 
 echo "==> Installing GNOME Shell extension to ${EXT_DEST}..."
 rm -rf "${EXT_DEST}/popover" "${EXT_DEST}/icons" "${EXT_DEST}/schemas" "${EXT_DEST}/locale"
+rm -f "${EXT_DEST}"/*.js
 mkdir -p "${EXT_DEST}/popover" "${EXT_DEST}/icons" "${EXT_DEST}/schemas"
 
 cp -f "${SCRIPT_DIR}/extension/metadata.json" "${EXT_DEST}/metadata.json"
@@ -138,7 +140,8 @@ if command -v glib-compile-schemas >/dev/null 2>&1; then
     echo "==> Compiling GSettings schemas..."
     glib-compile-schemas --strict "${EXT_DEST}/schemas"
 else
-    echo "    Warning: glib-compile-schemas not found; install glib2 development tools so extension preferences and GSettings can load."
+    echo "Error: glib-compile-schemas not found; install glib2 development tools (e.g. libglib2.0-bin / glib2-devel) and re-run ./install.sh." >&2
+    exit 1
 fi
 
 gvariant_str_array_append() {

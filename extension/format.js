@@ -890,6 +890,8 @@ export function inferBucketWindowSeconds(bucket) {
 export function computeBucketPace(bucket, nowEpoch = Math.floor(Date.now() / 1000)) {
     if (!bucket || typeof bucket !== 'object')
         return null;
+    if (typeof nowEpoch !== 'number' || !Number.isFinite(nowEpoch))
+        return null;
 
     const usedPercent = clampPercent(bucket.used_percent ?? 0);
     if (usedPercent <= 0)
@@ -1057,13 +1059,15 @@ export function groupBucketsForDetailedView(buckets) {
  * @param {{prefix?: boolean}} [options]
  * @returns {string}
  */
-export function formatResetCountdown(resetEpoch, nowEpoch, {prefix = true} = {}) {
+export function formatResetCountdown(resetEpoch, nowEpoch, {prefix = true, translate = s => s} = {}) {
     if (typeof resetEpoch !== 'number' || !Number.isFinite(resetEpoch) || resetEpoch <= 0)
+        return '';
+    if (typeof nowEpoch !== 'number' || !Number.isFinite(nowEpoch))
         return '';
 
     const diff = Math.floor(resetEpoch - nowEpoch);
     if (diff <= 0)
-        return prefix ? 'Resets now' : 'now';
+        return prefix ? translate('Resets now') : translate('now');
 
     const days = Math.floor(diff / 86400);
     const hours = Math.floor((diff % 86400) / 3600);
@@ -1077,7 +1081,7 @@ export function formatResetCountdown(resetEpoch, nowEpoch, {prefix = true} = {})
     else
         core = `${Math.max(1, minutes)}m`;
 
-    return prefix ? `Resets in ${core}` : core;
+    return prefix ? translate('Resets in %s').replace('%s', core) : core;
 }
 
 /**
@@ -1085,20 +1089,23 @@ export function formatResetCountdown(resetEpoch, nowEpoch, {prefix = true} = {})
  *
  * @param {number|null|undefined} updatedEpoch
  * @param {number} nowEpoch
+ * @param {(s: string) => string} [translate]
  * @returns {string}
  */
-export function formatRelativeUpdated(updatedEpoch, nowEpoch) {
+export function formatRelativeUpdated(updatedEpoch, nowEpoch, translate = s => s) {
     if (typeof updatedEpoch !== 'number' || !Number.isFinite(updatedEpoch) || updatedEpoch <= 0)
-        return 'Not updated yet';
+        return translate('Not updated yet');
+    if (typeof nowEpoch !== 'number' || !Number.isFinite(nowEpoch))
+        return translate('Not updated yet');
 
     const age = Math.max(0, Math.floor(nowEpoch - updatedEpoch));
     if (age < 45)
-        return 'Updated just now';
+        return translate('Updated just now');
     if (age < 3600)
-        return `Updated ${Math.floor(age / 60)}m ago`;
+        return translate('Updated %s ago').replace('%s', `${Math.floor(age / 60)}m`);
     if (age < 86400)
-        return `Updated ${Math.floor(age / 3600)}h ago`;
-    return `Updated ${Math.floor(age / 86400)}d ago`;
+        return translate('Updated %s ago').replace('%s', `${Math.floor(age / 3600)}h`);
+    return translate('Updated %s ago').replace('%s', `${Math.floor(age / 86400)}d`);
 }
 
 /**
@@ -1112,6 +1119,7 @@ export function formatCreditsSummary(credits) {
         return '';
 
     const label = credits.label || 'Credits';
+    const sym = String(label).includes('(CNY)') ? '¥' : '$';
     const hasUsed = typeof credits.used_dollars === 'number' && Number.isFinite(credits.used_dollars);
     const hasLimit = typeof credits.limit_dollars === 'number' && Number.isFinite(credits.limit_dollars);
     const hasBalance = typeof credits.balance_dollars === 'number' && Number.isFinite(credits.balance_dollars);
@@ -1119,12 +1127,12 @@ export function formatCreditsSummary(credits) {
 
     if (hasUsed && hasLimit) {
         const suffix = hasPct ? ` (${clampPercent(credits.used_percent)}%)` : '';
-        return `${label}: $${credits.used_dollars.toFixed(2)} / $${credits.limit_dollars.toFixed(2)}${suffix}`;
+        return `${label}: ${sym}${credits.used_dollars.toFixed(2)} / ${sym}${credits.limit_dollars.toFixed(2)}${suffix}`;
     }
     if (hasBalance)
-        return `${label}: $${credits.balance_dollars.toFixed(2)} available`;
+        return `${label}: ${sym}${credits.balance_dollars.toFixed(2)} available`;
     if (hasUsed)
-        return `${label}: $${credits.used_dollars.toFixed(2)} used`;
+        return `${label}: ${sym}${credits.used_dollars.toFixed(2)} used`;
     if (hasPct)
         return `${label}: ${clampPercent(credits.used_percent)}% used`;
     return '';
@@ -1151,17 +1159,18 @@ export function formatCompactAccountExtraNote(account, hasPlanBadge = false) {
         return '';
 
     const label = credits.label || 'Credits';
+    const sym = String(label).includes('(CNY)') ? '¥' : '$';
     const hasUsed = typeof credits.used_dollars === 'number' && Number.isFinite(credits.used_dollars);
     const hasLimit = typeof credits.limit_dollars === 'number' && Number.isFinite(credits.limit_dollars);
     const hasBalance = typeof credits.balance_dollars === 'number' && Number.isFinite(credits.balance_dollars);
 
     if (hasUsed && credits.used_dollars > 0) {
         if (hasLimit && credits.limit_dollars > 0)
-            return `${label}: $${credits.used_dollars.toFixed(2)} / $${credits.limit_dollars.toFixed(2)}`;
-        return `${label}: $${credits.used_dollars.toFixed(2)} used`;
+            return `${label}: ${sym}${credits.used_dollars.toFixed(2)} / ${sym}${credits.limit_dollars.toFixed(2)}`;
+        return `${label}: ${sym}${credits.used_dollars.toFixed(2)} used`;
     }
     if (!hasPlanBadge && hasBalance && credits.balance_dollars > 0)
-        return `${label}: $${credits.balance_dollars.toFixed(2)}`;
+        return `${label}: ${sym}${credits.balance_dollars.toFixed(2)}`;
     return '';
 }
 

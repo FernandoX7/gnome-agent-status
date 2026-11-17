@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::env;
 use std::fs::{self, File, OpenOptions};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -41,6 +41,9 @@ pub const SPARKLINE_WINDOW_SECS: i64 = 7 * 86_400;
 
 /// Maximum points retained per account in the 7-day hourly sparkline ring buffer.
 pub const MAX_SPARKLINE_POINTS: usize = 168;
+
+/// Hard upper bound (8 MiB) on any local cache JSON file read into memory.
+pub const MAX_CACHE_FILE_BYTES: u64 = 8 * 1024 * 1024;
 
 /// Persistent internal collector metadata stored at `$XDG_CACHE_HOME/gnome-agent-status/collector-cache.json`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -125,7 +128,8 @@ impl CachedAccountState {
     /// Evaluates whether an active account should be polled now or served from cache.
     pub fn poll_decision(&self, ttl_secs: u64, force: bool, now_epoch: i64) -> PollDecision {
         if let Some(until) = self.retry_after_epoch {
-            if now_epoch < until {
+            let max_valid_until = now_epoch.saturating_add((MAX_429_BACKOFF_SECS + 60) as i64);
+            if now_epoch < until && until <= max_valid_until {
                 return PollDecision::SkipRateLimited {
                     retry_after_epoch: until,
                 };
@@ -216,7 +220,8 @@ pub fn prune_sparkline(sparkline: &mut Vec<SparklinePoint>, now_epoch: i64) {
     }
 
     let cutoff = now_epoch.saturating_sub(SPARKLINE_WINDOW_SECS);
-    sparkline.retain(|pt| pt.ts >= cutoff);
+    let max_hour = quantize_sparkline_hour(now_epoch).saturating_add(SPARKLINE_BUCKET_SECS);
+    sparkline.retain(|pt| pt.ts >= cutoff && pt.ts <= max_hour);
     if sparkline.is_empty() {
         return;
     }
@@ -286,7 +291,10 @@ fn sync_and_prune_report_sparklines(
                 let cached_newer = match (account.sparkline.last(), cached.sparkline.last()) {
                     (None, Some(_)) => true,
                     (Some(a), Some(c)) => {
-                        c.ts >= a.ts && cached.sparkline.len() >= account.sparkline.len()
+                        c.ts > a.ts
+                            || (c.ts == a.ts
+                                && (c.used != a.used
+                                    || cached.sparkline.len() >= account.sparkline.len()))
                     }
                     _ => false,
                 };
@@ -448,6 +456,14 @@ pub fn ensure_dir_0700(dir: &Path) -> Result<()> {
                 let mode = meta.permissions().mode() & 0o7777;
                 // SAFETY: `libc::geteuid()` is a pure POSIX syscall with no pointer arguments.
                 let euid = unsafe { libc::geteuid() };
+                if (mode & 0o1000) == 0 && meta.uid() != euid {
+                    bail!(
+                        "Refusing to use directory {} owned by uid {} (expected {})",
+                        dir.display(),
+                        meta.uid(),
+                        euid
+                    );
+                }
                 // Tighten user-owned directories (excluding shared sticky temp dirs like `/tmp`) to `0700`.
                 if meta.uid() == euid && (mode & 0o1000) == 0 && (mode & 0o777) != 0o700 {
                     fs::set_permissions(dir, fs::Permissions::from_mode(0o700)).with_context(
@@ -546,6 +562,44 @@ pub fn atomic_write_0600(target: &Path, bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
+/// Reads a regular UTF-8 file up to `max_bytes`, rejecting FIFOs/devices and optionally symlinks (`O_NOFOLLOW`).
+pub fn read_utf8_bounded(path: &Path, max_bytes: u64, reject_symlinks: bool) -> Result<String> {
+    if reject_symlinks {
+        reject_if_symlink(path)?;
+    }
+
+    let mut opts = OpenOptions::new();
+    opts.read(true);
+    #[cfg(unix)]
+    if reject_symlinks {
+        opts.custom_flags(libc::O_NOFOLLOW);
+    }
+
+    let file = opts
+        .open(path)
+        .with_context(|| format!("Failed to open {}", path.display()))?;
+    let meta = file
+        .metadata()
+        .with_context(|| format!("Failed to stat {}", path.display()))?;
+    if !meta.is_file() {
+        bail!("Refusing to read non-regular file {}", path.display());
+    }
+
+    let mut buf = Vec::new();
+    file.take(max_bytes.saturating_add(1))
+        .read_to_end(&mut buf)
+        .with_context(|| format!("Failed to read {}", path.display()))?;
+    if (buf.len() as u64) > max_bytes {
+        bail!(
+            "File {} exceeded maximum allowed size ({} bytes)",
+            path.display(),
+            max_bytes
+        );
+    }
+
+    String::from_utf8(buf).with_context(|| format!("File {} is not valid UTF-8", path.display()))
+}
+
 /// Manages `$XDG_CACHE_HOME/gnome-agent-status/{state.json, collector-cache.json}`.
 #[derive(Debug, Clone)]
 pub struct CacheStore {
@@ -593,7 +647,7 @@ impl CacheStore {
 
     pub fn load_collector_cache(&self) -> CollectorState {
         let path = self.collector_cache_path();
-        let Ok(raw) = fs::read_to_string(&path) else {
+        let Ok(raw) = read_utf8_bounded(&path, MAX_CACHE_FILE_BYTES, true) else {
             return CollectorState::default();
         };
         serde_json::from_str(&raw).unwrap_or_default()
@@ -616,7 +670,7 @@ impl CacheStore {
         let collector_cache = self.load_collector_cache();
         let state_path = self.state_path();
 
-        if let Ok(raw) = fs::read_to_string(&state_path) {
+        if let Ok(raw) = read_utf8_bounded(&state_path, MAX_CACHE_FILE_BYTES, true) {
             if let Ok(mut report) = serde_json::from_str::<StatusReport>(&raw) {
                 sync_and_prune_report_sparklines(&mut report, &collector_cache, now_epoch);
                 apply_report_time_decay(

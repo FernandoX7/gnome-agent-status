@@ -50,8 +50,8 @@ where
 {
     let class = waybar_class(report.status).to_string();
     let percentage = report.summary.max_used_percent.min(100);
-    let text = build_waybar_text(report);
-    let tooltip = build_waybar_tooltip(report, now, tz);
+    let text = escape_pango_markup(&build_waybar_text(report));
+    let tooltip = escape_pango_markup(&build_waybar_tooltip(report, now, tz));
 
     let payload = WaybarOutput {
         text,
@@ -60,6 +60,22 @@ where
         percentage,
     };
     Ok(serde_json::to_string(&payload)?)
+}
+
+fn escape_pango_markup(input: &str) -> String {
+    if !input.contains(['&', '<', '>']) {
+        return input.to_string();
+    }
+    let mut out = String::with_capacity(input.len() + 16);
+    for ch in input.chars() {
+        match ch {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            _ => out.push(ch),
+        }
+    }
+    out
 }
 
 fn waybar_class(status: OverallStatus) -> &'static str {
@@ -534,9 +550,9 @@ fn colorize_pct(padded_pct: &str, used_percent: Option<u8>, is_error: bool) -> S
     format!("{code}{padded_pct}{ANSI_RESET}")
 }
 
-/// Replaces line breaks and extra whitespace with single spaces.
+/// Strips ANSI escape codes and collapses line breaks / extra whitespace to single spaces.
 fn collapse_line(input: &str) -> String {
-    input
+    crate::parser::strip_ansi(input)
         .split(['\r', '\n'])
         .map(str::trim)
         .filter(|s| !s.is_empty())

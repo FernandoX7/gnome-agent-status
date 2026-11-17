@@ -153,16 +153,19 @@ fn abbreviate_safe_path(path: &Path, home: Option<&Path>) -> String {
     sanitize_zero_pii(&rendered)
 }
 
-fn inspect_mode_octal(path: &Path) -> Option<u32> {
+fn inspect_mode_octal(path: &Path, follow_symlinks: bool) -> Option<u32> {
     #[cfg(unix)]
     {
-        fs::symlink_metadata(path)
-            .ok()
-            .map(|m| m.permissions().mode() & 0o777)
+        let meta = if follow_symlinks {
+            fs::metadata(path)
+        } else {
+            fs::symlink_metadata(path)
+        };
+        meta.ok().map(|m| m.permissions().mode() & 0o777)
     }
     #[cfg(not(unix))]
     {
-        let _ = path;
+        let _ = (path, follow_symlinks);
         None
     }
 }
@@ -171,11 +174,15 @@ fn format_octal_mode(mode: u32) -> String {
     format!("{mode:04o}")
 }
 
-fn check_exact_path_mode(path: &Path, expected_octal: u32, home: Option<&Path>) -> PathModeCheck {
+fn check_exact_path_mode(
+    path: &Path,
+    expected_octal: u32,
+    allow_symlink_target: bool,
+    home: Option<&Path>,
+) -> PathModeCheck {
     let safe_path = abbreviate_safe_path(path, home);
     let expected_str = format_octal_mode(expected_octal);
-    let exists = fs::symlink_metadata(path).is_ok();
-    if !exists {
+    let Ok(sym_meta) = fs::symlink_metadata(path) else {
         return PathModeCheck {
             path: safe_path,
             exists: false,
@@ -183,16 +190,25 @@ fn check_exact_path_mode(path: &Path, expected_octal: u32, home: Option<&Path>) 
             expected_mode: expected_str,
             mode_ok: true,
         };
-    }
+    };
+    let is_symlink = sym_meta.file_type().is_symlink();
 
-    match inspect_mode_octal(path) {
-        Some(actual) => PathModeCheck {
-            path: safe_path,
-            exists: true,
-            mode: Some(format_octal_mode(actual)),
-            expected_mode: expected_str,
-            mode_ok: actual == expected_octal,
-        },
+    match inspect_mode_octal(path, allow_symlink_target && is_symlink) {
+        Some(actual) => {
+            let nix_store_ro = allow_symlink_target
+                && is_symlink
+                && actual == 0o444
+                && fs::read_link(path)
+                    .ok()
+                    .is_some_and(|t| t.starts_with("/nix/store"));
+            PathModeCheck {
+                path: safe_path,
+                exists: true,
+                mode: Some(format_octal_mode(actual)),
+                expected_mode: expected_str,
+                mode_ok: actual == expected_octal || nix_store_ro,
+            }
+        }
         None => PathModeCheck {
             path: safe_path,
             exists: true,
@@ -295,7 +311,7 @@ fn inspect_provider_permissions(
     manual_accounts: &[ManualAccountConfig],
     home: Option<&Path>,
 ) -> PermissionCheckSummary {
-    let mut candidate_paths: Vec<PathBuf> = Vec::new();
+    let mut candidate_paths: Vec<(PathBuf, bool)> = Vec::new();
     let mut seen: BTreeSet<PathBuf> = BTreeSet::new();
 
     for m in manual_accounts {
@@ -304,7 +320,7 @@ fn inspect_provider_permissions(
             if !trimmed.is_empty() {
                 let expanded = expand_tilde_with_home(Path::new(trimmed), home);
                 if seen.insert(expanded.clone()) {
-                    candidate_paths.push(expanded);
+                    candidate_paths.push((expanded, true));
                 }
             }
         }
@@ -313,7 +329,7 @@ fn inspect_provider_permissions(
     for desc in descriptors {
         if let Some(ref p) = desc.path {
             if seen.insert(p.clone()) {
-                candidate_paths.push(p.clone());
+                candidate_paths.push((p.clone(), false));
             }
         }
     }
@@ -323,9 +339,11 @@ fn inspect_provider_permissions(
     let mut insecure_paths = 0usize;
     let mut modes_set: BTreeSet<String> = BTreeSet::new();
 
-    for path in candidate_paths {
+    for (path, is_manual) in candidate_paths {
         let Ok(meta) = fs::symlink_metadata(&path) else {
-            missing_paths += 1;
+            if is_manual {
+                missing_paths += 1;
+            }
             continue;
         };
 
@@ -336,7 +354,7 @@ fn inspect_provider_permissions(
                 if fs::symlink_metadata(&inner).is_ok() {
                     found_inner_file = true;
                     checked_paths += 1;
-                    if let Some(mode) = inspect_mode_octal(&inner) {
+                    if let Some(mode) = inspect_mode_octal(&inner, true) {
                         modes_set.insert(format_octal_mode(mode));
                         if (mode & 0o077) != 0 {
                             insecure_paths += 1;
@@ -346,18 +364,32 @@ fn inspect_provider_permissions(
             }
             if !found_inner_file {
                 checked_paths += 1;
-                if let Some(mode) = inspect_mode_octal(&path) {
+                if let Some(mode) = inspect_mode_octal(&path, true) {
                     modes_set.insert(format_octal_mode(mode));
-                    if (mode & 0o077) != 0 {
+                    // Bare IDE/CLI state directories without direct root credential files
+                    // (e.g. `~/.gemini/antigravity` or `~/.codex` with only `sessions/`)
+                    // normally carry user umask (`0755`); only flag if world-writable.
+                    if (mode & 0o002) != 0 {
                         insecure_paths += 1;
                     }
                 }
             }
         } else {
             checked_paths += 1;
-            if let Some(mode) = inspect_mode_octal(&path) {
+            let is_vscdb = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("vscdb"));
+            if let Some(mode) = inspect_mode_octal(&path, true) {
                 modes_set.insert(format_octal_mode(mode));
-                if (mode & 0o077) != 0 {
+                // Chromium/Electron `state.vscdb` stores tokens encrypted via OS `safeStorage`
+                // and defaults to `0644`; plaintext credential files require `0600`.
+                let insecure = if is_vscdb {
+                    (mode & 0o002) != 0
+                } else {
+                    (mode & 0o077) != 0
+                };
+                if insecure {
                     insecure_paths += 1;
                 }
             }
@@ -407,7 +439,7 @@ pub fn run_doctor(config_arg: Option<&Path>, runtime: &CliRuntime<'_>) -> Doctor
     ctx.now = runtime.now;
     let home = ctx.home_dir.as_deref();
 
-    let cfg_mode_check = check_exact_path_mode(&resolved_cfg_path, 0o600, home);
+    let cfg_mode_check = check_exact_path_mode(&resolved_cfg_path, 0o600, true, home);
     if cfg_exists && !cfg_mode_check.mode_ok {
         warnings.push(format!(
             "Config file {} has mode {} (expected 0600)",
@@ -438,10 +470,15 @@ pub fn run_doctor(config_arg: Option<&Path>, runtime: &CliRuntime<'_>) -> Doctor
     };
 
     // Cache directory (`0700`) and cache files (`0600`)
-    let cache_dir_check = check_exact_path_mode(runtime.cache_store.cache_dir(), 0o700, home);
-    let state_check = check_exact_path_mode(&runtime.cache_store.state_path(), 0o600, home);
-    let collector_check =
-        check_exact_path_mode(&runtime.cache_store.collector_cache_path(), 0o600, home);
+    let cache_dir_check =
+        check_exact_path_mode(runtime.cache_store.cache_dir(), 0o700, false, home);
+    let state_check = check_exact_path_mode(&runtime.cache_store.state_path(), 0o600, false, home);
+    let collector_check = check_exact_path_mode(
+        &runtime.cache_store.collector_cache_path(),
+        0o600,
+        false,
+        home,
+    );
 
     if cache_dir_check.exists && !cache_dir_check.mode_ok {
         warnings.push(format!(

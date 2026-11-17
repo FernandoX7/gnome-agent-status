@@ -19,11 +19,16 @@ fn run_main() -> Result<()> {
     let cli = Cli::parse();
 
     let stdin_owned = if matches!(cli.command, Some(Commands::IngestHook { .. })) {
-        let mut buf = String::new();
+        const MAX_HOOK_STDIN_BYTES: u64 = 2 * 1024 * 1024;
+        let mut raw = Vec::new();
         io::stdin()
-            .read_to_string(&mut buf)
+            .take(MAX_HOOK_STDIN_BYTES + 1)
+            .read_to_end(&mut raw)
             .context("Failed to read statusLine JSON from stdin")?;
-        Some(buf)
+        if (raw.len() as u64) > MAX_HOOK_STDIN_BYTES {
+            anyhow::bail!("statusLine JSON on stdin exceeded 2 MiB limit");
+        }
+        Some(String::from_utf8_lossy(&raw).into_owned())
     } else {
         None
     };

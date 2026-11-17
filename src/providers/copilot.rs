@@ -813,9 +813,14 @@ fn resolve_from_gh_hosts_yml(
     // Non-interactive `gh auth token -h github.com` read-only fallback ONLY when `hosts.yml`
     // exists on disk with `github.com` and no inline `oauth_token` (OS keyring storage).
     let gh_bin = ctx.resolve_binary("gh", custom_gh_binary);
-    let spec = CommandSpec::new(gh_bin, ctx.timeout.min(Duration::from_secs(5)))
+    let mut spec = CommandSpec::new(gh_bin, ctx.timeout.min(Duration::from_secs(5)))
         .args(["auth", "token", "-h", "github.com"])
         .env("GH_PROMPT_DISABLED", "1");
+    if let Some(cfg_dir) = file_path.parent().and_then(|p| p.to_str()) {
+        if !cfg_dir.is_empty() {
+            spec = spec.env("GH_CONFIG_DIR", cfg_dir);
+        }
+    }
 
     let out = proc_exec::run_command(&spec)
         .context("Failed to run non-interactive `gh auth token -h github.com`")?;

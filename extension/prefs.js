@@ -1338,11 +1338,11 @@ export default class AgentStatusPreferences extends ExtensionPreferences {
                 _('Minimum 300s recommended to stay well within provider OAuth rate limits')
             ),
             adjustment: new Gtk.Adjustment({
-                lower: 60,
+                lower: 30,
                 upper: 3600,
                 step_increment: 30,
                 page_increment: 60,
-                value: Math.max(60, settings.get_int('refresh-interval-seconds') || 300),
+                value: Math.max(30, settings.get_int('refresh-interval-seconds') || 300),
             }),
         });
         settings.bind('refresh-interval-seconds', refreshSpin, 'value', Gio.SettingsBindFlags.DEFAULT);
@@ -1363,7 +1363,8 @@ export default class AgentStatusPreferences extends ExtensionPreferences {
         autoDiscoverRow.connect('notify::active', () => {
             if (syncingConfig || cli.isDestroyed)
                 return;
-            const flag = autoDiscoverRow.get_active() ? 'true' : 'false';
+            const desired = autoDiscoverRow.get_active();
+            const flag = desired ? 'true' : 'false';
             void (async () => {
                 try {
                     const updated = await cli.enqueueConfigMutation(() =>
@@ -1374,8 +1375,15 @@ export default class AgentStatusPreferences extends ExtensionPreferences {
                     void cli.triggerBackgroundCollect();
                     showToast(_('Updated auto-discovery setting'));
                 } catch (e) {
-                    if (!cli.isDestroyed)
+                    if (!cli.isDestroyed) {
+                        syncingConfig = true;
+                        try {
+                            autoDiscoverRow.set_active(!desired);
+                        } finally {
+                            syncingConfig = false;
+                        }
                         showToast(_('Failed to update config.toml: %s').replace('%s', e.message));
+                    }
                 }
             })();
         });
@@ -1774,11 +1782,14 @@ export default class AgentStatusPreferences extends ExtensionPreferences {
                 if (cli.isDestroyed)
                     return;
                 syncingConfig = true;
-                if (typeof cfg.auto_discover === 'boolean')
-                    autoDiscoverRow.set_active(cfg.auto_discover);
-                if (typeof cfg.timeout_seconds === 'number' && cfg.timeout_seconds >= 5)
-                    timeoutSpin.set_value(cfg.timeout_seconds);
-                syncingConfig = false;
+                try {
+                    if (typeof cfg.auto_discover === 'boolean')
+                        autoDiscoverRow.set_active(cfg.auto_discover);
+                    if (typeof cfg.timeout_seconds === 'number' && cfg.timeout_seconds >= 5)
+                        timeoutSpin.set_value(cfg.timeout_seconds);
+                } finally {
+                    syncingConfig = false;
+                }
             },
         };
     }
@@ -2117,7 +2128,7 @@ export default class AgentStatusPreferences extends ExtensionPreferences {
                                     editingKey.provider === String(acc.provider) &&
                                     editingKey.id === String(acc.id)
                                 ) {
-                                    editingKey = null;
+                                    resetForm();
                                 }
                                 renderManualAccounts(updated);
                                 void cli.triggerBackgroundCollect();

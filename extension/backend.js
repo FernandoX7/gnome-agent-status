@@ -54,6 +54,74 @@ function checkExecutableAsync(filePath, cancellable) {
 }
 
 /**
+ * Queries a Gio.File asynchronously on GIO's worker pool to inspect its `Gio.FileType`
+ * (`'dir'`, `'file'`, or `null` when absent) without blocking the compositor thread.
+ *
+ * @param {string} filePath
+ * @param {Gio.Cancellable|null} cancellable
+ * @returns {Promise<'dir'|'file'|null>}
+ */
+function queryPathKindAsync(filePath, cancellable) {
+    if (!filePath)
+        return Promise.resolve(null);
+
+    const file = Gio.File.new_for_path(filePath);
+    return new Promise(resolve => {
+        file.query_info_async(
+            'standard::type',
+            Gio.FileQueryInfoFlags.NONE,
+            GLib.PRIORITY_DEFAULT,
+            cancellable,
+            (src, res) => {
+                try {
+                    const info = src.query_info_finish(res);
+                    const ft = info.get_file_type();
+                    if (ft === Gio.FileType.DIRECTORY)
+                        resolve('dir');
+                    else
+                        resolve('file');
+                } catch (_e) {
+                    resolve(null);
+                }
+            }
+        );
+    });
+}
+
+/**
+ * Reads a symlink target asynchronously if `filePath` is a symbolic link, or `null` otherwise.
+ *
+ * @param {string} filePath
+ * @param {Gio.Cancellable|null} cancellable
+ * @returns {Promise<string|null>}
+ */
+function readSymlinkTargetAsync(filePath, cancellable) {
+    if (!filePath)
+        return Promise.resolve(null);
+
+    const file = Gio.File.new_for_path(filePath);
+    return new Promise(resolve => {
+        file.query_info_async(
+            'standard::type,standard::symlink-target',
+            Gio.FileQueryInfoFlags.NOFOLLOW_SYMLINKS,
+            GLib.PRIORITY_DEFAULT,
+            cancellable,
+            (src, res) => {
+                try {
+                    const info = src.query_info_finish(res);
+                    if (info.get_file_type() === Gio.FileType.SYMBOLIC_LINK)
+                        resolve(info.get_symlink_target() || null);
+                    else
+                        resolve(null);
+                } catch (_e) {
+                    resolve(null);
+                }
+            }
+        );
+    });
+}
+
+/**
  * Checks asynchronously whether a regular file exists at `filePath`.
  *
  * @param {string} filePath
@@ -166,6 +234,7 @@ export class BackendClient {
         this._monitorDebounceId = 0;
         this._wakeNetworkDebounceId = 0;
         this._credDebounceId = 0;
+        this._credPendingForce = false;
         this._fileMonitor = null;
         this._fileMonitorSigId = 0;
         this._credMonitors = [];
@@ -233,11 +302,10 @@ export class BackendClient {
         this._setupStateMonitor();
         this._setupNetworkWatcher();
         this._setupSleepWatcher();
-        this._setupCredentialMonitors();
+        void this._setupCredentialMonitorsAsync();
         this._restartPollTimer();
 
-        const syncReport = this._hydrateFromStateFileSync();
-        void this._hydrateInitialState(syncReport);
+        void this._hydrateInitialState();
     }
 
     destroy() {
@@ -539,7 +607,7 @@ export class BackendClient {
      * events ONLY — credential file contents are NEVER read by the extension) so
      * completing `[Sign in]` or configuring API keys refreshes the popover within ~`1.5s`.
      */
-    _setupCredentialMonitors() {
+    async _setupCredentialMonitorsAsync() {
         if (this._destroyed)
             return;
 
@@ -549,47 +617,78 @@ export class BackendClient {
         );
 
         const watchedParentDirs = new Set();
+        const cancellable = this._newCancellable();
 
-        for (const credPath of watchPaths) {
-            if (!credPath)
-                continue;
+        try {
+            for (const credPath of watchPaths) {
+                if (this._destroyed)
+                    return;
+                if (!credPath)
+                    continue;
 
-            if (GLib.file_test(credPath, GLib.FileTest.IS_DIR)) {
-                this._attachCredentialDirectoryMonitor(credPath);
-                continue;
+                const credKind = await queryPathKindAsync(credPath, cancellable);
+                if (this._destroyed)
+                    return;
+
+                if (credKind === 'dir') {
+                    this._attachCredentialDirectoryMonitor(credPath);
+                    continue;
+                }
+
+                const isDirTarget = credPath.endsWith('/openrouter') || credPath.endsWith('/deepseek');
+                const parentDir = GLib.path_get_dirname(credPath);
+                const parentKind = parentDir ? await queryPathKindAsync(parentDir, cancellable) : null;
+                if (this._destroyed)
+                    return;
+
+                if (isDirTarget) {
+                    if (parentKind === 'dir')
+                        this._attachDirEntryCreationMonitor(credPath);
+                    continue;
+                }
+
+                if (credKind === 'file' || parentKind === 'dir') {
+                    this._attachSingleCredentialFileMonitor(credPath);
+                    continue;
+                }
+
+                // Only attach parent-creation watcher when the grandparent directory exists
+                // (e.g. `~/.gemini` under `~`), skipping deeply nested uninstalled IDE paths
+                // like `~/.config/Windsurf/User/globalStorage` when Windsurf is absent.
+                const grandParent = parentDir ? GLib.path_get_dirname(parentDir) : null;
+                const grandKind = grandParent ? await queryPathKindAsync(grandParent, cancellable) : null;
+                if (this._destroyed)
+                    return;
+
+                if (
+                    parentDir &&
+                    grandKind === 'dir' &&
+                    !watchedParentDirs.has(parentDir)
+                ) {
+                    watchedParentDirs.add(parentDir);
+                    this._attachSingleCredentialFileMonitor(credPath);
+                    this._attachParentDirCreationMonitor(parentDir, credPath);
+                }
             }
+        } finally {
+            this._releaseCancellable(cancellable);
+        }
+    }
 
-            const isDirTarget = credPath.endsWith('/openrouter') || credPath.endsWith('/deepseek');
-            const parentDir = GLib.path_get_dirname(credPath);
-
-            if (isDirTarget) {
-                if (parentDir && GLib.file_test(parentDir, GLib.FileTest.IS_DIR))
-                    this._attachDirEntryCreationMonitor(credPath);
-                continue;
-            }
-
-            const parentExists = Boolean(parentDir && GLib.file_test(parentDir, GLib.FileTest.IS_DIR));
-            const fileExists = GLib.file_test(credPath, GLib.FileTest.EXISTS);
-
-            if (fileExists || parentExists) {
-                this._attachSingleCredentialFileMonitor(credPath);
-                continue;
-            }
-
-            // Only attach parent-creation watcher when the grandparent directory exists
-            // (e.g. `~/.gemini` under `~`), skipping deeply nested uninstalled IDE paths
-            // like `~/.config/Windsurf/User/globalStorage` when Windsurf is absent.
-            const grandParent = parentDir ? GLib.path_get_dirname(parentDir) : null;
-            if (
-                parentDir &&
-                grandParent &&
-                GLib.file_test(grandParent, GLib.FileTest.IS_DIR) &&
-                !watchedParentDirs.has(parentDir)
-            ) {
-                watchedParentDirs.add(parentDir);
-                this._attachSingleCredentialFileMonitor(credPath);
-                this._attachParentDirCreationMonitor(parentDir, credPath);
-            }
+    _disconnectSingleCredMonitor(targetMonitor) {
+        const idx = this._credMonitors.findIndex(e => e.monitor === targetMonitor);
+        if (idx < 0)
+            return;
+        const [entry] = this._credMonitors.splice(idx, 1);
+        if (entry.monitor && entry.sigId !== 0) {
+            try {
+                entry.monitor.disconnect(entry.sigId);
+            } catch (_e) {}
+        }
+        if (entry.monitor) {
+            try {
+                entry.monitor.cancel();
+            } catch (_e) {}
         }
     }
 
@@ -615,7 +714,7 @@ export class BackendClient {
                     ) {
                         return;
                     }
-                    this._scheduleCredentialCollect();
+                    this._scheduleCredentialCollect(true);
                 }
             );
             this._credMonitors.push({monitor, sigId, path: dirPath});
@@ -645,11 +744,24 @@ export class BackendClient {
                     ) {
                         return;
                     }
-                    if (GLib.file_test(dirPath, GLib.FileTest.IS_DIR)) {
-                        promoted = true;
-                        this._attachCredentialDirectoryMonitor(dirPath);
-                        this._scheduleCredentialCollect();
-                    }
+                    promoted = true;
+                    void (async () => {
+                        const c = this._newCancellable();
+                        try {
+                            const kind = await queryPathKindAsync(dirPath, c);
+                            if (this._destroyed)
+                                return;
+                            if (kind === 'dir') {
+                                this._disconnectSingleCredMonitor(monitor);
+                                this._attachCredentialDirectoryMonitor(dirPath);
+                                this._scheduleCredentialCollect(true);
+                            } else {
+                                promoted = false;
+                            }
+                        } finally {
+                            this._releaseCancellable(c);
+                        }
+                    })();
                 }
             );
             this._credMonitors.push({monitor, sigId, path: dirPath});
@@ -661,6 +773,10 @@ export class BackendClient {
     _attachSingleCredentialFileMonitor(credPath) {
         if (this._destroyed)
             return;
+
+        // IDE SQLite state databases (`.vscdb`) mutate continuously during normal editing;
+        // trigger TTL-aware non-force collection so active IDE editing never forces 30s polls.
+        const forceCollect = !credPath.endsWith('.vscdb');
 
         try {
             const monitor = Gio.File.new_for_path(credPath).monitor_file(
@@ -680,7 +796,7 @@ export class BackendClient {
                     ) {
                         return;
                     }
-                    this._scheduleCredentialCollect();
+                    this._scheduleCredentialCollect(forceCollect);
                 }
             );
             this._credMonitors.push({monitor, sigId, path: credPath});
@@ -698,10 +814,11 @@ export class BackendClient {
                 Gio.FileMonitorFlags.NONE,
                 null
             );
+            let promoted = false;
             const sigId = monitor.connect(
                 'changed',
                 (_mon, _file, _otherFile, eventType) => {
-                    if (this._destroyed)
+                    if (this._destroyed || promoted)
                         return;
                     if (
                         eventType !== Gio.FileMonitorEvent.CREATED &&
@@ -709,11 +826,26 @@ export class BackendClient {
                     ) {
                         return;
                     }
-                    if (GLib.file_test(parentDir, GLib.FileTest.IS_DIR)) {
-                        this._attachSingleCredentialFileMonitor(credPath);
-                        if (GLib.file_test(credPath, GLib.FileTest.EXISTS))
-                            this._scheduleCredentialCollect();
-                    }
+                    promoted = true;
+                    void (async () => {
+                        const c = this._newCancellable();
+                        try {
+                            const pKind = await queryPathKindAsync(parentDir, c);
+                            if (this._destroyed)
+                                return;
+                            if (pKind === 'dir') {
+                                this._disconnectSingleCredMonitor(monitor);
+                                this._attachSingleCredentialFileMonitor(credPath);
+                                const cKind = await queryPathKindAsync(credPath, c);
+                                if (!this._destroyed && cKind === 'file')
+                                    this._scheduleCredentialCollect(!credPath.endsWith('.vscdb'));
+                            } else {
+                                promoted = false;
+                            }
+                        } finally {
+                            this._releaseCancellable(c);
+                        }
+                    })();
                 }
             );
             this._credMonitors.push({monitor, sigId, path: parentDir});
@@ -722,9 +854,12 @@ export class BackendClient {
         }
     }
 
-    _scheduleCredentialCollect() {
+    _scheduleCredentialCollect(force = true) {
         if (this._destroyed)
             return;
+
+        if (force)
+            this._credPendingForce = true;
 
         if (this._credDebounceId !== 0) {
             GLib.Source.remove(this._credDebounceId);
@@ -736,8 +871,10 @@ export class BackendClient {
             CRED_MONITOR_DEBOUNCE_MS,
             () => {
                 this._credDebounceId = 0;
+                const useForce = this._credPendingForce;
+                this._credPendingForce = false;
                 if (!this._destroyed)
-                    void this.collect(true);
+                    void this.collect(useForce);
                 return GLib.SOURCE_REMOVE;
             }
         );
@@ -745,50 +882,6 @@ export class BackendClient {
             this._credDebounceId,
             '[gnome-agent-status] cred-monitor-debounce'
         );
-    }
-
-    /**
-     * Reads and normalizes `$XDG_CACHE_HOME/gnome-agent-status/state.json` synchronously
-     * (`~0.1–0.2ms` from page cache) without touching subprocesses or network I/O.
-     *
-     * @returns {object|null}
-     */
-    _readStateReportSync() {
-        if (this._destroyed)
-            return null;
-
-        try {
-            if (!GLib.file_test(this._stateFilePath, GLib.FileTest.EXISTS))
-                return null;
-
-            const [ok, bytes] = GLib.file_get_contents(this._stateFilePath);
-            if (!ok || !bytes || bytes.length === 0)
-                return null;
-
-            const rawText = UTF8_DECODER.decode(bytes);
-            if (!rawText || rawText.trim() === '')
-                return null;
-
-            const parsed = JSON.parse(rawText);
-            return normalizeStatusReport(parsed);
-        } catch (e) {
-            if (!this._destroyed)
-                console.error(`[gnome-agent-status] Error hydrating state.json synchronously: ${e.message}`);
-            return null;
-        }
-    }
-
-    /**
-     * Hydrates cached `state.json` synchronously during `enable()` so screen-unlock / startup
-     * renders top-bar pills/labels on frame 0 with zero empty-frame flicker.
-     *
-     * @returns {object|null}
-     */
-    _hydrateFromStateFileSync() {
-        const report = this._readStateReportSync();
-        if (report)
-            this._emitReport(report, {isInitialHydration: true});
-        return report;
     }
 
     async _hydrateInitialState(initialReport = null) {
@@ -1165,49 +1258,54 @@ export class BackendClient {
             return false;
         }
 
-        // Resolve Debian/Ubuntu alternatives symlink (e.g. x-terminal-emulator -> ptyxis)
-        if (chosenTerminal.endsWith('/x-terminal-emulator')) {
-            let resolved = chosenTerminal;
-            for (let depth = 0; depth < 8; depth++) {
-                if (!GLib.file_test(resolved, GLib.FileTest.IS_SYMLINK))
-                    break;
-                try {
-                    const linkTarget = GLib.file_read_link(resolved);
+        const linkCancellable = this._newCancellable();
+        let pretokenizedArgv = null;
+        try {
+            // Resolve Debian/Ubuntu alternatives symlink (e.g. x-terminal-emulator -> ptyxis) off-thread
+            if (chosenTerminal.endsWith('/x-terminal-emulator')) {
+                let resolved = chosenTerminal;
+                for (let depth = 0; depth < 8; depth++) {
+                    const linkTarget = await readSymlinkTargetAsync(resolved, linkCancellable);
+                    if (!linkTarget || this._destroyed)
+                        break;
                     resolved = GLib.path_is_absolute(linkTarget)
                         ? linkTarget
                         : GLib.build_filenamev([GLib.path_get_dirname(resolved), linkTarget]);
-                } catch (_e) {
-                    break;
                 }
+                chosenTerminal = resolved;
             }
-            chosenTerminal = resolved;
-        }
 
-        try {
             const homeDir = GLib.get_home_dir();
             const rawTrimmed = String(loginCommand ?? '').replace(/\0/g, '').trim();
-            let pretokenizedArgv = null;
             if (rawTrimmed !== '') {
                 const expanded = rawTrimmed === '~'
                     ? homeDir
                     : rawTrimmed.startsWith('~/')
                         ? GLib.build_filenamev([homeDir, rawTrimmed.slice(2)])
                         : rawTrimmed;
-                if (
-                    GLib.file_test(expanded, GLib.FileTest.EXISTS) &&
-                    !GLib.file_test(expanded, GLib.FileTest.IS_DIR)
-                ) {
+                if ((await queryPathKindAsync(expanded, linkCancellable)) === 'file')
                     pretokenizedArgv = [expanded];
-                }
             }
+        } finally {
+            this._releaseCancellable(linkCancellable);
+        }
 
+        if (this._destroyed)
+            return false;
+
+        try {
+            const homeDir = GLib.get_home_dir();
             const argv = buildTerminalArgv(chosenTerminal, loginCommand, {
                 quoteFn: s => GLib.shell_quote(String(s ?? '').replace(/\0/g, '')),
                 homeDir,
                 pretokenizedArgv,
             });
             const proc = Gio.Subprocess.new(argv, Gio.SubprocessFlags.NONE);
-            proc.wait_async(null, () => {});
+            proc.wait_async(null, (src, res) => {
+                try {
+                    src.wait_finish(res);
+                } catch (_e) {}
+            });
             return true;
         } catch (e) {
             console.error(`[gnome-agent-status] Failed to launch terminal: ${e.message}`);

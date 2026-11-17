@@ -280,9 +280,12 @@ class ProviderCardWidget {
         this._compactRightBox.hide();
         this._detailedBody.show();
 
-        const fullReset = formatResetCountdown(primaryResetEpoch, nowEpoch, {prefix: true});
+        const fullReset = formatResetCountdown(primaryResetEpoch, nowEpoch, {
+            prefix: true,
+            translate: _,
+        });
         if (fullReset) {
-            this._detailedResetLabel.set_text(_(fullReset));
+            this._detailedResetLabel.set_text(fullReset);
             this._detailedResetLabel.show();
         } else {
             this._detailedResetLabel.hide();

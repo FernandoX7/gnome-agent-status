@@ -93,7 +93,9 @@ impl UsageProvider for CursorProvider {
         }
 
         if auto_discover {
+            let mut has_env_token = false;
             if let Some(env_tok) = ctx.env_var("CURSOR_ACCESS_TOKEN") {
+                has_env_token = true;
                 let email = extract_cursor_jwt_email(&env_tok);
                 out.push(AccountDescriptor {
                     provider_id: "cursor".to_string(),
@@ -110,20 +112,22 @@ impl UsageProvider for CursorProvider {
                 });
             }
 
-            for loc in ctx.discover_locations("cursor") {
-                out.push(AccountDescriptor {
-                    provider_id: "cursor".to_string(),
-                    id: format!("cursor:{}", loc.suggested_id),
-                    label: "Cursor".to_string(),
-                    dedup_key: Some(loc.path.to_string_lossy().into_owned()),
-                    path: Some(loc.path),
-                    source_label: Some(loc.source_label),
-                    binary: None,
-                    is_system_default: loc.is_system_default && out.is_empty(),
-                    poll_mode: loc.poll_mode,
-                    login_command: Some("cursor".to_string()),
-                    switch_command: None,
-                });
+            if !has_env_token {
+                for loc in ctx.discover_locations("cursor") {
+                    out.push(AccountDescriptor {
+                        provider_id: "cursor".to_string(),
+                        id: format!("cursor:{}", loc.suggested_id),
+                        label: "Cursor".to_string(),
+                        dedup_key: Some(loc.path.to_string_lossy().into_owned()),
+                        path: Some(loc.path),
+                        source_label: Some(loc.source_label),
+                        binary: None,
+                        is_system_default: loc.is_system_default && out.is_empty(),
+                        poll_mode: loc.poll_mode,
+                        login_command: Some("cursor".to_string()),
+                        switch_command: None,
+                    });
+                }
             }
         }
 
@@ -253,11 +257,21 @@ impl OutcomeMetaExt for AccountFetchOutcome {
 // Zero-C-Dep `state.vscdb` & JSON Token File Credential Reader
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct CursorAuthInfo {
     pub access_token: String,
     pub email: Option<String>,
     pub plan_tier: Option<String>,
+}
+
+impl std::fmt::Debug for CursorAuthInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CursorAuthInfo")
+            .field("access_token", &"[REDACTED]")
+            .field("email", &self.email)
+            .field("plan_tier", &self.plan_tier)
+            .finish()
+    }
 }
 
 #[derive(Debug)]
@@ -376,10 +390,15 @@ fn resolve_cursor_target_file(path: &Path) -> std::result::Result<PathBuf, Curso
 }
 
 fn is_sqlite_header(path: &Path) -> bool {
-    let Ok(bytes) = fs::read(path) else {
+    use std::io::Read;
+    let Ok(file) = fs::File::open(path) else {
         return false;
     };
-    bytes.starts_with(b"SQLite format 3\0")
+    let mut hdr = Vec::with_capacity(16);
+    if file.take(16).read_to_end(&mut hdr).is_err() {
+        return false;
+    }
+    hdr.starts_with(b"SQLite format 3\0")
 }
 
 /// Parses a JSON or plain-text Cursor token file (`{"accessToken": "...", "email": "...", "membershipType": "ultra"}`).
@@ -460,6 +479,15 @@ fn read_cursor_vscdb_with_ctx(
     timeout: Duration,
     ctx: Option<&FetchContext>,
 ) -> std::result::Result<CursorAuthInfo, CursorAuthError> {
+    let wal_path = PathBuf::from(format!("{}-wal", db_path.display()));
+    let has_nonempty_wal = fs::metadata(&wal_path).is_ok_and(|m| m.is_file() && m.len() > 0);
+    if has_nonempty_wal {
+        let rows = query_cursor_vscdb_via_temp_copy(db_path, &wal_path)?;
+        return parse_cursor_kv_rows(&rows, || {
+            ctx.and_then(|c| lookup_cursor_safe_storage_secret(timeout, c))
+        });
+    }
+
     let uri = format!(
         "file:{}?mode=ro&immutable=1",
         encode_sqlite_uri_path(db_path)
@@ -471,11 +499,9 @@ fn read_cursor_vscdb_with_ctx(
     let immutable_rows = Connection::open_with_flags(&uri, immutable_flags)
         .and_then(|conn| query_cursor_item_table(&conn));
 
-    let wal_path = PathBuf::from(format!("{}-wal", db_path.display()));
     let rows = match immutable_rows {
-        Ok(ref r) if r.iter().any(|(k, _)| k == "cursorAuth/accessToken") => r.clone(),
-        Ok(r) if !wal_path.is_file() => r,
-        _ => query_cursor_vscdb_via_temp_copy(db_path, &wal_path)?,
+        Ok(r) => r,
+        Err(_) => query_cursor_vscdb_via_temp_copy(db_path, &wal_path)?,
     };
 
     parse_cursor_kv_rows(&rows, || {
@@ -607,6 +633,9 @@ fn query_cursor_vscdb_via_temp_copy(
 }
 
 fn copy_file_0600(src: &Path, dst: &Path) -> std::io::Result<()> {
+    use std::io::{Read, Write};
+    const MAX_VSCDB_COPY_BYTES: u64 = 512 * 1024 * 1024;
+
     if let Ok(meta) = fs::symlink_metadata(dst) {
         if meta.file_type().is_symlink() {
             return Err(std::io::Error::new(
@@ -615,7 +644,15 @@ fn copy_file_0600(src: &Path, dst: &Path) -> std::io::Result<()> {
             ));
         }
     }
-    let bytes = fs::read(src)?;
+    let src_file = fs::File::open(src)?;
+    let src_len = src_file.metadata().map(|m| m.len()).unwrap_or(0);
+    if src_len > MAX_VSCDB_COPY_BYTES {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "state.vscdb exceeded 512 MiB safety cap",
+        ));
+    }
+
     let mut opts = fs::OpenOptions::new();
     opts.write(true).create_new(true);
     #[cfg(unix)]
@@ -623,13 +660,14 @@ fn copy_file_0600(src: &Path, dst: &Path) -> std::io::Result<()> {
         use std::os::unix::fs::OpenOptionsExt;
         opts.mode(0o600).custom_flags(libc::O_NOFOLLOW);
     }
-    use std::io::Write;
     let mut file = opts.open(dst)?;
     #[cfg(unix)]
     {
         let _ = file.set_permissions(fs::Permissions::from_mode(0o600));
     }
-    file.write_all(&bytes)
+    let mut reader = src_file.take(MAX_VSCDB_COPY_BYTES);
+    std::io::copy(&mut reader, &mut file)?;
+    file.flush()
 }
 
 /// Pure-Rust parser for `key=HEX_BYTES` lines returned from `ItemTable`.
@@ -776,11 +814,11 @@ fn extract_clean_decrypted_token(decrypted: &[u8]) -> Option<String> {
             return Some(trimmed.to_string());
         }
     }
-    // Chromium 130+ / Electron domain-bound prefix (32-byte SHA-256 hash before ASCII JWT)
-    if decrypted.len() > 32 && decrypted[32..].starts_with(b"eyJ") {
+    // Chromium 130+ / Electron domain-bound prefix (32-byte SHA-256 hash before UTF-8 token)
+    if decrypted.len() > 32 {
         if let Ok(s) = std::str::from_utf8(&decrypted[32..]) {
             let trimmed = s.trim().trim_matches('"');
-            if !trimmed.is_empty() && !trimmed.chars().any(char::is_control) {
+            if trimmed.len() >= 12 && !trimmed.chars().any(char::is_control) && trimmed.is_ascii() {
                 return Some(trimmed.to_string());
             }
         }
@@ -789,32 +827,17 @@ fn extract_clean_decrypted_token(decrypted: &[u8]) -> Option<String> {
 }
 
 /// Queries `org.freedesktop.secrets` for Cursor's `chrome_libsecret_os_crypt_password_v2` password
-/// ONLY from already-unlocked keyring items (never prompting or unlocking a locked keyring).
+/// ONLY from already-unlocked keyring items (`SearchItems` `unlocked` array — NEVER calling `Unlock`
+/// or `secret-tool lookup`, which passes `SECRET_SEARCH_UNLOCK` and pops modal password dialogs).
 fn lookup_cursor_safe_storage_secret(timeout: Duration, ctx: &FetchContext) -> Option<Vec<u8>> {
-    let bounded = timeout.min(Duration::from_secs(2));
-
-    // 1. Try `secret-tool` if installed
-    let secret_tool = ctx.resolve_binary("secret-tool", None);
-    if secret_tool.is_file() {
-        for app_name in ["Cursor", "cursor"] {
-            let spec = CommandSpec::new(&secret_tool, bounded).args([
-                "lookup",
-                "xdg:schema",
-                "chrome_libsecret_os_crypt_password_v2",
-                "application",
-                app_name,
-            ]);
-            if let Ok(out) = run_command(&spec) {
-                let secret = out.stdout.trim_end_matches(['\r', '\n']);
-                if out.status.success() && !secret.is_empty() {
-                    return Some(secret.as_bytes().to_vec());
-                }
-            }
-        }
+    // Respect hermetic test contexts unless DBUS_SESSION_BUS_ADDRESS is explicitly provided.
+    if ctx.env_overrides.is_some() && ctx.env_var("DBUS_SESSION_BUS_ADDRESS").is_none() {
+        return None;
     }
 
-    // 2. Fallback on GNOME systems without `secret-tool`: single-connection `gjs` D-Bus query
-    //    against `org.freedesktop.secrets` reading ONLY unlocked items.
+    let bounded = timeout.min(Duration::from_secs(2));
+
+    // 1. Primary on GNOME systems: single-connection `gjs` D-Bus query reading ONLY `unlocked` items.
     let gjs_bin = ctx.resolve_binary("gjs", None);
     if gjs_bin.is_file() {
         const GJS_SCRIPT: &str = concat!(
@@ -835,6 +858,41 @@ fn lookup_cursor_safe_storage_secret(timeout: Duration, ctx: &FetchContext) -> O
             "}"
         );
         let spec = CommandSpec::new(&gjs_bin, bounded).args(["-c", GJS_SCRIPT]);
+        if let Ok(out) = run_command(&spec) {
+            if out.status.success() {
+                if let Some(b64_line) = out.stdout.lines().map(str::trim).find(|l| !l.is_empty()) {
+                    if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(b64_line) {
+                        if !bytes.is_empty() {
+                            return Some(bytes);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Fallback for non-GNOME Waybar/tmux setups (Sway, Hyprland, KDE) via Python3 GI/DBus unlocked-only query.
+    let py_bin = ctx.resolve_binary("python3", None);
+    if py_bin.is_file() {
+        const PY_SCRIPT: &str = concat!(
+            "import base64\n",
+            "from gi.repository import Gio, GLib\n",
+            "bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)\n",
+            "_, sess = bus.call_sync('org.freedesktop.secrets','/org/freedesktop/secrets','org.freedesktop.Secret.Service','OpenSession',GLib.Variant('(sv)',('plain',GLib.Variant('s',''))),GLib.VariantType('(vo)'),Gio.DBusCallFlags.NONE,1500,None).unpack()\n",
+            "try:\n",
+            "  for attrs in ({'application':'Cursor','xdg:schema':'chrome_libsecret_os_crypt_password_v2'},{'application':'cursor','xdg:schema':'chrome_libsecret_os_crypt_password_v2'},{'application':'Cursor'}):\n",
+            "    unlocked, _ = bus.call_sync('org.freedesktop.secrets','/org/freedesktop/secrets','org.freedesktop.Secret.Service','SearchItems',GLib.Variant('(a{ss})',(attrs,)),GLib.VariantType('(aoao)'),Gio.DBusCallFlags.NONE,1500,None).unpack()\n",
+            "    if unlocked:\n",
+            "      sec, = bus.call_sync('org.freedesktop.secrets','/org/freedesktop/secrets','org.freedesktop.Secret.Service','GetSecrets',GLib.Variant('(aoo)',([unlocked[0]],sess)),GLib.VariantType('(a{o(oayays)})'),Gio.DBusCallFlags.NONE,1500,None).unpack()\n",
+            "      entry = sec.get(unlocked[0])\n",
+            "      if entry and entry[2]:\n",
+            "        print(base64.b64encode(bytes(entry[2])).decode('ascii'))\n",
+            "        break\n",
+            "finally:\n",
+            "  try: bus.call_sync('org.freedesktop.secrets',sess,'org.freedesktop.Secret.Session','Close',None,None,Gio.DBusCallFlags.NONE,500,None)\n",
+            "  except Exception: pass\n"
+        );
+        let spec = CommandSpec::new(&py_bin, bounded).args(["-c", PY_SCRIPT]);
         if let Ok(out) = run_command(&spec) {
             if out.status.success() {
                 if let Some(b64_line) = out.stdout.lines().map(str::trim).find(|l| !l.is_empty()) {
@@ -1249,6 +1307,21 @@ mod tests {
             .expect("read uncheckpointed WAL");
         assert_eq!(from_wal.access_token, "tok_wal_v10_789");
         assert_eq!(from_wal.email.as_deref(), Some("wal@example.com"));
+
+        // Checkpoint base DB with old token, then write refreshed token into `-wal` -> must read fresh `-wal` token!
+        live_writer
+            .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
+            .unwrap();
+        let refreshed_v10 = encrypt_safe_storage_blob(b"v10", b"peanuts", b"tok_wal_refreshed_999");
+        live_writer
+            .execute(
+                "INSERT INTO ItemTable VALUES ('cursorAuth/accessToken', ?1)",
+                [&refreshed_v10],
+            )
+            .unwrap();
+        let from_refreshed_wal = read_cursor_vscdb(&wal_db_path, Duration::from_secs(3))
+            .expect("read refreshed WAL over checkpointed base DB");
+        assert_eq!(from_refreshed_wal.access_token, "tok_wal_refreshed_999");
         drop(live_writer);
 
         // 4. Undecryptable `v11` in `state.vscdb` preserves email & plan_tier on `ErrorWithMeta`

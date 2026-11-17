@@ -140,6 +140,10 @@ pub fn terminate_process_group(child: &mut Child) {
     let _ = child.wait();
 }
 
+/// Hard upper bound (4 MiB) on captured subprocess stdout/stderr streams to prevent memory exhaustion.
+pub const MAX_PIPE_CAPTURE_BYTES: u64 = 4 * 1024 * 1024;
+const POST_EXIT_PIPE_DRAIN_GRACE: Duration = Duration::from_millis(150);
+
 /// Executes `spec` to completion within `spec.timeout`, killing the entire process group on timeout.
 pub fn run_command(spec: &CommandSpec) -> Result<CommandOutput> {
     let start = Instant::now();
@@ -156,19 +160,25 @@ pub fn run_command(spec: &CommandSpec) -> Result<CommandOutput> {
         }
     }
 
-    let mut stdout_pipe = child.stdout.take().context("Failed to capture stdout")?;
-    let mut stderr_pipe = child.stderr.take().context("Failed to capture stderr")?;
+    let stdout_pipe = child.stdout.take().context("Failed to capture stdout")?;
+    let stderr_pipe = child.stderr.take().context("Failed to capture stderr")?;
 
-    let stdout_handle = thread::spawn(move || {
+    let (stdout_tx, stdout_rx) = mpsc::sync_channel::<String>(1);
+    thread::spawn(move || {
         let mut buf = Vec::new();
-        let _ = stdout_pipe.read_to_end(&mut buf);
-        String::from_utf8_lossy(&buf).into_owned()
+        let _ = stdout_pipe
+            .take(MAX_PIPE_CAPTURE_BYTES)
+            .read_to_end(&mut buf);
+        let _ = stdout_tx.send(String::from_utf8_lossy(&buf).into_owned());
     });
 
-    let stderr_handle = thread::spawn(move || {
+    let (stderr_tx, stderr_rx) = mpsc::sync_channel::<String>(1);
+    thread::spawn(move || {
         let mut buf = Vec::new();
-        let _ = stderr_pipe.read_to_end(&mut buf);
-        String::from_utf8_lossy(&buf).into_owned()
+        let _ = stderr_pipe
+            .take(MAX_PIPE_CAPTURE_BYTES)
+            .read_to_end(&mut buf);
+        let _ = stderr_tx.send(String::from_utf8_lossy(&buf).into_owned());
     });
 
     let poll_interval = Duration::from_millis(20);
@@ -178,8 +188,8 @@ pub fn run_command(spec: &CommandSpec) -> Result<CommandOutput> {
         }
         if start.elapsed() >= spec.timeout {
             terminate_process_group(&mut child);
-            let _ = stdout_handle.join();
-            let _ = stderr_handle.join();
+            let _ = stdout_rx.recv_timeout(POST_EXIT_PIPE_DRAIN_GRACE);
+            let _ = stderr_rx.recv_timeout(POST_EXIT_PIPE_DRAIN_GRACE);
             return Err(anyhow!(
                 "Command '{}' timed out after {:.1}s",
                 spec.program.display(),
@@ -189,8 +199,13 @@ pub fn run_command(spec: &CommandSpec) -> Result<CommandOutput> {
         thread::sleep(poll_interval);
     };
 
-    let stdout = stdout_handle.join().unwrap_or_default();
-    let stderr = stderr_handle.join().unwrap_or_default();
+    let drain_budget = spec
+        .timeout
+        .saturating_sub(start.elapsed())
+        .min(POST_EXIT_PIPE_DRAIN_GRACE)
+        .max(Duration::from_millis(25));
+    let stdout = stdout_rx.recv_timeout(drain_budget).unwrap_or_default();
+    let stderr = stderr_rx.recv_timeout(drain_budget).unwrap_or_default();
     let duration_ms = start.elapsed().as_millis() as u64;
 
     Ok(CommandOutput {
@@ -223,11 +238,11 @@ pub fn run_jsonrpc_line_query(spec: &CommandSpec, target_id: u64) -> Result<Stri
     }
 
     let stdout_pipe = child.stdout.take().context("Failed to capture stdout")?;
-    let mut stderr_pipe = child.stderr.take().context("Failed to capture stderr")?;
+    let stderr_pipe = child.stderr.take().context("Failed to capture stderr")?;
 
-    let (line_tx, line_rx) = mpsc::channel::<String>();
-    let stdout_handle = thread::spawn(move || {
-        let reader = BufReader::new(stdout_pipe);
+    let (line_tx, line_rx) = mpsc::sync_channel::<String>(256);
+    thread::spawn(move || {
+        let reader = BufReader::new(stdout_pipe.take(MAX_PIPE_CAPTURE_BYTES));
         for line in reader.lines().map_while(Result::ok) {
             if line_tx.send(line).is_err() {
                 break;
@@ -235,13 +250,17 @@ pub fn run_jsonrpc_line_query(spec: &CommandSpec, target_id: u64) -> Result<Stri
         }
     });
 
-    let stderr_handle = thread::spawn(move || {
+    let (stderr_tx, stderr_rx) = mpsc::sync_channel::<String>(1);
+    thread::spawn(move || {
         let mut buf = Vec::new();
-        let _ = stderr_pipe.read_to_end(&mut buf);
-        String::from_utf8_lossy(&buf).into_owned()
+        let _ = stderr_pipe
+            .take(MAX_PIPE_CAPTURE_BYTES)
+            .read_to_end(&mut buf);
+        let _ = stderr_tx.send(String::from_utf8_lossy(&buf).into_owned());
     });
 
     let mut matched_line: Option<String> = None;
+    let mut child_reaped = false;
     while start.elapsed() < spec.timeout {
         let remaining = spec
             .timeout
@@ -263,6 +282,7 @@ pub fn run_jsonrpc_line_query(spec: &CommandSpec, target_id: u64) -> Result<Stri
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 if child.try_wait()?.is_some() {
+                    child_reaped = true;
                     // Drain any buffered lines
                     while let Ok(line) = line_rx.try_recv() {
                         let trimmed = line.trim();
@@ -283,10 +303,13 @@ pub fn run_jsonrpc_line_query(spec: &CommandSpec, target_id: u64) -> Result<Stri
     }
 
     let _ = close_stdin_tx.send(());
-    terminate_process_group(&mut child);
+    if !child_reaped {
+        terminate_process_group(&mut child);
+    }
     drop(line_rx);
-    let _ = stdout_handle.join();
-    let stderr_str = stderr_handle.join().unwrap_or_default();
+    let stderr_str = stderr_rx
+        .recv_timeout(POST_EXIT_PIPE_DRAIN_GRACE)
+        .unwrap_or_default();
 
     if let Some(json_line) = matched_line {
         return Ok(json_line);

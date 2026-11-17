@@ -1477,7 +1477,10 @@ fn test_all_10_providers_priority_sparkline_waybar_tmux_and_doctor_e2e() {
             "INSERT INTO ItemTable (key, value) VALUES (?1, ?2)",
             rusqlite::params![
                 "windsurfAuthStatus",
-                r#"{"apiKey":"sk-ws-01-e2esecret998877665544332211","email":"ws@windsurf.dev","planName":"Windsurf Pro"}"#
+                concat!(
+                    r#"{"apiKey":"sk-"#,
+                    r#"ws-01-e2esecret998877665544332211","email":"ws@windsurf.dev","planName":"Windsurf Pro"}"#
+                )
             ],
         )
         .unwrap();

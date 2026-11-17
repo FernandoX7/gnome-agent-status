@@ -86,7 +86,7 @@ Review [`SECURITY.md`](SECURITY.md) before touching credential discovery, HTTP, 
 
 ## Adding a New Theme Preset & WCAG Contrast Gates
 
-1. **Register Palette Metadata**: Add the preset object to `THEME_PRESETS` in [`extension/format.js`](extension/format.js) with `id`, `label`, `subtitle`, `category` (`'dark' | 'light' | 'glass'`), `isLight`, `swatchHex`, `accentHex`, `bgHex`, `textHex`, `mutedHex`, `cardHex`, and Cairo progress-bar RGBA stops.
+1. **Register Palette Metadata**: Add the preset object via `makeThemePreset(...)` in `THEME_PRESETS` in [`extension/format.js`](extension/format.js) with `id`, `label`, `category` (`'dark' | 'light' | 'glass'`), `isLight`, `bgHex`, `fgHex`, `mutedHex`, `accentHex`, `swatchHex`, `trackHex`, `heroTrackHex`, and semantic bar fill hex stops (`okFillHex`, `warnFillHex`, `critFillHex`).
 2. **Author St Stylesheet Rules**: Add `.gas-popover.theme-<id>` rules in [`extension/stylesheet.css`](extension/stylesheet.css) covering root surface, `.gas-provider-card`, `.gas-hero-card`, `.gas-segmented-track`, `.gas-segmented-btn.is-active`, `.gas-theme-row.is-active`, `.gas-account-row.is-selected`, `.gas-avatar-ring`, semantic `.is-warning` / `.is-critical`, and `.gas-error-banner`.
 3. **Pass Automated WCAG 2.1 Contrast Gates**: [`tests/format.test.mjs`](tests/format.test.mjs) composites translucent surfaces over `bgHex` and enforces these minimum contrast ratios across every preset (plus `system-light`):
    - **Primary text** (`root`, `.gas-provider-name`, `.gas-hero-account-title`): **`>= 10.0:1`** (WCAG AAA+)

@@ -4,8 +4,8 @@
 //! - Tier 2: Multi-bucket `CLAUDE_CONFIG_DIR=<dir> claude -p /usage` CLI fallback (SSO / setup-token / safe token refresh)
 
 use crate::cache::{
-    acquire_file_lock, apply_report_time_decay, atomic_write_0600, synthesize_report_from_cache,
-    CacheStore, CachedAccountState,
+    apply_bucket_time_decay, apply_report_time_decay, synthesize_report_from_cache, CacheStore,
+    CachedAccountState,
 };
 use crate::config::{
     abbreviate_home, expand_tilde_with_home, slugify_id, Config, ManualAccountConfig,
@@ -30,8 +30,6 @@ use std::sync::OnceLock;
 use std::time::Duration;
 
 const DEFAULT_CLAUDE_USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
-const CLAUDE_OAUTH_REFRESH_URL: &str = "https://platform.claude.com/v1/oauth/token";
-const CLAUDE_OAUTH_CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 const FALLBACK_CLAUDE_UA_VERSION: &str = "2.1.76";
 
 pub struct ClaudeProvider;
@@ -171,7 +169,7 @@ impl UsageProvider for ClaudeProvider {
     fn fetch_account(
         &self,
         account: &AccountDescriptor,
-        _cached: Option<&CachedAccountState>,
+        cached: Option<&CachedAccountState>,
         ctx: &FetchContext,
     ) -> AccountFetchOutcome {
         let home = ctx.home_dir.as_deref();
@@ -221,8 +219,8 @@ impl UsageProvider for ClaudeProvider {
                 }
             }
 
-            // If still expired, prefer CLI fallback if `claude` binary exists (avoids rotation races);
-            // otherwise attempt atomic locked HTTP token refresh if we aren't running against a mock URL.
+            // If still expired, prefer CLI fallback if `claude` binary exists; otherwise degrade
+            // passively without mutating `~/.claude/.credentials.json` or rotating single-use refresh tokens.
             if token_expired {
                 let cli_bin = ctx.resolve_binary("claude", account.binary.as_deref());
                 if cli_bin.is_file() {
@@ -234,13 +232,27 @@ impl UsageProvider for ClaudeProvider {
                         ctx,
                     );
                 }
-                if let (Some(ref p), Some(ref rt)) = (&profile_path, &oauth.refresh_token) {
-                    if !rt.trim().is_empty() && ctx.endpoints.claude_usage_url.is_none() {
-                        if let Ok(refreshed) = try_refresh_claude_oauth(p, rt, ctx) {
-                            oauth = refreshed;
-                            token_expired = false;
-                        }
-                    }
+                if ctx.endpoints.claude_usage_url.is_none() {
+                    let mut buckets = cached.map(|c| c.buckets.clone()).unwrap_or_default();
+                    apply_bucket_time_decay(&mut buckets, ctx.now_epoch());
+                    return AccountFetchOutcome::Passive(AccountReport {
+                        id: account.id.clone(),
+                        label: resolved_label,
+                        source_label: account.source_label.clone(),
+                        is_system_default: account.is_system_default,
+                        is_active: false,
+                        plan_tier: plan_tier.or_else(|| cached.and_then(|c| c.plan_tier.clone())),
+                        state: AccountState::PassiveCached,
+                        is_stale: !buckets.is_empty(),
+                        status_note: Some("Updates when Claude Code runs".to_string()),
+                        extra_info: None,
+                        error: None,
+                        login_command: account.login_command.clone(),
+                        updated_at_epoch: cached.and_then(|c| c.last_success_epoch),
+                        buckets,
+                        credits: cached.and_then(|c| c.credits.clone()),
+                        sparkline: cached.map(|c| c.sparkline.clone()).unwrap_or_default(),
+                    });
                 }
             }
 
@@ -553,93 +565,6 @@ fn extract_semver(raw: &str) -> Option<String> {
     re.captures(raw)
         .and_then(|c| c.get(1))
         .map(|m| m.as_str().to_string())
-}
-
-fn try_refresh_claude_oauth(
-    profile_path: &Path,
-    refresh_token: &str,
-    ctx: &FetchContext,
-) -> Result<ClaudeOauthBlock> {
-    let cred_file = resolve_credentials_file_path(profile_path);
-    let lock_path = cred_file.with_extension("json.lock");
-    let _guard = acquire_file_lock(&lock_path)?;
-
-    // Re-read under flock before consuming single-use refresh token!
-    if let Some(reloaded) = read_claude_credentials_from_path(profile_path) {
-        if reloaded
-            .expires_at_ms()
-            .is_some_and(|exp_ms| ctx.now.timestamp_millis() < exp_ms.saturating_sub(30_000))
-        {
-            return Ok(reloaded);
-        }
-    }
-
-    let body = serde_json::json!({
-        "grant_type": "refresh_token",
-        "refresh_token": refresh_token,
-        "client_id": CLAUDE_OAUTH_CLIENT_ID,
-    })
-    .to_string();
-
-    let ua = claude_user_agent(None, ctx);
-    let resp = ctx.http.post_json(
-        CLAUDE_OAUTH_REFRESH_URL,
-        &[("User-Agent", ua.as_str())],
-        &body,
-    )?;
-
-    if !resp.is_success() {
-        return Err(anyhow!("OAuth token refresh returned HTTP {}", resp.status));
-    }
-
-    let val: serde_json::Value =
-        serde_json::from_str(&resp.body).context("Invalid OAuth refresh JSON")?;
-    let new_access = val
-        .get("access_token")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow!("Missing access_token in refresh response"))?;
-    let new_refresh = val
-        .get("refresh_token")
-        .and_then(|v| v.as_str())
-        .map(String::from);
-    let expires_in_secs = val
-        .get("expires_in")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(3600);
-    let new_expires_ms = ctx.now.timestamp_millis() + expires_in_secs * 1000;
-
-    let mut root_json: serde_json::Value = fs::read_to_string(&cred_file)
-        .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_else(|| serde_json::json!({}));
-
-    if let Some(obj) = root_json.as_object_mut() {
-        let oauth_entry = obj
-            .entry("claudeAiOauth")
-            .or_insert_with(|| serde_json::json!({}));
-        if let Some(oauth_obj) = oauth_entry.as_object_mut() {
-            oauth_obj.insert(
-                "accessToken".to_string(),
-                serde_json::Value::String(new_access.to_string()),
-            );
-            if let Some(ref rt) = new_refresh {
-                oauth_obj.insert(
-                    "refreshToken".to_string(),
-                    serde_json::Value::String(rt.clone()),
-                );
-            }
-            oauth_obj.insert(
-                "expiresAt".to_string(),
-                serde_json::Value::Number(new_expires_ms.into()),
-            );
-        }
-    }
-
-    let serialized = serde_json::to_vec_pretty(&root_json)?;
-    atomic_write_0600(&cred_file, &serialized)?;
-
-    read_claude_credentials_from_path(profile_path)
-        .ok_or_else(|| anyhow!("Failed to reload refreshed Claude credentials"))
 }
 
 // ---------------------------------------------------------------------------
@@ -1335,6 +1260,7 @@ pub fn ingest_claude_statusline_with_home(
     }
     merged_buckets.extend(preserved_models);
 
+    apply_bucket_time_decay(&mut merged_buckets, now_epoch);
     existing.buckets = merged_buckets;
     if let Some(primary) = existing
         .buckets
@@ -1359,7 +1285,11 @@ pub fn ingest_claude_statusline_with_home(
     cache_store.save_collector_cache(&collector_state)?;
 
     // Update existing `state.json` if present (preserving other providers), else synthesize from cache!
-    let mut report = if let Ok(raw) = fs::read_to_string(cache_store.state_path()) {
+    let mut report = if let Ok(raw) = crate::cache::read_utf8_bounded(
+        &cache_store.state_path(),
+        crate::cache::MAX_CACHE_FILE_BYTES,
+        true,
+    ) {
         if let Ok(mut prev) = serde_json::from_str::<StatusReport>(&raw) {
             let updated_acct =
                 collector_state.accounts[&target_key].to_account_report(false, now_epoch);

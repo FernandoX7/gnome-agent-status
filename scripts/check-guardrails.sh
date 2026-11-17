@@ -34,7 +34,7 @@ for (const file of shellJs) {
 }
 
 const prefsSrc = fs.readFileSync(prefsPath, 'utf8');
-if (/gi:\/\/(?:St|Clutter|Shell|Meta)\b|resource:\/\/\/org\/gnome\/shell\/ui\//i.test(prefsSrc)) {
+if (/gi:\/\/(?:St|Clutter|Shell|Meta)\b|imports\.gi\.(?:St|Clutter|Shell|Meta)\b|resource:\/\/\/org\/gnome\/shell\/(?:ui|misc)\//i.test(prefsSrc)) {
     errors.push('extension/prefs.js imports GNOME Shell actor/compositor modules (St/Clutter/Main/Shell)');
 }
 
@@ -69,7 +69,7 @@ const targets = [
 const errors = [];
 for (const rel of targets) {
     const clean = stripComments(fs.readFileSync(rel, 'utf8'));
-    if (/\b(?:scale_x|scale_y|set_scale)\b|['"]scale-[xy]['"]|\bscale[XY3d]*\s*\(/.test(clean)) {
+    if (/\b(?:scale_x|scale_y|scaleX|scaleY|set_scale|setScale)\b|['"]scale-[xy]['"]|\bscale[XYZ3dD]*\s*\(/.test(clean)) {
         errors.push(`Disallowed scale transform in ${rel}`);
     }
 }
@@ -101,7 +101,7 @@ const otherExtFiles = fs.readdirSync('extension')
 const errors = [];
 for (const rel of [...popFiles, ...otherExtFiles]) {
     const clean = stripComments(fs.readFileSync(rel, 'utf8'));
-    if (/\.connect\s*\(\s*['"]button-(?:press|release)-event['"]/.test(clean)) {
+    if (/\.(?:connect|connectObject|connect_after)\s*\(\s*['"]button-(?:press|release)-event['"]/.test(clean)) {
         errors.push(`Legacy button-press/release-event connection in ${rel} (breaks GNOME 50 ClickGesture)`);
     }
 }
@@ -156,9 +156,13 @@ const tracked = execFileSync('git', ['ls-files', '-z'], {encoding: 'utf8'})
 const tokenPatterns = [
     {name: 'Anthropic key/token', re: /\bsk-ant-[A-Za-z0-9_-]{28,}\b/g},
     {name: 'OpenRouter API key', re: /\bsk-or-v1-[A-Za-z0-9_-]{24,}\b/g},
-    {name: 'GitHub OAuth/user token', re: /\bgh[ou]_[A-Za-z0-9]{30,}\b/g},
+    {name: 'Windsurf API key', re: /\bsk-ws-[A-Za-z0-9_-]{24,}\b/g},
+    {name: 'xAI API key', re: /\bxai-[A-Za-z0-9_-]{24,}\b/g},
+    {name: 'GitHub OAuth/PAT/App token', re: /\bgh[oupsr]_[A-Za-z0-9]{30,}\b/g},
     {name: 'GitHub fine-grained PAT', re: /\bgithub_pat_[A-Za-z0-9_]{36,}\b/g},
     {name: 'Google API key', re: /\bAIzaSy[A-Za-z0-9_-]{33}\b/g},
+    {name: 'Google OAuth token', re: /\bya29\.[A-Za-z0-9._-]{24,}\b/g},
+    {name: 'PEM private key', re: /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/g},
 ];
 
 const syntheticHint = /(?:test|mock|fake|dummy|sample|example|redact|placeholder|123456|abcdef|000000|xxxxxx)/i;

@@ -982,3 +982,19 @@ msgstr ""
 #: extension/prefs.js
 msgid "Passive Cache Only"
 msgstr ""
+
+#: extension/popover/detailPage.js
+msgid "% Left"
+msgstr ""
+
+#: extension/format.js
+msgid "now"
+msgstr ""
+
+#: extension/format.js
+msgid "Resets in %s"
+msgstr ""
+
+#: extension/format.js
+msgid "Updated %s ago"
+msgstr ""

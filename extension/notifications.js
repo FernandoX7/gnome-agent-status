@@ -38,6 +38,7 @@ export class QuotaNotificationTracker {
         this._hasSeededBaseline = false;
         this._bucketStates = new Map();
         this._liveNotifications = new Set();
+        this._legacySource = null;
         this._dispatchedLog = [];
         this._robotIcon = null;
     }
@@ -133,14 +134,14 @@ export class QuotaNotificationTracker {
         }
 
         const {title, body, urgency} = alert;
+        const isCritical = urgency === 'critical';
+        const trayUrgency = isCritical
+            ? (MessageTray.Urgency?.CRITICAL ?? 3)
+            : (MessageTray.Urgency?.NORMAL ?? 1);
 
         try {
             if (typeof MessageTray.getSystemSource === 'function') {
                 const source = MessageTray.getSystemSource();
-                const isCritical = urgency === 'critical';
-                const trayUrgency = isCritical
-                    ? (MessageTray.Urgency?.CRITICAL ?? 3)
-                    : (MessageTray.Urgency?.NORMAL ?? 1);
                 const notification = new MessageTray.Notification({
                     source,
                     title,
@@ -154,6 +155,29 @@ export class QuotaNotificationTracker {
                     this._liveNotifications.delete(notification);
                 });
                 source.addNotification(notification);
+                return;
+            }
+            // GNOME Shell 45 MessageTray API (`Source(title, iconName)` + `showNotification`)
+            if (typeof MessageTray.Source === 'function' && typeof Main.messageTray?.add === 'function') {
+                if (!this._legacySource) {
+                    const src = new MessageTray.Source('Agent Usage Status', 'dialog-information-symbolic');
+                    src.connect?.('destroy', () => {
+                        if (this._legacySource === src)
+                            this._legacySource = null;
+                    });
+                    Main.messageTray.add(src);
+                    this._legacySource = src;
+                }
+                const notification = new MessageTray.Notification(this._legacySource, title, body, {
+                    gicon: this._getRobotIcon(),
+                });
+                notification.setUrgency?.(trayUrgency);
+                notification.setTransient?.(!isCritical);
+                this._liveNotifications.add(notification);
+                notification.connect('destroy', () => {
+                    this._liveNotifications.delete(notification);
+                });
+                this._legacySource.showNotification(notification);
                 return;
             }
         } catch (e) {
@@ -180,6 +204,12 @@ export class QuotaNotificationTracker {
             }
         }
         this._liveNotifications.clear();
+        if (this._legacySource) {
+            try {
+                this._legacySource.destroy();
+            } catch (_e) {}
+            this._legacySource = null;
+        }
         this._bucketStates.clear();
         this._dispatchedLog = [];
         this._robotIcon = null;

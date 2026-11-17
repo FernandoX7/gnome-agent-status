@@ -287,7 +287,18 @@ impl ProviderRegistry {
 
             let mut slots = Vec::with_capacity(descriptors.len());
             for desc in descriptors {
-                let cached_entry = initial_cache.accounts.get(&desc.id).cloned();
+                let cached_entry = initial_cache.accounts.get(&desc.id).cloned().or_else(|| {
+                    if desc.is_system_default && desc.id.ends_with(":default") {
+                        initial_cache
+                            .accounts
+                            .values()
+                            .filter(|c| c.provider_id == desc.provider_id && c.is_system_default)
+                            .max_by_key(|c| c.last_success_epoch.unwrap_or(0))
+                            .cloned()
+                    } else {
+                        None
+                    }
+                });
 
                 if desc.poll_mode == PollMode::Passive {
                     let mut report = if let Some(ref c) = cached_entry {
@@ -658,6 +669,14 @@ fn apply_poll_outcome(
             } else {
                 Vec::new()
             };
+
+            if report.is_system_default {
+                for other in collector_state.accounts.values_mut() {
+                    if other.provider_id == desc.provider_id && other.account_id != report.id {
+                        other.is_system_default = false;
+                    }
+                }
+            }
 
             let entry = collector_state
                 .accounts

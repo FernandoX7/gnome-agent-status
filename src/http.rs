@@ -48,8 +48,9 @@ pub struct EndpointOverrides {
 
 #[derive(Clone)]
 pub struct HttpClient {
-    agent: Agent,
-    loopback_agent: Agent,
+    https_agent: Agent,
+    loopback_http_agent: Agent,
+    loopback_rpc_agent: Agent,
 }
 
 impl HttpClient {
@@ -57,28 +58,49 @@ impl HttpClient {
         let clamped = timeout.clamp(Duration::from_secs(2), Duration::from_secs(60));
         let connect_timeout = Duration::from_secs(5).min(clamped);
 
-        let config = Agent::config_builder()
+        let https_config = Agent::config_builder()
             .http_status_as_error(false)
+            .https_only(true)
+            .max_redirects(3)
             .timeout_connect(Some(connect_timeout))
             .timeout_global(Some(clamped))
             .build();
 
-        let loopback_config = Agent::config_builder()
+        let loopback_http_config = Agent::config_builder()
             .http_status_as_error(false)
+            .max_redirects(0)
+            .proxy(None)
+            .timeout_connect(Some(connect_timeout))
+            .timeout_global(Some(clamped))
+            .build();
+
+        let loopback_rpc_config = Agent::config_builder()
+            .http_status_as_error(false)
+            .max_redirects(0)
+            .proxy(None)
             .timeout_connect(Some(Duration::from_millis(500)))
             .timeout_global(Some(Duration::from_secs(3).min(clamped)))
             .tls_config(TlsConfig::builder().disable_verification(true).build())
             .build();
 
         Self {
-            agent: config.into(),
-            loopback_agent: loopback_config.into(),
+            https_agent: https_config.into(),
+            loopback_http_agent: loopback_http_config.into(),
+            loopback_rpc_agent: loopback_rpc_config.into(),
+        }
+    }
+
+    fn agent_for_url(&self, url: &str) -> &Agent {
+        if is_loopback_url(url) {
+            &self.loopback_http_agent
+        } else {
+            &self.https_agent
         }
     }
 
     pub fn get(&self, url: &str, headers: &[(&str, &str)]) -> Result<HttpResponse> {
         validate_remote_or_loopback_url(url)?;
-        let mut req = self.agent.get(url);
+        let mut req = self.agent_for_url(url).get(url);
         for &(k, v) in headers {
             req = req.header(k, v);
         }
@@ -97,7 +119,7 @@ impl HttpClient {
     ) -> Result<HttpResponse> {
         validate_remote_or_loopback_url(url)?;
         let mut req = self
-            .agent
+            .agent_for_url(url)
             .post(url)
             .header("Content-Type", "application/json");
         for &(k, v) in headers {
@@ -118,7 +140,7 @@ impl HttpClient {
     ) -> Result<HttpResponse> {
         validate_remote_or_loopback_url(url)?;
         let mut req = self
-            .agent
+            .agent_for_url(url)
             .post(url)
             .header("Content-Type", "application/x-www-form-urlencoded");
         for &(k, v) in headers {
@@ -147,7 +169,7 @@ impl HttpClient {
         }
 
         let mut req = self
-            .loopback_agent
+            .loopback_rpc_agent
             .post(url)
             .header("Content-Type", "application/json");
         for &(k, v) in headers {
@@ -360,9 +382,15 @@ pub fn redact_secrets(input: &str) -> String {
                     .to_string(),
                 "$1 [REDACTED]",
             ),
-            // 6. Named credential key/value pairs, CLI flags (`--csrf_token`), and session cookies
+            // 6. Sensitive HTTP headers (`Cookie`, `Set-Cookie`, `X-Codeium-Csrf-Token`, `X-Api-Key`)
             (
-                r#"(?i)(--csrf_token(?:\s+|=)|(?:access_token|refresh_token|oauth_token|id_token|[a-z0-9_]*api[_-]?key|client_secret|csrf_token|workoscursorsessiontoken|session_token)\s*(?:=|"[\s]*:[\s]*"|:\s*['"]?))([^\s"',;&}\]]+)"#
+                r#"(?i)\b((?:set-)?cookie|x-codeium-csrf-token|x-api-key)\s*:\s*[^\r\n"',;}\]]+"#
+                    .to_string(),
+                "${1}: [REDACTED]",
+            ),
+            // 7. Named credential key/value pairs (snake_case & camelCase, spaced/quoted), CLI flags (`--csrf_token` / `--csrf-token`), and session cookies
+            (
+                r#"(?i)(--csrf[_-]token(?:\s+['"]?|=['"]?)|(?:access[_-]?token|refresh[_-]?token|oauth[_-]?token|id[_-]?token|[a-z0-9_]*api[_-]?key|client[_-]?secret|csrf[_-]?token|workoscursorsessiontoken|session[_-]?token)\s*(?:=\s*['"]?|"[\s]*:[\s]*"|:\s*['"]?))([^\s"',;&}\]]+)"#
                     .to_string(),
                 "${1}[REDACTED]",
             ),
@@ -602,7 +630,10 @@ mod tests {
              ws={ws_tok}, ds={ds_tok}, gh={gho_tok}, u={ghu_tok}, \
              pat={pat_tok}, jwt={jwt_tok}, gkey={aiza_tok}, gaccess={ya29_tok}, \
              hdr='token 9988776655abcdef', --csrf_token=csrfSecret777, \
-             openrouter_api_key=myCustomSecret42, \
+             --csrf-token=\"csrfQuoted888\", X-Codeium-Csrf-Token: uuidCsrfHeader999, \
+             openrouter_api_key = \"myCustomSecret42\", \
+             \"accessToken\": \"camelOpaqueSecret55\", \
+             Cookie: WorkosCursorSessionToken=user_01::cookieSecret66, \
              refresh_token=\"1//0gRefreshSecretXYZ12345\""
         );
 
@@ -625,7 +656,11 @@ mod tests {
             "0123456789abcdef0123456789abcdef",
             "9988776655abcdef",
             "csrfSecret777",
+            "csrfQuoted888",
+            "uuidCsrfHeader999",
             "myCustomSecret42",
+            "camelOpaqueSecret55",
+            "cookieSecret66",
             "0gRefreshSecretXYZ12345",
         ] {
             assert!(
@@ -638,5 +673,40 @@ mod tests {
         // Verify normal non-secret English diagnostics remain untouched!
         let prose = "Claude OAuth token expired (refresh failed: HTTP 401)";
         assert_eq!(redact_secrets(prose), prose);
+    }
+
+    #[test]
+    fn test_loopback_never_follows_redirect_off_loopback() {
+        let evil_listener = TcpListener::bind("127.0.0.1:0").expect("bind target");
+        let evil_addr = evil_listener.local_addr().unwrap();
+
+        let redir_listener = TcpListener::bind("127.0.0.1:0").expect("bind redirector");
+        let redir_addr = redir_listener.local_addr().unwrap();
+
+        let handle = thread::spawn(move || {
+            let (mut stream, _) = redir_listener.accept().unwrap();
+            let mut req_buf = [0u8; 1024];
+            let _ = stream.read(&mut req_buf);
+            let resp = format!(
+                "HTTP/1.1 302 Found\r\nLocation: http://evil.example.com:{}/steal\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                evil_addr.port()
+            );
+            stream.write_all(resp.as_bytes()).unwrap();
+        });
+
+        let client = HttpClient::new(Duration::from_secs(2));
+        let url = format!("http://{redir_addr}/rpc");
+        let resp = client
+            .post_loopback_json(&url, &[("X-Codeium-Csrf-Token", "secret-csrf")], "{}")
+            .expect("returns unfollowed 302 response directly");
+        handle.join().unwrap();
+
+        assert_eq!(resp.status, 302);
+        assert!(!resp.is_success());
+        evil_listener.set_nonblocking(true).unwrap();
+        assert!(
+            evil_listener.accept().is_err(),
+            "loopback client must never follow redirect"
+        );
     }
 }

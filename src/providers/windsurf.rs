@@ -453,9 +453,11 @@ pub fn discover_windsurf_servers_in(
                 ports.push(p6);
             }
         }
-        if let Some(ext_port) = parsed_args.extension_server_port {
-            if ext_port > 0 && !ports.contains(&ext_port) {
-                ports.push(ext_port);
+        if ports.is_empty() {
+            if let Some(ext_port) = parsed_args.extension_server_port {
+                if ext_port > 0 {
+                    ports.push(ext_port);
+                }
             }
         }
 
@@ -689,7 +691,12 @@ where
     }
 
     if let Some(flex) = avail_flex.filter(|&f| f > 0.0) {
-        let (disp_flex, _) = normalize_credit_units(flex, flex);
+        let disp_flex = if flex >= 1_000.0 && (flex % 100.0).abs() < f64::EPSILON {
+            flex / 100.0
+        } else {
+            let (d, _) = normalize_credit_units(flex, flex);
+            d
+        };
         extra_parts.push(format!("{disp_flex:.0} flex credits available"));
     }
 
@@ -800,15 +807,36 @@ where
         return Ok(parse_windsurf_value(&val, now, tz, false));
     }
 
-    let uri = format!(
-        "file:{}?mode=ro&immutable=1",
-        encode_sqlite_uri_path(&target)
-    );
-    let flags = OpenFlags::SQLITE_OPEN_READ_ONLY
-        | OpenFlags::SQLITE_OPEN_URI
-        | OpenFlags::SQLITE_OPEN_NO_MUTEX;
-    let conn = Connection::open_with_flags(&uri, flags)
-        .map_err(|e| anyhow!("Failed to open Windsurf state.vscdb read-only: {e}"))?;
+    let wal_path = PathBuf::from(format!("{}-wal", target.display()));
+    let has_nonempty_wal = fs::metadata(&wal_path).is_ok_and(|m| m.is_file() && m.len() > 0);
+    let conn = if has_nonempty_wal {
+        let ro_flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX;
+        Connection::open_with_flags(&target, ro_flags).or_else(|_| {
+            let uri = format!(
+                "file:{}?mode=ro&immutable=1",
+                encode_sqlite_uri_path(&target)
+            );
+            Connection::open_with_flags(
+                &uri,
+                OpenFlags::SQLITE_OPEN_READ_ONLY
+                    | OpenFlags::SQLITE_OPEN_URI
+                    | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+            )
+        })
+    } else {
+        let uri = format!(
+            "file:{}?mode=ro&immutable=1",
+            encode_sqlite_uri_path(&target)
+        );
+        Connection::open_with_flags(
+            &uri,
+            OpenFlags::SQLITE_OPEN_READ_ONLY
+                | OpenFlags::SQLITE_OPEN_URI
+                | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+    }
+    .map_err(|e| anyhow!("Failed to open Windsurf state.vscdb read-only: {e}"))?;
+    let _ = conn.busy_timeout(std::time::Duration::from_millis(500));
     conn.execute_batch("PRAGMA query_only = ON;")
         .map_err(|e| anyhow!("Failed to enforce PRAGMA query_only on Windsurf DB: {e}"))?;
 
@@ -887,9 +915,15 @@ fn resolve_windsurf_target(path: &Path) -> Result<PathBuf> {
 }
 
 fn is_sqlite_file(path: &Path) -> bool {
-    fs::read(path)
-        .map(|b| b.starts_with(b"SQLite format 3\0"))
-        .unwrap_or(false)
+    use std::io::Read;
+    let Ok(file) = fs::File::open(path) else {
+        return false;
+    };
+    let mut hdr = Vec::with_capacity(16);
+    if file.take(16).read_to_end(&mut hdr).is_err() {
+        return false;
+    }
+    hdr.starts_with(b"SQLite format 3\0")
 }
 
 fn encode_sqlite_uri_path(path: &Path) -> String {

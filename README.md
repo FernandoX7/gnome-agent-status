@@ -105,7 +105,7 @@ By default, the popover surfaces the **Top 5** providers (**Claude**, **Codex**,
 
 1. Compiles `gnome-agent-status` (`cargo build --release`) and installs it to `~/.local/bin/gnome-agent-status`.
 2. Initializes `~/.config/gnome-agent-status/config.toml` (`0600`) if not already present.
-3. Installs shell completions (`bash`, `zsh`, `fish`) and the `gnome-agent-status(1)` manual page under `~/.local/share/`.
+3. Installs shell completions (`bash` and `zsh` under `~/.local/share/`, `fish` under `~/.config/fish/completions/`) and the `gnome-agent-status(1)` manual page under `~/.local/share/man/man1/`.
 4. Installs hardened `gnome-agent-status.{service,timer}` user units to `~/.config/systemd/user/` (enabled only when `--enable-timer` is passed or manually enabled).
 5. Installs `extension/` (`popover/`, `icons/`, `schemas/`, `locale/`, `prefs.js`, `stylesheet.css`, `metadata.json`) to `~/.local/share/gnome-shell/extensions/agent-status@gnome-agent-status/`, compiles GSettings schemas with `--strict`, and enables the extension.
 
@@ -121,7 +121,9 @@ By default, the popover surfaces the **Top 5** providers (**Claude**, **Codex**,
   ```
 
   All standalone CLI modes — default JSON output (`gnome-agent-status [--pretty]` / `gnome-agent-status cached [--pretty]`), `--text`, `--waybar`, `--tmux`, `doctor [--json]`, `completions`, and `manpage` — work out of the box on macOS without `glib-compile-schemas` or GNOME Shell.
-- **Cursor Authentication on macOS**: On macOS, authenticate Cursor via `CURSOR_ACCESS_TOKEN` or a manual JSON token file containing `{"accessToken": "..."}` (configured via `gnome-agent-status config upsert-account --provider cursor ...`), because automatic Cursor `state.vscdb` `safeStorage` `v11` decryption via D-Bus `org.freedesktop.secrets` is Linux-specific.
+- **macOS Provider Notes**:
+  - **Cursor**: Authenticate via `CURSOR_ACCESS_TOKEN` or a manual JSON token file containing `{"accessToken": "..."}` (configured via `gnome-agent-status config upsert-account --provider cursor ...`), because automatic Cursor `state.vscdb` `safeStorage` `v11` decryption via D-Bus `org.freedesktop.secrets` is Linux-specific.
+  - **Windsurf & Claude Code**: Windsurf active credit polling uses Linux `/proc` Connect-RPC discovery (`state.vscdb` provides passive identity metadata on macOS), and Claude Code on macOS uses the `claude` CLI fallback (`claude -p /usage`) or passive `statusLine` hook when OAuth tokens reside in macOS Keychain rather than `~/.claude/.credentials.json`.
 
 ### Optional `systemd --user` Timer (Waybar / `tmux` / Tiling WMs)
 
@@ -287,7 +289,7 @@ gnome-agent-status cached [--pretty | --waybar | --tmux]
 
 See [**SECURITY.md**](SECURITY.md) for the complete threat model and vulnerability reporting policy:
 
-- **Zero Secrets or Emails in Cache / Diagnostics**: `state.json`, `collector-cache.json`, clipboard summaries, and `doctor` output never write OAuth access/refresh tokens, API keys (`sk-ant-*`, `sk-or-v1-*`, `sk-ws-*`, `sk-*`), JWTs, cookies, or `--csrf_token` values, and `doctor` additionally strips email addresses (`sanitize_zero_pii`).
+- **Zero Secrets in Cache / Zero PII in Diagnostics**: `state.json`, `collector-cache.json`, clipboard summaries, and `doctor` output never write OAuth access/refresh tokens, API keys (`sk-ant-*`, `sk-or-v1-*`, `sk-ws-*`, `sk-*`), JWTs, cookies, or `--csrf_token` values, and `doctor` additionally strips email addresses (`sanitize_zero_pii`).
 - **Strict `https://` Non-Loopback Transport Guard**: Pure-Rust `ureq` + `rustls` validates every request URL before opening a socket — remote hosts MUST use `https://`, while `http://` is restricted strictly to loopback (`127.0.0.1`, `localhost`, `::1`, `[::1]`) for local IDE Connect-RPC, with a hard `2 MiB` response cap.
 - **`O_NOFOLLOW` + `0600` / `0700` Atomic Writes**: Directories are enforced at `0700` and files (`state.json`, `collector-cache.json`, `config.toml`, temp SQLite WAL copies) use `create_new(true)` + `O_NOFOLLOW` mode `0600` temp files, `flock` serialization, and atomic `rename()`.
 - **Read-Only Credential & SQLite Access**: Cursor and Windsurf `state.vscdb` databases are opened with `mode=ro&immutable=1` + `PRAGMA query_only = ON` via embedded `rusqlite`; OAuth refresh tokens are never rotated behind provider CLIs' backs; and GNOME Shell's GJS layer never reads credential file contents.

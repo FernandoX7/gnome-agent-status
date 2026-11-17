@@ -292,7 +292,7 @@ impl Config {
             return Ok(Self::default());
         }
 
-        let raw = fs::read_to_string(&config_path)
+        let raw = crate::cache::read_utf8_bounded(&config_path, 2 * 1024 * 1024, false)
             .with_context(|| format!("Failed to read config file {}", config_path.display()))?;
 
         if config_path
@@ -466,6 +466,7 @@ impl Config {
         timeout_seconds: Option<u64>,
     ) -> Result<ConfigShowSummary> {
         let target = Self::resolve_config_path(path);
+        let _lock = acquire_config_lock(&target)?;
         let mut doc = load_or_init_toml_doc(&target)?;
 
         if let Some(ad) = auto_discover {
@@ -503,6 +504,7 @@ impl Config {
         }
 
         let target = Self::resolve_config_path(path);
+        let _lock = acquire_config_lock(&target)?;
         let mut doc = load_or_init_toml_doc(&target)?;
 
         if !doc.contains_key("providers") || !doc["providers"].is_table_like() {
@@ -603,6 +605,7 @@ impl Config {
             return Self::show_summary(Some(&target));
         }
 
+        let _lock = acquire_config_lock(&target)?;
         let mut doc = load_or_init_toml_doc(&target)?;
 
         if let Some(accounts_aot) = doc
@@ -699,9 +702,18 @@ enabled = true
     }
 }
 
+pub fn acquire_config_lock(target: &Path) -> Result<crate::cache::FileLockGuard> {
+    let base_name = target
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("config.toml");
+    let lock_path = target.with_file_name(format!(".{base_name}.lock"));
+    crate::cache::acquire_file_lock(&lock_path)
+}
+
 fn load_or_init_toml_doc(path: &Path) -> Result<DocumentMut> {
     if path.exists() {
-        let raw = fs::read_to_string(path)
+        let raw = crate::cache::read_utf8_bounded(path, 2 * 1024 * 1024, false)
             .with_context(|| format!("Failed to read {}", path.display()))?;
         raw.parse::<DocumentMut>()
             .with_context(|| format!("Failed to parse TOML in {}", path.display()))
@@ -821,6 +833,42 @@ pub fn resolve_binary_with_env(
         candidates.push(h.join(".local").join("bin").join(default_bin_name));
         candidates.push(h.join(".cargo").join("bin").join(default_bin_name));
         candidates.push(h.join(".npm-global").join("bin").join(default_bin_name));
+        candidates.push(h.join(".volta").join("bin").join(default_bin_name));
+        candidates.push(h.join(".bun").join("bin").join(default_bin_name));
+        candidates.push(
+            h.join(".local")
+                .join("share")
+                .join("pnpm")
+                .join(default_bin_name),
+        );
+        candidates.push(
+            h.join(".local")
+                .join("share")
+                .join("mise")
+                .join("shims")
+                .join(default_bin_name),
+        );
+        candidates.push(h.join(".asdf").join("shims").join(default_bin_name));
+        candidates.push(h.join(".nix-profile").join("bin").join(default_bin_name));
+        candidates.push(
+            h.join(".local")
+                .join("share")
+                .join("fnm")
+                .join("aliases")
+                .join("default")
+                .join("bin")
+                .join(default_bin_name),
+        );
+        if let Ok(entries) = fs::read_dir(h.join(".nvm").join("versions").join("node")) {
+            let mut nvm_bins: Vec<PathBuf> = entries
+                .filter_map(Result::ok)
+                .map(|e| e.path().join("bin").join(default_bin_name))
+                .filter(|p| p.is_file())
+                .collect();
+            nvm_bins.sort();
+            nvm_bins.reverse();
+            candidates.extend(nvm_bins);
+        }
     }
     if allow_system_dirs {
         candidates.push(PathBuf::from("/usr/local/bin").join(default_bin_name));

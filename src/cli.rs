@@ -145,15 +145,15 @@ pub enum ConfigCommand {
         id: String,
 
         /// Display label shown in UI and text output.
-        #[arg(long)]
+        #[arg(long, allow_hyphen_values = true)]
         label: String,
 
         /// Optional custom profile directory or credential file path.
-        #[arg(long)]
+        #[arg(long, allow_hyphen_values = true)]
         path: Option<String>,
 
         /// Optional custom CLI binary path.
-        #[arg(long)]
+        #[arg(long, allow_hyphen_values = true)]
         binary: Option<String>,
 
         /// Polling mode (`active` or `passive`).
@@ -161,7 +161,7 @@ pub enum ConfigCommand {
         poll_mode: Option<String>,
 
         /// Optional shell command executed when switching to this account via `account select`.
-        #[arg(long)]
+        #[arg(long, allow_hyphen_values = true)]
         switch_command: Option<String>,
     },
 
@@ -229,6 +229,7 @@ pub fn format_report(report: &StatusReport, cli: &Cli) -> Result<String> {
 pub fn execute_cli(cli: &Cli, runtime: &CliRuntime<'_>) -> Result<Option<String>> {
     if cli.init_config {
         let target = Config::resolve_config_path(cli.config.as_deref());
+        let _lock = crate::config::acquire_config_lock(&target)?;
         if !target.exists() {
             atomic_write_0600(&target, Config::sample_toml().as_bytes()).with_context(|| {
                 format!("Failed to write sample config to {}", target.display())
@@ -335,8 +336,12 @@ pub fn execute_cli(cli: &Cli, runtime: &CliRuntime<'_>) -> Result<Option<String>
                         Duration::from_secs(cfg.timeout_seconds.max(1)),
                     )
                     .args(["-c", cmd]);
-                    let output = proc_exec::run_command(&spec)
-                        .with_context(|| format!("Failed to execute switch_command '{cmd}'"))?;
+                    let output = proc_exec::run_command(&spec).with_context(|| {
+                        format!(
+                            "Failed to execute switch_command '{}'",
+                            crate::http::redact_secrets(cmd)
+                        )
+                    })?;
                     if !output.status.success() {
                         return Err(anyhow!(
                             "switch_command '{}' exited with status {:?}: {}",

@@ -476,14 +476,29 @@ pub fn build_openrouter_report(
     let is_free = key_data.is_free_tier.unwrap_or(false);
 
     if let Some(limit) = key_data.limit.filter(|&l| l > 0.0 && l.is_finite()) {
-        let used_pct_f64 = ((usage / limit) * 100.0).clamp(0.0, 100.0);
-        let reset = compute_openrouter_reset(key_data.limit_reset.as_deref(), now);
-        let (bucket_id, bucket_label, short_label) = match key_data
+        let reset_kind = key_data
             .limit_reset
             .as_deref()
-            .map(|s| s.trim().to_ascii_lowercase())
-            .as_deref()
-        {
+            .map(|s| s.trim().to_ascii_lowercase());
+        let period_usage = match reset_kind.as_deref() {
+            Some("daily") => key_data.usage_daily,
+            Some("weekly") => key_data.usage_weekly,
+            Some("monthly") => key_data.usage_monthly,
+            _ => None,
+        }
+        .filter(|u| u.is_finite())
+        .or_else(|| {
+            key_data
+                .limit_remaining
+                .filter(|r| r.is_finite())
+                .map(|rem| (limit - rem).max(0.0))
+        })
+        .unwrap_or(usage)
+        .max(0.0);
+
+        let used_pct_f64 = ((period_usage / limit) * 100.0).clamp(0.0, 100.0);
+        let reset = compute_openrouter_reset(key_data.limit_reset.as_deref(), now);
+        let (bucket_id, bucket_label, short_label) = match reset_kind.as_deref() {
             Some("daily") => ("24h", "Daily Limit", "24h"),
             Some("weekly") => ("wk", "Weekly Limit", "wk"),
             Some("monthly") => ("31d", "Monthly Limit", "31d"),
@@ -492,8 +507,9 @@ pub fn build_openrouter_report(
 
         let balance = key_data
             .limit_remaining
+            .filter(|r| r.is_finite())
             .map(|r| r.max(0.0))
-            .or_else(|| Some((limit - usage).max(0.0)));
+            .or_else(|| Some((limit - period_usage).max(0.0)));
         let bucket = UsageBucket::new(
             bucket_id,
             bucket_label,
@@ -503,7 +519,7 @@ pub fn build_openrouter_report(
             used_pct_f64,
             reset,
         )
-        .with_extra_info(format!("${usage:.2} / ${limit:.2} used"));
+        .with_extra_info(format!("${period_usage:.2} / ${limit:.2} used"));
 
         let used_pct_u8 = bucket.used_percent;
         let plan_tier = if is_free {
@@ -522,14 +538,14 @@ pub fn build_openrouter_report(
             state: AccountState::ActiveOk,
             is_stale: false,
             status_note: None,
-            extra_info: Some(format!("${usage:.2} / ${limit:.2} key limit used")),
+            extra_info: Some(format!("${period_usage:.2} / ${limit:.2} key limit used")),
             error: None,
             login_command: account.login_command.clone(),
             updated_at_epoch: Some(now.timestamp()),
             buckets: vec![bucket],
             credits: Some(CreditSummary {
                 label: "Key Limit".to_string(),
-                used_dollars: Some(usage),
+                used_dollars: Some(period_usage),
                 limit_dollars: Some(limit),
                 balance_dollars: balance,
                 used_percent: Some(used_pct_u8),
@@ -709,6 +725,26 @@ mod tests {
         assert_eq!(rep_payg.buckets[0].used_percent, 0);
         assert_eq!(rep_payg.status_note.as_deref(), Some("Pay-as-you-go"));
         assert_eq!(rep_payg.credits.unwrap().used_dollars, Some(62.0));
+
+        // 4. Daily resetting key with high lifetime `usage` uses `usage_daily` (20%, not 100%)
+        let daily_json = r#"{
+            "data": {
+                "label": "Daily Team Key",
+                "usage": 150.0,
+                "usage_daily": 2.0,
+                "usage_weekly": 18.0,
+                "usage_monthly": 65.0,
+                "limit": 10.0,
+                "limit_remaining": 8.0,
+                "limit_reset": "daily",
+                "is_free_tier": false
+            }
+        }"#;
+        let daily_key = parse_openrouter_key_json(daily_json).unwrap();
+        let rep_daily = build_openrouter_report(&desc, &daily_key, None, now);
+        assert_eq!(rep_daily.buckets[0].id, "24h");
+        assert_eq!(rep_daily.buckets[0].used_percent, 20);
+        assert_eq!(rep_daily.credits.unwrap().used_dollars, Some(2.0));
     }
 
     #[test]

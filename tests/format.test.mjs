@@ -759,8 +759,11 @@ describe('normalizeStatusReport, Labels & computePanelSummary', () => {
         assert.equal(formatBucketMetric({used_percent: 25}, 'remaining').percentText, '75%');
         assert.equal(formatResetCountdown(NOW + 9_000, NOW), 'Resets in 2h 30m');
         assert.equal(formatRelativeUpdated(NOW - 125, NOW), 'Updated 2m ago');
+        assert.equal(computeBucketPace({short_label: '5h', used_percent: 50, resets_at_epoch: NOW + 9_000}, Number.NaN), null);
         assert.equal(formatCreditsSummary({balance_dollars: 14.5}), 'Credits: $14.50 available');
+        assert.equal(formatCreditsSummary({label: 'Balance (CNY)', balance_dollars: 88}), 'Balance (CNY): ¥88.00 available');
         assert.equal(formatCompactAccountExtraNote({credits: {balance_dollars: 12}}, false), 'Credits: $12.00');
+        assert.equal(formatCompactAccountExtraNote({credits: {label: 'Balance (CNY)', balance_dollars: 88}}, false), 'Balance (CNY): ¥88.00');
         assert.equal(groupBucketsForDetailedView([{id: 'a'}, {id: 'b'}]).length, 2);
         assert.equal(slugifyAccountId('  Work Account #2! '), 'work-account-2');
         assert.equal(buildConfigUpsertArgs({provider: 'openrouter', id: 'main', label: 'Main'})[3], 'openrouter');
@@ -1179,7 +1182,17 @@ describe('EGO Review Compliance, Import-Scope Purity, Lifecycle & POT Sync', () 
         const backendSrc = fs.readFileSync(path.join(extDir, 'backend.js'), 'utf8');
         assert.match(
             backendSrc,
-            /const\s+proc\s*=\s*Gio\.Subprocess\.new\(argv,\s*Gio\.SubprocessFlags\.NONE\);\s*proc\.wait_async\(null,\s*\(\)\s*=>\s*\{\}\);/
+            /const\s+proc\s*=\s*Gio\.Subprocess\.new\(argv,\s*Gio\.SubprocessFlags\.NONE\);\s*proc\.wait_async\(null,\s*\(src,\s*res\)\s*=>\s*\{\s*try\s*\{\s*src\.wait_finish\(res\);\s*\}\s*catch\s*\(_e\)\s*\{\}\s*\}\);/
+        );
+        assert.equal(
+            /\bfile_get_contents\b|\bfile_test\b|\bfile_read_link\b/.test(backendSrc),
+            false,
+            'backend.js must not perform synchronous GLib file I/O on the compositor thread'
+        );
+        assert.equal(
+            /\bquery_exists\b|\bsourceActor\s*=\s*null/.test(indicatorSrc),
+            false,
+            'indicator.js must not call synchronous query_exists or null out PopupMenu.sourceActor'
         );
 
         const controllerSrc = fs.readFileSync(path.join(popDir, 'controller.js'), 'utf8');
