@@ -1,0 +1,36 @@
+{
+  "env": {
+    "es2022": true
+  },
+  "globals": {
+    "ARGV": "readonly",
+    "imports": "readonly",
+    "log": "readonly",
+    "logError": "readonly",
+    "pkg": "readonly",
+    "print": "readonly",
+    "printerr": "readonly",
+    "TextDecoder": "readonly",
+    "TextEncoder": "readonly",
+    "console": "readonly"
+  },
+  "categories": {
+    "correctness": "error",
+    "suspicious": "error",
+    "perf": "error"
+  },
+  "rules": {
+    "eslint/no-underscore-dangle": "off",
+    "eslint/no-unused-vars": [
+      "error",
+      {
+        "argsIgnorePattern": "^_",
+        "varsIgnorePattern": "^_",
+        "caughtErrorsIgnorePattern": "^_"
+      }
+    ],
+    "eslint/no-await-in-loop": "off",
+    "oxc/no-map-spread": "off",
+    "unicorn/no-array-sort": "off"
+  }
+}

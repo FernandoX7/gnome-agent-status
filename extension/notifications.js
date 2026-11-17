@@ -196,7 +196,7 @@ export class QuotaNotificationTracker {
             return;
         this._destroyed = true;
 
-        for (const notification of [...this._liveNotifications]) {
+        for (const notification of Array.from(this._liveNotifications)) {
             try {
                 notification.destroy();
             } catch (_e) {

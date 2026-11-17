@@ -1,0 +1,18 @@
+# cargo-nextest configuration for gnome-agent-status
+# Enforces zero test retries, child-process leak detection, and strict per-test budgets.
+
+[profile.default]
+retries = 0
+fail-fast = false
+leak-timeout = "500ms"
+slow-timeout = { period = "15s", terminate-after = 2 }
+status-level = "fail"
+final-status-level = "flaky"
+
+[profile.ci]
+retries = 0
+fail-fast = false
+leak-timeout = "500ms"
+slow-timeout = { period = "20s", terminate-after = 2 }
+status-level = "fail"
+final-status-level = "fail"

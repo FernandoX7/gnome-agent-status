@@ -1068,7 +1068,7 @@ export class BackendClient {
         } catch (e) {
             this._releaseCancellable(cancellable);
             this._resolvedBinary = null;
-            throw new Error(`Cannot execute ${binPath}: ${e.message}`);
+            throw new Error(`Cannot execute ${binPath}: ${e.message}`, {cause: e});
         }
 
         this._activeProcs.add(proc);

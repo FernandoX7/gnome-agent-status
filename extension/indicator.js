@@ -24,6 +24,11 @@ import {
     sortProvidersByOrder,
 } from './format.js';
 
+function srgbChannelToLinear(c) {
+    const v = c / 255.0;
+    return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+}
+
 const BUNDLED_ICON_NAMES = new Set([
     'agent-status-symbolic',
     'provider-agy',
@@ -501,11 +506,10 @@ class AgentStatusIndicator extends PanelMenu.Button {
                 this._rootBox.remove_style_class_name('on-light-panel');
                 return;
             }
-            const toLinear = c => {
-                const v = c / 255.0;
-                return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
-            };
-            const lum = 0.2126 * toLinear(bg.red) + 0.7152 * toLinear(bg.green) + 0.0722 * toLinear(bg.blue);
+            const lum =
+                0.2126 * srgbChannelToLinear(bg.red) +
+                0.7152 * srgbChannelToLinear(bg.green) +
+                0.0722 * srgbChannelToLinear(bg.blue);
             if (lum > 0.45)
                 this._rootBox.add_style_class_name('on-light-panel');
             else

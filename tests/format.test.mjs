@@ -32,7 +32,6 @@ import {
     formatCreditsSummary,
     formatRelativeUpdated,
     formatResetCountdown,
-    getActiveAccount,
     getBarFillRgba,
     getProviderAlertSeverity,
     getSeverityForUsedPercent,
@@ -1070,6 +1069,58 @@ describe('High-Contrast WCAG Verification across all 24 themes + system light', 
 // 9. EGO Review Compliance, Import-Scope Purity, Lifecycle & POT Sync
 // ---------------------------------------------------------------------------
 
+function extractTopLevelCode(src) {
+    let out = '';
+    let depth = 0;
+    let i = 0;
+    while (i < src.length) {
+        const ch = src[i];
+        const next = src[i + 1];
+        if (ch === '/' && next === '/') {
+            while (i < src.length && src[i] !== '\n')
+                i++;
+            continue;
+        }
+        if (ch === '/' && next === '*') {
+            i += 2;
+            while (i < src.length && !(src[i] === '*' && src[i + 1] === '/'))
+                i++;
+            i += 2;
+            continue;
+        }
+        if (ch === '\'' || ch === '"' || ch === '`') {
+            const quote = ch;
+            if (depth === 0)
+                out += quote;
+            i++;
+            while (i < src.length && src[i] !== quote) {
+                if (src[i] === '\\')
+                    i += 2;
+                else
+                    i++;
+            }
+            if (depth === 0)
+                out += quote;
+            i++;
+            continue;
+        }
+        if (ch === '{') {
+            depth++;
+            i++;
+            continue;
+        }
+        if (ch === '}') {
+            depth = Math.max(0, depth - 1);
+            i++;
+            continue;
+        }
+        if (depth === 0)
+            out += ch;
+        i++;
+    }
+    return out;
+}
+
 describe('EGO Review Compliance, Import-Scope Purity, Lifecycle & POT Sync', () => {
     const extDir = path.join(REPO_ROOT, 'extension');
     const popDir = path.join(extDir, 'popover');
@@ -1077,58 +1128,6 @@ describe('EGO Review Compliance, Import-Scope Purity, Lifecycle & POT Sync', () 
         ...fs.readdirSync(extDir).filter(f => f.endsWith('.js')).map(f => path.join(extDir, f)),
         ...fs.readdirSync(popDir).filter(f => f.endsWith('.js')).map(f => path.join(popDir, f)),
     ].sort();
-
-    function extractTopLevelCode(src) {
-        let out = '';
-        let depth = 0;
-        let i = 0;
-        while (i < src.length) {
-            const ch = src[i];
-            const next = src[i + 1];
-            if (ch === '/' && next === '/') {
-                while (i < src.length && src[i] !== '\n')
-                    i++;
-                continue;
-            }
-            if (ch === '/' && next === '*') {
-                i += 2;
-                while (i < src.length && !(src[i] === '*' && src[i + 1] === '/'))
-                    i++;
-                i += 2;
-                continue;
-            }
-            if (ch === '\'' || ch === '"' || ch === '`') {
-                const quote = ch;
-                if (depth === 0)
-                    out += quote;
-                i++;
-                while (i < src.length && src[i] !== quote) {
-                    if (src[i] === '\\')
-                        i += 2;
-                    else
-                        i++;
-                }
-                if (depth === 0)
-                    out += quote;
-                i++;
-                continue;
-            }
-            if (ch === '{') {
-                depth++;
-                i++;
-                continue;
-            }
-            if (ch === '}') {
-                depth = Math.max(0, depth - 1);
-                i++;
-                continue;
-            }
-            if (depth === 0)
-                out += ch;
-            i++;
-        }
-        return out;
-    }
 
     it('enforces metadata.json version-name 0.2.0 and clipboard + CLI binary disclosures', () => {
         const meta = JSON.parse(fs.readFileSync(path.join(extDir, 'metadata.json'), 'utf8'));

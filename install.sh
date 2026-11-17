@@ -43,6 +43,10 @@ DATA_HOME="${XDG_DATA_HOME:-${HOME}/.local/share}"
 CONFIG_HOME="${XDG_CONFIG_HOME:-${HOME}/.config}"
 EXT_DEST="${DATA_HOME}/gnome-shell/extensions/${EXT_UUID}"
 
+if [[ -d "${SCRIPT_DIR}/.git" && -f "${SCRIPT_DIR}/.githooks/pre-push" ]] && command -v git >/dev/null 2>&1; then
+    git -C "${SCRIPT_DIR}" config core.hooksPath .githooks 2>/dev/null || true
+fi
+
 echo "==> Building gnome-agent-status (release)..."
 TARGET_DIR="${CARGO_TARGET_DIR:-${SCRIPT_DIR}/target}"
 cargo build --release --locked --manifest-path "${SCRIPT_DIR}/Cargo.toml" --target-dir "${TARGET_DIR}"

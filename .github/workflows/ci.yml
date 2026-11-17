@@ -3,62 +3,121 @@ name: CI
 on:
   push:
     branches: [main]
+  merge_group:
   pull_request:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: '0'
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
+  CARGO_PROFILE_TEST_DEBUG: line-tables-only
 
 jobs:
-  guardrails-and-js:
-    name: Guardrails & JS Tests
+  changes:
+    name: Select Reachable Checks
     runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    outputs:
+      rust: ${{ steps.select.outputs.rust }}
+      audit: ${{ steps.select.outputs.audit }}
+      macos: ${{ steps.select.outputs.macos }}
+    steps:
+      - name: Checkout repository (PR diff)
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@v7
+        with:
+          filter: blob:none
+          fetch-depth: 0
+
+      - name: Compute reachable CI suites
+        id: select
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          if [[ "${EVENT_NAME}" != "pull_request" ]]; then
+            {
+              echo "rust=true"
+              echo "audit=true"
+              echo "macos=true"
+            } >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          if ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+            git fetch --no-tags --filter=blob:none origin "${BASE_SHA}"
+          fi
+          ./scripts/ci-select.sh
+
+  extension-suite:
+    name: Guardrails, Oxlint, JS Tests & EGO Bundle
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
-          fetch-depth: 50
+          filter: blob:none
 
-      - name: Setup Node.js 22
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
-      - name: Install GLib schema tools
+      - name: Ensure GLib schema and archive tools
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libglib2.0-bin
+          if ! command -v glib-compile-schemas >/dev/null 2>&1 || \
+             ! command -v node >/dev/null 2>&1 || \
+             ! command -v zip >/dev/null 2>&1 || \
+             ! command -v unzip >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends libglib2.0-bin nodejs zip unzip
+          fi
 
-      - name: Run static guardrails
+      - name: Lint JavaScript with oxlint
+        run: ./scripts/run-oxlint.sh
+
+      - name: Run static architectural and secret guardrails
         run: ./scripts/check-guardrails.sh
 
-      - name: Run pure-JS unit tests
+      - name: Run pure-JS unit and WCAG contrast tests
         run: node --test tests/*.test.mjs
 
-  rust-suite:
-    name: Rust Format, Clippy, Test & CLI Smoke (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+      - name: Build and verify EGO extension zip
+        run: ./scripts/pack-extension.sh --out-dir target/extension-dist
+
+      - name: Upload extension bundle artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: agent-status-shell-extension
+          path: target/extension-dist/agent-status@gnome-agent-status.shell-extension.zip
+          if-no-files-found: error
+
+  rust-lint:
+    name: Rust Format & Clippy
+    needs: [changes]
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
+        with:
+          filter: blob:none
 
       - name: Install stable Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
 
-      - name: Cache Cargo registry and target
+      - name: Cache Cargo registry and clippy artifacts
         uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: linux-clippy
 
       - name: Check Rust formatting
         run: cargo fmt --all -- --check
@@ -66,11 +125,36 @@ jobs:
       - name: Run cargo clippy
         run: cargo clippy --locked --all-targets -- -D warnings
 
-      - name: Run cargo test
-        run: cargo test --locked
+  rust-test:
+    name: Rust Nextest & CLI Smoke
+    needs: [changes]
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          filter: blob:none
+
+      - name: Install stable Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
+      - name: Cache Cargo registry and test artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: linux-nextest
+
+      - name: Run Rust test suite with nextest
+        run: cargo nextest run --locked --profile ci
 
       - name: Build CLI binary for smoke tests
-        run: cargo build --locked
+        run: cargo build --locked --bin gnome-agent-status
 
       - name: Smoke-test CLI subcommands (doctor, completions, manpage)
         shell: bash
@@ -93,43 +177,147 @@ jobs:
 
   security-audit:
     name: Cargo Audit & Deny
+    needs: [changes]
+    if: needs.changes.outputs.audit == 'true'
     runs-on: ubuntu-24.04
+    timeout-minutes: 3
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
+        with:
+          filter: blob:none
+
+      - name: Install cargo-audit and cargo-deny
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit,cargo-deny
+
+      - name: Audit Cargo.lock for security advisories
+        run: cargo audit
+
+      - name: Enforce cargo-deny supply-chain and license policy
+        run: cargo deny check
+
+  macos-portability:
+    name: macOS Portability Suite
+    needs: [changes]
+    if: needs.changes.outputs.macos == 'true'
+    runs-on: macos-15
+    timeout-minutes: 8
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          filter: blob:none
 
       - name: Install stable Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
 
-      - name: Install cargo-audit
+      - name: Install cargo-nextest
         uses: taiki-e/install-action@v2
         with:
-          tool: cargo-audit
+          tool: cargo-nextest
 
-      - name: Audit Cargo.lock for advisories
-        run: cargo audit
-
-      - name: Run cargo-deny policy check
-        uses: EmbarkStudios/cargo-deny-action@v2
-
-  package-extension:
-    name: Package EGO Extension Bundle
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install schema, gettext, and archive tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libglib2.0-bin gettext zip unzip
-
-      - name: Build and verify EGO extension zip
-        run: ./scripts/pack-extension.sh --out-dir target/extension-dist
-
-      - name: Upload extension bundle artifact
-        uses: actions/upload-artifact@v4
+      - name: Cache Cargo registry and macOS artifacts
+        uses: Swatinem/rust-cache@v2
         with:
-          name: agent-status-shell-extension
-          path: target/extension-dist/agent-status@gnome-agent-status.shell-extension.zip
-          if-no-files-found: error
+          shared-key: macos-portability
+
+      - name: Run cargo clippy on macOS
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Run Rust test suite on macOS
+        run: cargo nextest run --locked --profile ci
+
+      - name: Build CLI binary for macOS smoke tests
+        run: cargo build --locked --bin gnome-agent-status
+
+      - name: Smoke-test CLI subcommands on macOS
+        shell: bash
+        run: |
+          set -euo pipefail
+          BIN="./target/debug/gnome-agent-status"
+          "${BIN}" --version
+          "${BIN}" --help >/dev/null
+
+          for sh_name in bash zsh fish; do
+            comp_out="$("${BIN}" completions "${sh_name}")"
+            [[ -n "${comp_out}" ]]
+          done
+
+          man_out="$("${BIN}" manpage)"
+          grep -q '^\.TH ' <<<"${man_out}"
+
+          doc_out="$("${BIN}" doctor --json || true)"
+          python3 -c 'import json, sys; payload = json.loads(sys.stdin.read()); assert isinstance(payload, dict)' <<<"${doc_out}"
+
+  ci-gate:
+    name: CI Gate
+    if: always()
+    needs:
+      - changes
+      - extension-suite
+      - rust-lint
+      - rust-test
+      - security-audit
+      - macos-portability
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Verify required and reachable jobs succeeded
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RES_CHANGES: ${{ needs.changes.result }}
+          RES_EXTENSION: ${{ needs.extension-suite.result }}
+          RES_RUST_LINT: ${{ needs.rust-lint.result }}
+          RES_RUST_TEST: ${{ needs.rust-test.result }}
+          RES_AUDIT: ${{ needs.security-audit.result }}
+          RES_MACOS: ${{ needs.macos-portability.result }}
+          WANT_RUST: ${{ needs.changes.outputs.rust }}
+          WANT_AUDIT: ${{ needs.changes.outputs.audit }}
+          WANT_MACOS: ${{ needs.changes.outputs.macos }}
+        run: |
+          set -euo pipefail
+
+          check_always() {
+            local name="$1"
+            local actual="$2"
+            if [[ "${actual}" != "success" ]]; then
+              echo "FAIL: required job '${name}' finished with status '${actual}'" >&2
+              exit 1
+            fi
+            echo "OK: ${name} -> ${actual}"
+          }
+
+          check_selected() {
+            local name="$1"
+            local want="$2"
+            local actual="$3"
+            if [[ "${EVENT_NAME}" != "pull_request" && "${want}" != "true" ]]; then
+              echo "FAIL: '${name}' must always be enabled on '${EVENT_NAME}' (got want='${want}')" >&2
+              exit 1
+            fi
+            if [[ "${want}" == "true" ]]; then
+              if [[ "${actual}" != "success" ]]; then
+                echo "FAIL: selected job '${name}' finished with status '${actual}'" >&2
+                exit 1
+              fi
+              echo "OK: ${name} (selected) -> ${actual}"
+            else
+              if [[ "${actual}" != "skipped" ]]; then
+                echo "FAIL: unselected job '${name}' had unexpected status '${actual}'" >&2
+                exit 1
+              fi
+              echo "OK: ${name} (unselected on PR) -> ${actual}"
+            fi
+          }
+
+          check_always "changes" "${RES_CHANGES}"
+          check_always "extension-suite" "${RES_EXTENSION}"
+          check_selected "rust-lint" "${WANT_RUST}" "${RES_RUST_LINT}"
+          check_selected "rust-test" "${WANT_RUST}" "${RES_RUST_TEST}"
+          check_selected "security-audit" "${WANT_AUDIT}" "${RES_AUDIT}"
+          check_selected "macos-portability" "${WANT_MACOS}" "${RES_MACOS}"

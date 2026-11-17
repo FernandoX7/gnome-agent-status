@@ -1,0 +1,129 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Fast (<9s budget) pre-push verification hook for gnome-agent-status.
+# Runs format, lint, and static invariant checks on changed paths before push.
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "${REPO_ROOT}"
+
+BUDGET_MS=9000
+now_ms() {
+    python3 -c 'import time; print(int(time.monotonic_ns() // 1_000_000))'
+}
+START_MS="$(now_ms)"
+ZERO_SHA="0000000000000000000000000000000000000000"
+
+declare -a CHANGED_LIST=()
+
+resolve_base_commit() {
+    local candidate
+    for candidate in origin/main upstream/main main HEAD~1; do
+        if git rev-parse --verify "${candidate}^{commit}" >/dev/null 2>&1; then
+            git merge-base HEAD "${candidate}" 2>/dev/null || git rev-parse "${candidate}"
+            return 0
+        fi
+    done
+    return 1
+}
+
+collect_range_files() {
+    local base="$1"
+    local tip="$2"
+    while IFS= read -r f; do
+        [[ -n "${f}" ]] && CHANGED_LIST+=("${f}")
+    done < <(git diff --name-only "${base}" "${tip}" --diff-filter=ACMR)
+}
+
+has_ref_updates=0
+if [[ ! -t 0 ]]; then
+    while read -r _local_ref local_sha _remote_ref remote_sha; do
+        [[ -z "${local_sha:-}" ]] && continue
+        if [[ "${local_sha}" == "${ZERO_SHA}" ]]; then
+            # Remote branch deletion; nothing to lint locally.
+            continue
+        fi
+        has_ref_updates=1
+        if [[ "${remote_sha}" == "${ZERO_SHA}" ]]; then
+            if base_sha="$(resolve_base_commit)"; then
+                collect_range_files "${base_sha}" "${local_sha}"
+            else
+                while IFS= read -r f; do
+                    [[ -n "${f}" ]] && CHANGED_LIST+=("${f}")
+                done < <(git ls-files)
+            fi
+        else
+            collect_range_files "${remote_sha}" "${local_sha}"
+        fi
+    done
+else
+    has_ref_updates=1
+    if base_sha="$(resolve_base_commit)"; then
+        collect_range_files "${base_sha}" "HEAD"
+    fi
+fi
+
+if [[ "${has_ref_updates}" -eq 0 || "${#CHANGED_LIST[@]}" -eq 0 ]]; then
+    exit 0
+fi
+
+declare -a UNIQUE_FILES=()
+while IFS= read -r uf; do
+    [[ -n "${uf}" ]] && UNIQUE_FILES+=("${uf}")
+done < <(printf '%s\n' "${CHANGED_LIST[@]}" | LC_ALL=C sort -u)
+
+need_rust=0
+need_guardrails=0
+need_oxlint_all=0
+declare -a JS_CHANGED=()
+
+for f in "${UNIQUE_FILES[@]}"; do
+    [[ ! -e "${f}" ]] && continue
+    case "${f}" in
+        Cargo.toml|Cargo.lock|*.rs)
+            need_rust=1
+            ;;
+    esac
+    case "${f}" in
+        .oxlintrc.json|scripts/run-oxlint.sh)
+            need_oxlint_all=1
+            need_guardrails=1
+            ;;
+        *.js|*.mjs)
+            JS_CHANGED+=("${f}")
+            need_guardrails=1
+            ;;
+        extension/*|po/*|*.sh|.githooks/*)
+            need_guardrails=1
+            ;;
+    esac
+done
+
+if [[ "${need_rust}" -eq 1 ]]; then
+    echo "==> [pre-push] Checking Rust formatting and Clippy lints..."
+    cargo fmt --all -- --check
+    cargo clippy --locked --quiet --all-targets -- -D warnings
+fi
+
+if [[ "${need_oxlint_all}" -eq 1 ]]; then
+    echo "==> [pre-push] Running oxlint across extension/ and tests/..."
+    ./scripts/run-oxlint.sh extension/ tests/
+elif [[ "${#JS_CHANGED[@]}" -gt 0 ]]; then
+    echo "==> [pre-push] Running oxlint on ${#JS_CHANGED[@]} changed JS file(s)..."
+    ./scripts/run-oxlint.sh "${JS_CHANGED[@]}"
+fi
+
+if [[ "${need_guardrails}" -eq 1 ]]; then
+    echo "==> [pre-push] Running static architectural guardrails..."
+    ./scripts/check-guardrails.sh >/dev/null
+fi
+
+END_MS="$(now_ms)"
+ELAPSED_MS=$(( END_MS - START_MS ))
+
+if (( ELAPSED_MS > BUDGET_MS )); then
+    echo "Error: pre-push hook exceeded ${BUDGET_MS}ms budget (took ${ELAPSED_MS}ms)." >&2
+    exit 1
+fi
+
+printf '==> [pre-push] Passed in %d.%03ds (budget: 9.000s).\n' "$((ELAPSED_MS / 1000))" "$((ELAPSED_MS % 1000))"

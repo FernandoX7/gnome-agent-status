@@ -97,21 +97,38 @@ Review [`SECURITY.md`](SECURITY.md) before touching credential discovery, HTTP, 
 
 ---
 
-## Local Verification & Packaging Suite
+## Test Isolation & Cleanup Rules
+
+Every Rust and JavaScript test must remain hermetic, deterministic, and safe under parallel execution:
+
+1. **Zero ambient process mutation**: Never call `std::env::set_var` or `std::env::remove_var` in tests, and never read or write real `$HOME` or `$XDG_CONFIG_HOME` paths. Pass isolated temp directories and environment maps through `FetchContext` (`home_dir`, `xdg_config_dir`, `proc_root`, `env_overrides`) and `CliRuntime`.
+2. **Unique per-test state & cleanup**: Bind mock HTTP listeners on `127.0.0.1:0` (OS-assigned ephemeral ports), scope temporary directories with PID + nanosecond suffixes, and remove temporary directories before returning.
+3. **Zero child-process leaks & zero retries**: `.config/nextest.toml` enforces `retries = 0`, `leak-timeout = "500ms"`, and strict slow-test timeouts. Any test that leaks a child process or requires a retry has a bug that must be fixed at the root.
+
+---
+
+## Local Git Hook & Verification Suite
+
+Install the repository `pre-push` hook once per clone so formatting, `clippy`, `oxlint`, and static guardrails run automatically on changed files within a strict 9-second budget before every push:
+
+```bash
+./scripts/install-hooks.sh
+```
 
 Run the full check suite locally before opening a pull request:
 
 ```bash
-# 1. Static guardrails (7/7: process boundaries, motion comfort, ClickGesture, JS/bash syntax, GSettings schema, tracked-file secret scan)
+# 1. JavaScript AST lint (oxlint v1.94.0) and static guardrails (7/7)
+./scripts/run-oxlint.sh
 ./scripts/check-guardrails.sh
 
-# 2. Pure-JS unit, shell-quoting security, and 24-theme WCAG contrast tests (Node.js 22+)
-node --test tests/format.test.mjs
+# 2. Pure-JS unit, CI selection, shell-quoting, and 24-theme WCAG contrast tests
+node --test tests/*.test.mjs
 
-# 3. Rust formatting check, zero-warning Clippy lints, and hermetic test suite
+# 3. Rust formatting check, zero-warning Clippy lints, and nextest suite
 cargo fmt --all -- --check
 cargo clippy --locked --all-targets -- -D warnings
-cargo test --locked
+cargo nextest run --locked
 
 # 4. Supply-chain & license policy checks
 cargo audit
@@ -120,6 +137,6 @@ cargo deny check
 # 5. Build and validate an extensions.gnome.org (EGO) .shell-extension.zip bundle
 ./scripts/pack-extension.sh
 
-# 6. Optional: install release binary, shell completions, manpage, and local GNOME Shell extension
+# 6. Optional: install release binary, shell completions, manpage, git hooks, and local GNOME Shell extension
 ./install.sh
 ```

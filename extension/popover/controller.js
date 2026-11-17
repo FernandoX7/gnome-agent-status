@@ -28,6 +28,11 @@ import {ProviderDetailPage} from './detailPage.js';
 import {MainUsagePage} from './mainPage.js';
 import {QuickOptionsPage} from './optionsPage.js';
 import {ThemesPage} from './themesPage.js';
+
+function srgbChannelToLinear(c) {
+    const v = c / 255.0;
+    return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+}
 import {PopoverTooltipManager} from './widgets.js';
 
 const COUNTDOWN_TICK_SECONDS = 60;
@@ -349,14 +354,10 @@ export class PopoverController {
             if (refBox?.get_stage?.()) {
                 const bg = refBox.get_theme_node().get_background_color();
                 if ((bg.alpha ?? 0) >= 30) {
-                    const toLinear = c => {
-                        const v = c / 255.0;
-                        return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
-                    };
                     const lum =
-                        0.2126 * toLinear(bg.red) +
-                        0.7152 * toLinear(bg.green) +
-                        0.0722 * toLinear(bg.blue);
+                        0.2126 * srgbChannelToLinear(bg.red) +
+                        0.7152 * srgbChannelToLinear(bg.green) +
+                        0.0722 * srgbChannelToLinear(bg.blue);
                     return lum > 0.45;
                 }
             }

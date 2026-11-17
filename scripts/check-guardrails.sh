@@ -134,6 +134,9 @@ done
 
 echo "==> [5/7] Running bash -n across shell scripts..."
 SH_FILES=(install.sh uninstall.sh scripts/*.sh)
+if compgen -G ".githooks/*" >/dev/null; then
+    SH_FILES+=(.githooks/*)
+fi
 if compgen -G "tests/*.sh" >/dev/null; then
     SH_FILES+=(tests/*.sh)
 fi
