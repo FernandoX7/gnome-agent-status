@@ -1,0 +1,18 @@
+[Unit]
+Description=Collect AI coding agent usage quotas for gnome-agent-status
+Documentation=https://github.com/ToxicBakery/gnome-agent-status
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/gnome-agent-status collect
+StandardOutput=null
+StandardError=journal
+TimeoutStartSec=90s
+Nice=10
+IOSchedulingClass=best-effort
+UMask=0077
+
+# User-session security hardening (preserves read-only credential & /proc discovery + ~/.cache writes)
+NoNewPrivileges=true
+RestrictSUIDSGID=true
+LockPersonality=true

@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.agent-status" path="/org/gnome/shell/extensions/agent-status/">
+    <key name="panel-mode" type="s">
+      <default>'icon'</default>
+      <summary>Top bar indicator display mode</summary>
+      <description>Selects how usage appears in the top panel: 'icon', 'compact-pills', or 'full-text'.</description>
+    </key>
+
+    <key name="panel-box" type="s">
+      <default>'right'</default>
+      <summary>Top bar box alignment</summary>
+      <description>Which GNOME top bar box holds the indicator: 'left', 'center', or 'right'.</description>
+    </key>
+
+    <key name="panel-position" type="i">
+      <default>0</default>
+      <summary>Position index within the selected top bar box</summary>
+      <description>Zero-based index inside the chosen panel box.</description>
+    </key>
+
+    <key name="auto-hide-when-empty" type="b">
+      <default>false</default>
+      <summary>Hide indicator when no active providers are present</summary>
+      <description>Automatically hides the top bar indicator when zero visible providers are configured or discovered.</description>
+    </key>
+
+    <key name="density-mode" type="s">
+      <default>'detailed'</default>
+      <summary>Popover list density</summary>
+      <description>Controls whether the main popover displays 'detailed' multi-bucket cards or 'compact' single-line rows.</description>
+    </key>
+
+    <key name="popover-layout" type="s">
+      <default>'list'</default>
+      <summary>Popover card layout mode</summary>
+      <description>Selects how provider cards are arranged in the main popover: 'list' (compact single column with top 5 and progressive disclosure), 'auto-grid' (2-column wide layout when 6+ providers are visible), or 'grid' (always 2-column wide layout).</description>
+    </key>
+
+    <key name="theme" type="s">
+      <default>'midnight-slate'</default>
+      <summary>Popover color theme preset</summary>
+      <description>Selects one of the 24 curated dark, light, adaptive GNOME system, and frosted Liquid Glass theme presets (for example 'midnight-slate', 'system', 'liquid-glass', 'liquid-glass-light', 'catppuccin-latte', 'tokyo-night', 'catppuccin', 'gruvbox', 'rose-pine', 'nord', or 'everforest') without restricting custom preset IDs.</description>
+    </key>
+
+    <key name="font-style" type="s">
+      <default>'system'</default>
+      <summary>Popover and pill typography style</summary>
+      <description>Selects 'system' tabular UI font or 'monospace' developer font.</description>
+    </key>
+
+    <key name="metric-mode" type="s">
+      <default>'used'</default>
+      <summary>Quota percentage display metric</summary>
+      <description>Controls whether bars and labels display percentage 'used' or percentage 'remaining'.</description>
+    </key>
+
+    <key name="keybinding-toggle-popover" type="as">
+      <default>[]</default>
+      <summary>Global keyboard shortcut to toggle the usage popover</summary>
+      <description>Optional GNOME Shell accelerator array (such as ['&lt;Super&gt;&lt;Shift&gt;a']) that toggles the usage popover globally. Leave empty to disable.</description>
+    </key>
+
+    <key name="refresh-interval-seconds" type="i">
+      <default>300</default>
+      <summary>Background refresh interval in seconds</summary>
+      <description>How often the extension triggers a background status collection when active.</description>
+    </key>
+
+    <key name="hidden-providers" type="as">
+      <default>['openrouter', 'copilot', 'gemini', 'windsurf', 'deepseek']</default>
+      <summary>Hidden provider IDs</summary>
+      <description>List of canonical provider IDs hidden from the top bar and main popover. Secondary providers are hidden by default so the top 5 (Claude, Codex, Grok, Cursor, Antigravity) appear first.</description>
+    </key>
+
+    <key name="binary-path" type="s">
+      <default>''</default>
+      <summary>Optional custom path to gnome-agent-status binary</summary>
+      <description>Overrides automatic binary discovery when non-empty.</description>
+    </key>
+
+    <key name="provider-order" type="as">
+      <default>['claude', 'codex', 'grok', 'cursor', 'agy', 'openrouter', 'copilot', 'gemini', 'windsurf', 'deepseek']</default>
+      <summary>Provider display order</summary>
+      <description>Ordered list of canonical provider IDs controlling top bar pills, text summaries, and main popover cards.</description>
+    </key>
+
+    <key name="notify-on-warning" type="b">
+      <default>false</default>
+      <summary>Notify when a provider crosses the 80% warning threshold</summary>
+      <description>Sends a desktop notification once per quota window when an active provider reaches 80% used.</description>
+    </key>
+
+    <key name="notify-on-critical" type="b">
+      <default>true</default>
+      <summary>Notify when a provider crosses the 90% critical threshold</summary>
+      <description>Sends an urgent desktop notification once per quota window when an active provider reaches 90% used.</description>
+    </key>
+
+    <key name="notify-on-reset" type="b">
+      <default>true</default>
+      <summary>Notify when a high-usage quota window resets</summary>
+      <description>Sends a desktop notification when a previously high-usage primary bucket resets back to fresh capacity.</description>
+    </key>
+  </schema>
+</schemalist>

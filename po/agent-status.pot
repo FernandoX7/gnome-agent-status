@@ -1,0 +1,1000 @@
+# Translation template for gnome-agent-status GNOME Shell Extension & Preferences.
+# Copyright (C) 2026 gnome-agent-status contributors
+# This file is distributed under the same license as the gnome-agent-status package (Apache-2.0).
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: gnome-agent-status 0.2.0\n"
+"Report-Msgid-Bugs-To: https://github.com/ToxicBakery/gnome-agent-status/issues\n"
+"POT-Creation-Date: 2026-11-15 00:00+0000\n"
+"PO-Revision-Date: 2026-11-15 00:00+0000\n"
+"Last-Translator: gnome-agent-status contributors\n"
+"Language-Team: English\n"
+"Language: en\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: extension/indicator.js
+msgid "Agent Usage Status"
+msgstr ""
+
+#: extension/indicator.js
+msgid "Agents: …"
+msgstr ""
+
+#: extension/indicator.js
+msgid "Loading agent usage…"
+msgstr ""
+
+#: extension/indicator.js
+msgid "Refresh Now"
+msgstr ""
+
+#: extension/indicator.js extension/popover/mainPage.js
+msgid "Open Config"
+msgstr ""
+
+#: extension/indicator.js extension/popover/mainPage.js
+msgid "Refresh Usage"
+msgstr ""
+
+#: extension/indicator.js extension/popover/mainPage.js
+msgid "Copy Usage Summary"
+msgstr ""
+
+#: extension/indicator.js
+msgid "Settings…"
+msgstr ""
+
+#: extension/indicator.js
+msgid "Ready"
+msgstr ""
+
+#: extension/indicator.js
+msgid "Collection error"
+msgstr ""
+
+#: extension/indicator.js
+msgid "Agents: ERR"
+msgstr ""
+
+#: extension/indicator.js
+msgid "Agents: —"
+msgstr ""
+
+#: extension/backend.js
+msgid "Collector exited with an error"
+msgstr ""
+
+#: extension/backend.js
+msgid "Collection failed"
+msgstr ""
+
+#: extension/backend.js
+msgid "Failed to switch account"
+msgstr ""
+
+#: extension/backend.js
+msgid "No supported terminal emulator found to run Sign in"
+msgstr ""
+
+#: extension/backend.js
+#, javascript-format
+msgid "Failed to launch terminal: %s"
+msgstr ""
+
+#: extension/popover/mainPage.js extension/popover/detailPage.js
+msgid "Sign in"
+msgstr ""
+
+#: extension/popover/mainPage.js
+msgid "Signed out — click to sign in"
+msgstr ""
+
+#: extension/popover/mainPage.js extension/popover/detailPage.js
+#, javascript-format
+msgid "Updates when %s runs"
+msgstr ""
+
+#: extension/popover/mainPage.js
+msgid "agent"
+msgstr ""
+
+#: extension/popover/mainPage.js extension/format.js
+msgid "Usage"
+msgstr ""
+
+#: extension/popover/mainPage.js
+msgid "all agents"
+msgstr ""
+
+#: extension/popover/mainPage.js
+msgid "Copied!"
+msgstr ""
+
+#: extension/popover/mainPage.js extension/popover/optionsPage.js extension/popover/themesPage.js
+msgid "Quick Options"
+msgstr ""
+
+#: extension/popover/mainPage.js
+msgid "Refreshing…"
+msgstr ""
+
+#: extension/popover/mainPage.js
+msgid "No active AI agents detected"
+msgstr ""
+
+#: extension/popover/mainPage.js
+msgid "Sign into Claude, Codex, Grok, Cursor, Antigravity, OpenRouter, Copilot, Gemini, Windsurf, or DeepSeek — or configure custom locations in Preferences."
+msgstr ""
+
+#: extension/popover/mainPage.js
+msgid "Manage Accounts & Preferences…"
+msgstr ""
+
+#: extension/popover/mainPage.js
+msgid "updating…"
+msgstr ""
+
+#: extension/popover/mainPage.js
+msgid "Show fewer ▴"
+msgstr ""
+
+#: extension/popover/detailPage.js extension/popover/optionsPage.js
+msgid "Back to All Agents (Esc)"
+msgstr ""
+
+#: extension/popover/detailPage.js extension/format.js
+msgid "Updated just now"
+msgstr ""
+
+#: extension/popover/detailPage.js
+msgid "Account"
+msgstr ""
+
+#: extension/popover/detailPage.js
+msgid "Used"
+msgstr ""
+
+#: extension/popover/detailPage.js
+msgid "Reset"
+msgstr ""
+
+#: extension/popover/detailPage.js
+msgid "System default"
+msgstr ""
+
+#: extension/popover/detailPage.js
+msgid "Signed out"
+msgstr ""
+
+#: extension/popover/detailPage.js
+msgid "Usage Dashboard…"
+msgstr ""
+
+#: extension/popover/detailPage.js
+msgid "Manage Accounts…"
+msgstr ""
+
+#: extension/popover/detailPage.js
+msgid "Sign in again to use this account"
+msgstr ""
+
+#: extension/popover/detailPage.js
+#, javascript-format
+msgid "Run: %s"
+msgstr ""
+
+#: extension/popover/detailPage.js
+msgid "Sign in via terminal"
+msgstr ""
+
+#: extension/popover/detailPage.js
+msgid "This account is signed out. Click Sign in below to re-authenticate."
+msgstr ""
+
+#: extension/popover/detailPage.js
+#, javascript-format
+msgid "%s Account"
+msgstr ""
+
+#: extension/popover/detailPage.js extension/format.js
+msgid "Left"
+msgstr ""
+
+#: extension/popover/optionsPage.js
+msgid "Top Bar Mode"
+msgstr ""
+
+#: extension/popover/optionsPage.js
+msgid "Layout"
+msgstr ""
+
+#: extension/popover/optionsPage.js extension/prefs.js
+msgid "Theme Preset"
+msgstr ""
+
+#: extension/popover/optionsPage.js
+msgid "All 24 Themes"
+msgstr ""
+
+#: extension/popover/optionsPage.js
+msgid "Browse all 24 curated Dark, Light & Liquid Glass themes"
+msgstr ""
+
+#: extension/popover/optionsPage.js extension/prefs.js
+msgid "Font Style"
+msgstr ""
+
+#: extension/popover/optionsPage.js extension/prefs.js
+msgid "Quota Metric"
+msgstr ""
+
+#: extension/popover/optionsPage.js extension/prefs.js
+msgid "Auto-Hide When Empty"
+msgstr ""
+
+#: extension/popover/optionsPage.js
+msgid "Off"
+msgstr ""
+
+#: extension/popover/optionsPage.js
+msgid "Hide top-bar indicator when no agents are active"
+msgstr ""
+
+#: extension/popover/optionsPage.js
+msgid "Manage Custom Account Locations…"
+msgstr ""
+
+#: extension/popover/optionsPage.js
+msgid "On"
+msgstr ""
+
+#: extension/popover/themesPage.js
+msgid "Back to Quick Options (Esc)"
+msgstr ""
+
+#: extension/popover/themesPage.js
+msgid "theme"
+msgstr ""
+
+#: extension/popover/themesPage.js
+msgid "themes"
+msgstr ""
+
+#: extension/popover/widgets.js
+msgid "7-Day Trend"
+msgstr ""
+
+#: extension/prefs.js extension/format.js
+msgid "Glass"
+msgstr ""
+
+#: extension/prefs.js extension/format.js
+msgid "Light"
+msgstr ""
+
+#: extension/prefs.js extension/format.js
+msgid "Dark"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Selected location must be a local filesystem path"
+msgstr ""
+
+#: extension/prefs.js
+#, javascript-format
+msgid "Could not select path: %s"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Set Global Toggle Shortcut"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Press a keyboard shortcut to toggle Agent Usage Status"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Hold Super, Ctrl, or Alt with a key (for example Super+Shift+A), or press Esc to cancel."
+msgstr ""
+
+#: extension/prefs.js
+msgid "Waiting for shortcut…"
+msgstr ""
+
+#: extension/prefs.js
+#, javascript-format
+msgid "Current shortcut: %s"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Currently disabled"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Cancel"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Clear"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Disable global keyboard shortcut"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Global toggle shortcut cleared"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Use Super+Shift+A"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Bind global shortcut to Super+Shift+A"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Global shortcut set to Super+Shift+A"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Include Super, Ctrl, or Alt (or press a function key F1–F12)."
+msgstr ""
+
+#: extension/prefs.js
+#, javascript-format
+msgid "Global shortcut set to %s"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Appearance & Top Bar"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Top Bar Indicator"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Configure how AI agent usage appears in the GNOME top panel."
+msgstr ""
+
+#: extension/prefs.js
+msgid "Panel Mode"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Minimal single icon, compact provider pills, or full text summary"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Panel Box Alignment"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Section of the GNOME top bar where the indicator sits"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Panel Position Index"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Zero-based slot index within the chosen top bar box"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Hide the top bar icon automatically when no active providers are detected"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Global Toggle Shortcut"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Toggle the usage popover from anywhere in GNOME Shell (optional)"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Disabled"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Set Shortcut…"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Configure or clear the global keyboard shortcut"
+msgstr ""
+
+#: extension/prefs.js
+#, javascript-format
+msgid "Active shortcut: %s · Click Set Shortcut… to change or clear"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Disabled · Click Set Shortcut… to bind (for example Super+Shift+A)"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Popover Theme & Layout"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Customize curated palettes, card grid layout, density, and number formatting."
+msgstr ""
+
+#: extension/prefs.js
+msgid "Synced live with the popover theme picker across Glass, Light, and Dark palettes"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Popover Layout"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Single column with Top 5 progressive disclosure or wide 2-column bento grid"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Default Popover Density"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Detailed multi-window breakdown or compact single-line summary"
+msgstr ""
+
+#: extension/prefs.js
+msgid "System UI font with tabular numbers or developer monospace font"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Display percentages and gauges as quota used or quota remaining"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Refresh & Visibility"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Collection Cadence & Binary"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Control background polling intervals, discovery defaults, and binary path."
+msgstr ""
+
+#: extension/prefs.js
+msgid "Background Refresh Interval (seconds)"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Minimum 300s recommended to stay well within provider OAuth rate limits"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Auto-Discover Local Accounts"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Automatically detect local Claude, Codex, Grok, Cursor, Antigravity, OpenRouter, Copilot, Gemini, Windsurf, and DeepSeek profiles"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Updated auto-discovery setting"
+msgstr ""
+
+#: extension/prefs.js
+#, javascript-format
+msgid "Failed to update config.toml: %s"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Collector Timeout (seconds)"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Maximum wait time per collection run in config.toml"
+msgstr ""
+
+#: extension/prefs.js
+#, javascript-format
+msgid "Failed to update timeout: %s"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Custom gnome-agent-status Binary Path (Optional)"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Browse…"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Select gnome-agent-status Executable"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Desktop Notifications"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Alert once per quota window when active providers cross usage thresholds or reset."
+msgstr ""
+
+#: extension/prefs.js
+msgid "Warning Threshold (80%)"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Send a calm notification once per window when a primary bucket reaches 80% used"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Critical Threshold (90%)"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Send an urgent notification once per window when a primary bucket reaches 90% used"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Quota Reset Notification"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Notify when a previously high-usage primary bucket resets back to fresh capacity"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Visible Agents & Display Order"
+msgstr ""
+
+#: extension/prefs.js
+msgid "The top 5 enabled agents appear on the main card list by default (with \"Show more\" or 2-Column layout when 6+ are enabled). Toggle visibility or move agents up and down to customize priority."
+msgstr ""
+
+#: extension/prefs.js
+msgid "Reset to Default Top 5"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Restore default Top 5 visible agents (Claude, Codex, Grok, Cursor, Antigravity) and canonical display order"
+msgstr ""
+
+#: extension/prefs.js
+#, javascript-format
+msgid "Main Card #%d (Top 5)"
+msgstr ""
+
+#: extension/prefs.js
+#, javascript-format
+msgid "Enabled #%d (\"Show more\" / 2-Column)"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Hidden"
+msgstr ""
+
+#: extension/prefs.js
+#, javascript-format
+msgid "Position %d · %s · ID: %s"
+msgstr ""
+
+#: extension/prefs.js
+#, javascript-format
+msgid "Move %s up"
+msgstr ""
+
+#: extension/prefs.js
+#, javascript-format
+msgid "Move %s down"
+msgstr ""
+
+#: extension/prefs.js
+#, javascript-format
+msgid "Toggle %s visibility"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Restored default Top 5 visible agents and display order"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Accounts & Manual Locations"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Configured Manual Account Locations"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Manual directories, credential files, or databases stored in config.toml."
+msgstr ""
+
+#: extension/prefs.js
+msgid "Open config.toml"
+msgstr ""
+
+#: extension/prefs.js
+#, javascript-format
+msgid "Could not open config.toml: %s"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Reload manual accounts from config.toml"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Add or Update Manual Account"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Point manually to any custom Claude, Codex, Grok, Cursor, Antigravity, OpenRouter, Copilot, Gemini, Windsurf, or DeepSeek directory or credential file if auto-discovery does not find it."
+msgstr ""
+
+#: extension/prefs.js
+msgid "Provider"
+msgstr ""
+
+#: extension/prefs.js
+#, javascript-format
+msgid "Example location: %s"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Display Label (e.g. Work Claude)"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Account ID Slug (e.g. work — auto-filled if blank)"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Profile Directory or Auth/DB File Path"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Folder…"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Select a custom profile directory (e.g. ~/.claude-work or ~/.codex-work)"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Select Custom Account Directory"
+msgstr ""
+
+#: extension/prefs.js
+msgid "File…"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Select a specific credential or database file (e.g. state.vscdb, api_key, or auth.json)"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Select Account Credential or Database File"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Custom Provider CLI Binary (Optional)"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Select Provider CLI Binary"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Polling Mode"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Active background polling or passive local cache updates only"
+msgstr ""
+
+#: extension/prefs.js
+msgid "External Switch Command (Optional)"
+msgstr ""
+
+#: extension/prefs.js
+#, javascript-format
+msgid "Loaded \"%s\" into editor below"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Save to config.toml"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Writes [[providers.<id>.accounts]] safely and refreshes cached state"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Save Account"
+msgstr ""
+
+#: extension/prefs.js
+msgid "No manual accounts configured"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Auto-discovery handles default locations. Use the form below to add custom paths."
+msgstr ""
+
+#: extension/prefs.js
+msgid "Default path"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Edit manual account"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Remove manual account"
+msgstr ""
+
+#: extension/prefs.js
+#, javascript-format
+msgid "Removed manual account \"%s\""
+msgstr ""
+
+#: extension/prefs.js
+#, javascript-format
+msgid "Failed to remove account: %s"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Could not query gnome-agent-status config"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Verify gnome-agent-status is installed or set Binary Path on Refresh & Visibility."
+msgstr ""
+
+#: extension/prefs.js
+msgid "Enter at least a label or custom path before saving"
+msgstr ""
+
+#: extension/prefs.js
+#, javascript-format
+msgid "Saved manual account \"%s\""
+msgstr ""
+
+#: extension/prefs.js
+#, javascript-format
+msgid "Failed to save manual account: %s"
+msgstr ""
+
+#: extension/format.js
+msgid "Weekly"
+msgstr ""
+
+#: extension/format.js
+msgid "5-Hour"
+msgstr ""
+
+#: extension/format.js
+msgid "Daily"
+msgstr ""
+
+#: extension/format.js
+msgid "Monthly"
+msgstr ""
+
+#: extension/format.js
+msgid "Premium Requests"
+msgstr ""
+
+#: extension/format.js
+msgid "Extra Usage"
+msgstr ""
+
+#: extension/format.js
+msgid "Resets now"
+msgstr ""
+
+#: extension/format.js
+msgid "Not updated yet"
+msgstr ""
+
+#: extension/format.js
+msgid "Minimal Icon"
+msgstr ""
+
+#: extension/format.js
+msgid "Compact Pills"
+msgstr ""
+
+#: extension/format.js
+msgid "Full Text"
+msgstr ""
+
+#: extension/format.js
+msgid "Center"
+msgstr ""
+
+#: extension/format.js
+msgid "Right"
+msgstr ""
+
+#: extension/format.js
+msgid "Compact List"
+msgstr ""
+
+#: extension/format.js
+msgid "Auto 2-Column"
+msgstr ""
+
+#: extension/format.js
+msgid "2-Column Wide"
+msgstr ""
+
+#: extension/format.js
+msgid "Detailed"
+msgstr ""
+
+#: extension/format.js
+msgid "Compact"
+msgstr ""
+
+#: extension/format.js
+msgid "System Tabular"
+msgstr ""
+
+#: extension/format.js
+msgid "Monospace"
+msgstr ""
+
+#: extension/format.js
+msgid "% Used"
+msgstr ""
+
+#: extension/format.js
+msgid "% Remaining"
+msgstr ""
+
+#: extension/format.js
+msgid "All"
+msgstr ""
+
+#: extension/format.js
+msgid "GNOME System"
+msgstr ""
+
+#: extension/format.js
+msgid "Liquid Glass"
+msgstr ""
+
+#: extension/format.js
+msgid "Liquid Glass Light"
+msgstr ""
+
+#: extension/format.js
+msgid "Catppuccin Latte"
+msgstr ""
+
+#: extension/format.js
+msgid "Flexoki Light"
+msgstr ""
+
+#: extension/format.js
+msgid "Rosé Pine Dawn"
+msgstr ""
+
+#: extension/format.js
+msgid "Pure Daylight"
+msgstr ""
+
+#: extension/format.js
+msgid "Lumon Ice"
+msgstr ""
+
+#: extension/format.js
+msgid "Midnight Slate"
+msgstr ""
+
+#: extension/format.js
+msgid "Tokyo Night"
+msgstr ""
+
+#: extension/format.js
+msgid "Catppuccin Mocha"
+msgstr ""
+
+#: extension/format.js
+msgid "Everforest"
+msgstr ""
+
+#: extension/format.js
+msgid "Gruvbox"
+msgstr ""
+
+#: extension/format.js
+msgid "Kanagawa"
+msgstr ""
+
+#: extension/format.js
+msgid "Matte Black"
+msgstr ""
+
+#: extension/format.js
+msgid "Nord"
+msgstr ""
+
+#: extension/format.js
+msgid "Osaka Jade"
+msgstr ""
+
+#: extension/format.js
+msgid "Ristretto"
+msgstr ""
+
+#: extension/format.js
+msgid "Rosé Pine"
+msgstr ""
+
+#: extension/format.js
+msgid "Ethereal"
+msgstr ""
+
+#: extension/format.js
+msgid "Hackerman"
+msgstr ""
+
+#: extension/format.js
+msgid "Miasma"
+msgstr ""
+
+#: extension/format.js
+msgid "Vantablack"
+msgstr ""
+
+#: extension/format.js
+msgid "Retro 82"
+msgstr ""
+
+#: extension/format.js
+msgid "GNOME System (Light)"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Compact Single Column (Top 5 + More)"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Auto 2-Column Wide (6+ Agents)"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Always 2-Column Wide"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Active Polling"
+msgstr ""
+
+#: extension/prefs.js
+msgid "Passive Cache Only"
+msgstr ""
+
+#: extension/popover/detailPage.js
+msgid "% Left"
+msgstr ""
+
+#: extension/format.js
+msgid "now"
+msgstr ""
+
+#: extension/format.js
+msgid "Resets in %s"
+msgstr ""
+
+#: extension/format.js
+msgid "Updated %s ago"
+msgstr ""

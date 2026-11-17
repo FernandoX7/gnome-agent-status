@@ -1,2 +1,4 @@
 /target
 /config.toml
+/extension/schemas/gschemas.compiled
+*.shell-extension.zip
